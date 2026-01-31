@@ -29,10 +29,13 @@ let updateService: UpdateService;
 /**
  * Initialize all services
  */
-function initializeServices(): void {
+async function initializeServices(): Promise<void> {
   logger.info('Initializing services...');
 
   configService = new ConfigService();
+  // Wait for ConfigService to finish async initialization
+  await configService.ensureInitialized();
+
   claudeService = new ClaudeCodeService(configService);
   fileWatcher = new FileWatcherService();
   conversationService = new ConversationService();
@@ -48,7 +51,7 @@ async function onReady(): Promise<void> {
   logger.info('Application ready');
 
   // Initialize services
-  initializeServices();
+  await initializeServices();
 
   // Set up IPC handlers
   setupIPC(
@@ -70,7 +73,7 @@ async function onReady(): Promise<void> {
   updateService.setMainWindow(mainWindow);
 
   // Restore last working directory if available
-  const lastWorkingDir = configService.getWorkingDirectory();
+  const lastWorkingDir = await configService.getWorkingDirectory();
   if (lastWorkingDir) {
     fileWatcher.watch(lastWorkingDir);
     logger.info('Restored working directory', { directory: lastWorkingDir });

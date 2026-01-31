@@ -34,7 +34,7 @@ export function setupFilesIPC(
     const selectedDir = result.filePaths[0];
 
     // Save to config and start watching
-    configService.setWorkingDirectory(selectedDir);
+    await configService.setWorkingDirectory(selectedDir);
     fileWatcher.watch(selectedDir);
 
     logger.info('Working directory selected', { directory: selectedDir });
@@ -49,7 +49,7 @@ export function setupFilesIPC(
 
   // Read file content
   ipcMain.handle(IPC_CHANNELS.FILES_READ, async (_event, filePath: string) => {
-    const workingDir = configService.getWorkingDirectory();
+    const workingDir = await configService.getWorkingDirectory();
     if (!workingDir) {
       throw new Error('No working directory set');
     }

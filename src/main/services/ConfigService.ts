@@ -3,7 +3,6 @@
  * Uses electron-store with safeStorage for secure API key storage
  */
 
-import Store from 'electron-store';
 import { safeStorage } from 'electron';
 
 import { AppConfig, DEFAULT_CONFIG } from '../../shared/types';
@@ -18,29 +17,62 @@ interface StoredConfig {
   autoApproveReads: boolean;
 }
 
+// Type for the dynamically imported Store
+type ElectronStore<T> = {
+  store: T;
+  get<K extends keyof T>(key: K, defaultValue?: T[K]): T[K];
+  set<K extends keyof T>(key: K, value: T[K]): void;
+  delete<K extends keyof T>(key: K): void;
+  clear(): void;
+};
+
 export class ConfigService {
-  private store: Store<StoredConfig>;
+  private store: ElectronStore<StoredConfig> | null = null;
+  private initPromise: Promise<void> | null = null;
 
   constructor() {
-    this.store = new Store<StoredConfig>({
-      name: 'config',
-      defaults: {
-        workingDirectory: '',
-        recentProjects: [],
-        theme: 'system',
-        fontSize: 14,
-        autoApproveReads: true,
-      },
-    });
-    logger.info('ConfigService initialized');
+    this.initPromise = this.initialize();
+  }
+
+  private async initialize(): Promise<void> {
+    try {
+      // Dynamic import for ESM-only electron-store v10
+      const { default: Store } = await import('electron-store');
+      this.store = new Store<StoredConfig>({
+        name: 'config',
+        defaults: {
+          workingDirectory: '',
+          recentProjects: [],
+          theme: 'system',
+          fontSize: 14,
+          autoApproveReads: true,
+        },
+      }) as ElectronStore<StoredConfig>;
+      logger.info('ConfigService initialized');
+    } catch (error) {
+      logger.error('Failed to initialize ConfigService', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Ensure store is initialized before use
+   */
+  async ensureInitialized(): Promise<void> {
+    if (this.initPromise) {
+      await this.initPromise;
+    }
   }
 
   /**
    * Get the full app configuration
    */
-  getConfig(): AppConfig {
+  async getConfig(): Promise<AppConfig> {
+    await this.ensureInitialized();
+    if (!this.store) throw new Error('Store not initialized');
+
     const storedConfig = this.store.store;
-    const apiKey = this.getApiKey();
+    const apiKey = await this.getApiKey();
 
     return {
       ...DEFAULT_CONFIG,
@@ -52,18 +84,21 @@ export class ConfigService {
   /**
    * Update configuration (partial update)
    */
-  setConfig(config: Partial<AppConfig>): void {
+  async setConfig(config: Partial<AppConfig>): Promise<void> {
+    await this.ensureInitialized();
+    if (!this.store) throw new Error('Store not initialized');
+
     const { apiKey, ...rest } = config;
 
     // Store API key securely if provided
     if (apiKey !== undefined) {
-      this.setApiKey(apiKey);
+      await this.setApiKey(apiKey);
     }
 
     // Store other config values
     Object.entries(rest).forEach(([key, value]) => {
       if (value !== undefined) {
-        this.store.set(key as keyof StoredConfig, value);
+        this.store!.set(key as keyof StoredConfig, value as StoredConfig[keyof StoredConfig]);
       }
     });
 
@@ -73,7 +108,10 @@ export class ConfigService {
   /**
    * Get API key (decrypted)
    */
-  getApiKey(): string {
+  async getApiKey(): Promise<string> {
+    await this.ensureInitialized();
+    if (!this.store) throw new Error('Store not initialized');
+
     const encryptedKey = this.store.get('encryptedApiKey');
     if (!encryptedKey) {
       return '';
@@ -96,7 +134,10 @@ export class ConfigService {
   /**
    * Set API key (encrypted)
    */
-  setApiKey(apiKey: string): void {
+  async setApiKey(apiKey: string): Promise<void> {
+    await this.ensureInitialized();
+    if (!this.store) throw new Error('Store not initialized');
+
     if (!apiKey) {
       this.store.delete('encryptedApiKey');
       return;
@@ -120,21 +161,28 @@ export class ConfigService {
   /**
    * Check if API key is configured
    */
-  hasApiKey(): boolean {
+  async hasApiKey(): Promise<boolean> {
+    await this.ensureInitialized();
+    if (!this.store) return false;
     return !!this.store.get('encryptedApiKey');
   }
 
   /**
    * Get working directory
    */
-  getWorkingDirectory(): string {
+  async getWorkingDirectory(): Promise<string> {
+    await this.ensureInitialized();
+    if (!this.store) return '';
     return this.store.get('workingDirectory', '');
   }
 
   /**
    * Set working directory and add to recent projects
    */
-  setWorkingDirectory(directory: string): void {
+  async setWorkingDirectory(directory: string): Promise<void> {
+    await this.ensureInitialized();
+    if (!this.store) throw new Error('Store not initialized');
+
     this.store.set('workingDirectory', directory);
 
     // Update recent projects
@@ -149,21 +197,27 @@ export class ConfigService {
   /**
    * Get recent projects
    */
-  getRecentProjects(): string[] {
+  async getRecentProjects(): Promise<string[]> {
+    await this.ensureInitialized();
+    if (!this.store) return [];
     return this.store.get('recentProjects', []);
   }
 
   /**
    * Get theme preference
    */
-  getTheme(): 'light' | 'dark' | 'system' {
+  async getTheme(): Promise<'light' | 'dark' | 'system'> {
+    await this.ensureInitialized();
+    if (!this.store) return 'system';
     return this.store.get('theme', 'system');
   }
 
   /**
    * Clear all stored data
    */
-  clear(): void {
+  async clear(): Promise<void> {
+    await this.ensureInitialized();
+    if (!this.store) return;
     this.store.clear();
     logger.info('Config cleared');
   }

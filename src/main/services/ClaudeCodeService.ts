@@ -41,8 +41,8 @@ export class ClaudeCodeService {
   /**
    * Initialize or reinitialize the Anthropic client
    */
-  private initClient(): boolean {
-    const apiKey = this.configService.getApiKey();
+  private async initClient(): Promise<boolean> {
+    const apiKey = await this.configService.getApiKey();
 
     if (!apiKey) {
       logger.warn('No API key configured');
@@ -67,7 +67,7 @@ export class ClaudeCodeService {
   async sendMessage(message: string, workingDirectory: string): Promise<void> {
     // Initialize client if needed
     if (!this.client) {
-      if (!this.initClient()) {
+      if (!(await this.initClient())) {
         this.emitError('API key not configured. Please add your API key in Settings.');
         return;
       }
@@ -272,8 +272,8 @@ Be concise and helpful. Focus on solving the user's problem efficiently.`;
   /**
    * Check if API key is configured
    */
-  hasApiKey(): boolean {
-    return this.configService.hasApiKey();
+  async hasApiKey(): Promise<boolean> {
+    return await this.configService.hasApiKey();
   }
 
   /**

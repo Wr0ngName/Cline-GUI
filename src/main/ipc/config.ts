@@ -15,13 +15,13 @@ export function setupConfigIPC(
   // Get full configuration
   ipcMain.handle(IPC_CHANNELS.CONFIG_GET, async () => {
     logger.debug('IPC: config:get');
-    return configService.getConfig();
+    return await configService.getConfig();
   });
 
   // Set configuration (partial update)
   ipcMain.handle(IPC_CHANNELS.CONFIG_SET, async (_event, config: Partial<AppConfig>) => {
     logger.debug('IPC: config:set', { keys: Object.keys(config) });
-    configService.setConfig(config);
+    await configService.setConfig(config);
 
     // Notify renderer of config change
     const mainWindow = getMainWindow();
