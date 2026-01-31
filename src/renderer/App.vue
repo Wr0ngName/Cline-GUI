@@ -40,18 +40,18 @@ function closeSettings() {
 
 // Window controls
 function minimize() {
-  window.electron.window.minimize();
+  window.electron?.window.minimize();
 }
 
 function maximize() {
-  window.electron.window.maximize();
+  window.electron?.window.maximize();
 }
 
 function close() {
-  window.electron.window.close();
+  window.electron?.window.close();
 }
 
-const isMac = window.electron.platform === 'darwin';
+const isMac = window.electron?.platform === 'darwin';
 </script>
 
 <template>
