@@ -84,6 +84,18 @@ const electronAPI: ElectronAPI = {
     },
   },
 
+  // Auth operations
+  auth: {
+    getStatus: () => ipcRenderer.invoke(IPC_CHANNELS.AUTH_GET_STATUS),
+
+    startOAuth: () => ipcRenderer.invoke(IPC_CHANNELS.AUTH_START_OAUTH),
+
+    completeOAuth: (code: string) =>
+      ipcRenderer.invoke(IPC_CHANNELS.AUTH_COMPLETE_OAUTH, code),
+
+    logout: () => ipcRenderer.invoke(IPC_CHANNELS.AUTH_LOGOUT),
+  },
+
   // Conversation operations
   conversation: {
     list: () => ipcRenderer.invoke(IPC_CHANNELS.CONVERSATION_LIST),

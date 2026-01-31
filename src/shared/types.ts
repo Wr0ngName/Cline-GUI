@@ -55,9 +55,20 @@ export interface FileNode {
   modifiedAt?: number;
 }
 
+// Authentication types
+export type AuthMethod = 'oauth' | 'api-key' | 'none';
+
+export interface AuthStatus {
+  isAuthenticated: boolean;
+  method: AuthMethod;
+  displayName?: string; // For OAuth, shows the account info
+}
+
 // Configuration types
 export interface AppConfig {
   apiKey: string;
+  oauthToken: string; // OAuth token from claude setup-token
+  authMethod: AuthMethod;
   workingDirectory: string;
   recentProjects: string[];
   theme: 'light' | 'dark' | 'system';
@@ -67,6 +78,8 @@ export interface AppConfig {
 
 export const DEFAULT_CONFIG: AppConfig = {
   apiKey: '',
+  oauthToken: '',
+  authMethod: 'none',
   workingDirectory: '',
   recentProjects: [],
   theme: 'system',
@@ -152,6 +165,12 @@ export const IPC_CHANNELS = {
   UPDATE_AVAILABLE: 'update:available',
   UPDATE_PROGRESS: 'update:progress',
   UPDATE_DOWNLOADED: 'update:downloaded',
+
+  // Authentication operations
+  AUTH_GET_STATUS: 'auth:get-status',
+  AUTH_START_OAUTH: 'auth:start-oauth',
+  AUTH_COMPLETE_OAUTH: 'auth:complete-oauth',
+  AUTH_LOGOUT: 'auth:logout',
 
   // Window operations
   WINDOW_MINIMIZE: 'window:minimize',

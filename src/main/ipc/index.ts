@@ -4,6 +4,7 @@
 
 import { BrowserWindow } from 'electron';
 
+import AuthService from '../services/AuthService';
 import ClaudeCodeService from '../services/ClaudeCodeService';
 import ConfigService from '../services/ConfigService';
 import ConversationService from '../services/ConversationService';
@@ -11,6 +12,7 @@ import FileWatcherService from '../services/FileWatcherService';
 import UpdateService from '../services/UpdateService';
 import logger from '../utils/logger';
 
+import { setupAuthHandlers } from './auth';
 import { setupClaudeIPC } from './claude';
 import { setupConfigIPC } from './config';
 import { setupConversationIPC } from './conversations';
@@ -19,6 +21,7 @@ import { setupUpdateIPC } from './update';
 import { setupWindowIPC } from './window';
 
 interface Services {
+  authService: AuthService;
   configService: ConfigService;
   claudeService: ClaudeCodeService;
   fileWatcher: FileWatcherService;
@@ -31,6 +34,7 @@ export function setupIPC(
   getMainWindow: () => BrowserWindow | null
 ): void {
   const {
+    authService,
     configService,
     claudeService,
     fileWatcher,
@@ -38,6 +42,7 @@ export function setupIPC(
     updateService,
   } = services;
 
+  setupAuthHandlers(authService, configService);
   setupClaudeIPC(claudeService);
   setupFilesIPC(fileWatcher, configService, getMainWindow);
   setupConfigIPC(configService, getMainWindow);

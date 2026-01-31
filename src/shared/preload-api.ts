@@ -4,6 +4,7 @@
 
 import type {
   AppConfig,
+  AuthStatus,
   Conversation,
   FileNode,
   PendingAction,
@@ -37,6 +38,14 @@ export interface ElectronAPI {
     get: () => Promise<AppConfig>;
     set: (config: Partial<AppConfig>) => Promise<void>;
     onChange: (callback: (config: Partial<AppConfig>) => void) => () => void;
+  };
+
+  // Auth operations
+  auth: {
+    getStatus: () => Promise<AuthStatus>;
+    startOAuth: () => Promise<{ authUrl: string; error?: string }>;
+    completeOAuth: (code: string) => Promise<{ success: boolean; error?: string }>;
+    logout: () => Promise<void>;
   };
 
   // Conversation operations

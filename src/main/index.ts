@@ -6,6 +6,7 @@ import { app, BrowserWindow } from 'electron';
 import started from 'electron-squirrel-startup';
 
 import { setupIPC } from './ipc';
+import AuthService from './services/AuthService';
 import ClaudeCodeService from './services/ClaudeCodeService';
 import ConfigService from './services/ConfigService';
 import ConversationService from './services/ConversationService';
@@ -20,6 +21,7 @@ if (started) {
 }
 
 // Initialize services
+let authService: AuthService;
 let configService: ConfigService;
 let claudeService: ClaudeCodeService;
 let fileWatcher: FileWatcherService;
@@ -36,6 +38,7 @@ async function initializeServices(): Promise<void> {
   // Wait for ConfigService to finish async initialization
   await configService.ensureInitialized();
 
+  authService = new AuthService();
   claudeService = new ClaudeCodeService(configService);
   fileWatcher = new FileWatcherService();
   conversationService = new ConversationService();
@@ -56,6 +59,7 @@ async function onReady(): Promise<void> {
   // Set up IPC handlers
   setupIPC(
     {
+      authService,
       configService,
       claudeService,
       fileWatcher,
