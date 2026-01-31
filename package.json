@@ -1,0 +1,70 @@
+{
+  "name": "cline-gui",
+  "productName": "Cline GUI",
+  "version": "0.1.0",
+  "description": "Desktop GUI for Claude Code - AI-powered coding assistant for non-technical users",
+  "main": ".vite/build/main.js",
+  "private": true,
+  "repository": {
+    "type": "git",
+    "url": "https://dev.web.wr0ng.name/wrongname/cline-gui.git"
+  },
+  "scripts": {
+    "start": "electron-forge start",
+    "package": "electron-forge package",
+    "make": "electron-forge make",
+    "publish": "electron-forge publish",
+    "lint": "eslint --ext .ts,.tsx,.vue src/",
+    "lint:fix": "eslint --ext .ts,.tsx,.vue src/ --fix",
+    "typecheck": "vue-tsc --noEmit",
+    "format": "prettier --write \"src/**/*.{ts,tsx,vue,css,json}\""
+  },
+  "keywords": [
+    "electron",
+    "claude",
+    "ai",
+    "coding-assistant",
+    "gui",
+    "vue"
+  ],
+  "author": {
+    "name": "wrongname"
+  },
+  "license": "MIT",
+  "devDependencies": {
+    "@electron-forge/cli": "^7.11.1",
+    "@electron-forge/maker-deb": "^7.11.1",
+    "@electron-forge/maker-rpm": "^7.11.1",
+    "@electron-forge/maker-squirrel": "^7.11.1",
+    "@electron-forge/maker-zip": "^7.11.1",
+    "@electron-forge/plugin-auto-unpack-natives": "^7.11.1",
+    "@electron-forge/plugin-fuses": "^7.11.1",
+    "@electron-forge/plugin-vite": "^7.11.1",
+    "@electron/fuses": "^1.8.0",
+    "@types/electron-squirrel-startup": "^1.0.2",
+    "@typescript-eslint/eslint-plugin": "^8.0.0",
+    "@typescript-eslint/parser": "^8.0.0",
+    "@vitejs/plugin-vue": "^5.2.0",
+    "autoprefixer": "^10.4.20",
+    "electron": "40.1.0",
+    "eslint": "^9.0.0",
+    "eslint-plugin-import": "^2.32.0",
+    "eslint-plugin-vue": "^9.32.0",
+    "postcss": "^8.4.49",
+    "prettier": "^3.4.0",
+    "tailwindcss": "^3.4.17",
+    "typescript": "^5.7.2",
+    "vite": "^6.0.5",
+    "vue-tsc": "^2.1.10"
+  },
+  "dependencies": {
+    "@anthropic-ai/claude-code": "^1.0.0",
+    "@anthropic-ai/sdk": "^0.72.1",
+    "electron-log": "^5.4.3",
+    "electron-squirrel-startup": "^1.0.1",
+    "electron-store": "^10.0.0",
+    "electron-updater": "^6.3.0",
+    "pinia": "^2.3.0",
+    "vue": "^3.5.0"
+  }
+}
