@@ -9,28 +9,45 @@ import { FuseV1Options, FuseVersion } from '@electron/fuses';
 
 const config: ForgeConfig = {
   packagerConfig: {
+    name: 'Cline GUI',
+    executableName: 'cline-gui',
     asar: true,
+    icon: './resources/icons/icon',
+    appBundleId: 'com.cline.gui',
+    appCategoryType: 'public.app-category.developer-tools',
   },
   rebuildConfig: {},
   makers: [
-    new MakerSquirrel({}),
+    new MakerSquirrel({
+      name: 'cline-gui',
+      setupIcon: './resources/icons/icon.ico',
+    }),
     new MakerZIP({}, ['darwin']),
-    new MakerRpm({}),
-    new MakerDeb({}),
+    new MakerRpm({
+      options: {
+        icon: './resources/icons/icon.png',
+        categories: ['Development'],
+      },
+    }),
+    new MakerDeb({
+      options: {
+        icon: './resources/icons/icon.png',
+        categories: ['Development'],
+        maintainer: 'wrongname',
+        homepage: 'https://dev.web.wr0ng.name/wrongname/cline-gui',
+      },
+    }),
   ],
   plugins: [
     new VitePlugin({
-      // `build` can specify multiple entry builds, which can be Main process, Preload scripts, Worker process, etc.
-      // If you are familiar with Vite configuration, it will look really familiar.
       build: [
         {
-          // `entry` is just an alias for `build.lib.entry` in the corresponding file of `config`.
-          entry: 'src/main.ts',
+          entry: 'src/main/index.ts',
           config: 'vite.main.config.ts',
           target: 'main',
         },
         {
-          entry: 'src/preload.ts',
+          entry: 'src/preload/index.ts',
           config: 'vite.preload.config.ts',
           target: 'preload',
         },
