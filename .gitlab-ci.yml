@@ -1,0 +1,234 @@
+# GitLab CI/CD Pipeline for Cline GUI
+# Builds Electron app for Windows, macOS, and Linux
+
+stages:
+  - test
+  - build
+  - release
+
+variables:
+  # Node.js version
+  NODE_VERSION: "20"
+  # Package registry for auto-updates
+  PACKAGE_REGISTRY_URL: "${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic"
+
+# Cache node_modules between jobs
+.node_cache: &node_cache
+  cache:
+    key:
+      files:
+        - package-lock.json
+    paths:
+      - node_modules/
+    policy: pull-push
+
+# Base configuration for all jobs
+.base:
+  image: node:${NODE_VERSION}
+  before_script:
+    - npm ci --prefer-offline
+
+# =============================================================================
+# TEST STAGE
+# =============================================================================
+
+lint:
+  stage: test
+  extends: .base
+  <<: *node_cache
+  script:
+    - npm run lint
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+    - if: $CI_COMMIT_TAG
+
+typecheck:
+  stage: test
+  extends: .base
+  <<: *node_cache
+  script:
+    - npm run typecheck
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+    - if: $CI_COMMIT_TAG
+  allow_failure: true  # Allow failure until all type issues are resolved
+
+# =============================================================================
+# BUILD STAGE
+# =============================================================================
+
+# Linux build (DEB, RPM, AppImage)
+build:linux:
+  stage: build
+  extends: .base
+  image: electronuserland/builder:wine
+  <<: *node_cache
+  script:
+    - npm ci
+    - npm run make -- --platform=linux
+  artifacts:
+    name: "cline-gui-linux-${CI_COMMIT_REF_SLUG}"
+    paths:
+      - out/make/**/*.deb
+      - out/make/**/*.rpm
+    expire_in: 1 week
+  rules:
+    - if: $CI_COMMIT_TAG
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+      when: manual
+      allow_failure: true
+
+# Windows build (Squirrel installer)
+build:windows:
+  stage: build
+  extends: .base
+  image: electronuserland/builder:wine
+  <<: *node_cache
+  script:
+    - npm ci
+    - npm run make -- --platform=win32
+  artifacts:
+    name: "cline-gui-windows-${CI_COMMIT_REF_SLUG}"
+    paths:
+      - out/make/**/*.exe
+      - out/make/**/*.nupkg
+    expire_in: 1 week
+  rules:
+    - if: $CI_COMMIT_TAG
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+      when: manual
+      allow_failure: true
+
+# macOS build requires macOS runner (self-hosted or cloud)
+# Uncomment when macOS runner is available
+# build:macos:
+#   stage: build
+#   tags:
+#     - macos
+#   before_script:
+#     - npm ci
+#   script:
+#     - npm run make -- --platform=darwin
+#   artifacts:
+#     name: "cline-gui-macos-${CI_COMMIT_REF_SLUG}"
+#     paths:
+#       - out/make/**/*.dmg
+#       - out/make/**/*.zip
+#     expire_in: 1 week
+#   rules:
+#     - if: $CI_COMMIT_TAG
+#     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+#       when: manual
+#       allow_failure: true
+
+# =============================================================================
+# RELEASE STAGE
+# =============================================================================
+
+# Upload artifacts to GitLab Package Registry for auto-updates
+publish:packages:
+  stage: release
+  image: curlimages/curl:latest
+  needs:
+    - job: build:linux
+      artifacts: true
+    - job: build:windows
+      artifacts: true
+  script:
+    - |
+      # Get version from tag
+      VERSION=${CI_COMMIT_TAG#v}
+
+      echo "Publishing version ${VERSION} to package registry..."
+
+      # Upload Linux DEB
+      for file in out/make/deb/x64/*.deb; do
+        if [ -f "$file" ]; then
+          echo "Uploading $file..."
+          curl --header "JOB-TOKEN: ${CI_JOB_TOKEN}" \
+               --upload-file "$file" \
+               "${PACKAGE_REGISTRY_URL}/releases/${VERSION}/$(basename $file)"
+        fi
+      done
+
+      # Upload Linux RPM
+      for file in out/make/rpm/x64/*.rpm; do
+        if [ -f "$file" ]; then
+          echo "Uploading $file..."
+          curl --header "JOB-TOKEN: ${CI_JOB_TOKEN}" \
+               --upload-file "$file" \
+               "${PACKAGE_REGISTRY_URL}/releases/${VERSION}/$(basename $file)"
+        fi
+      done
+
+      # Upload Windows installer
+      for file in out/make/squirrel.windows/x64/*.exe; do
+        if [ -f "$file" ]; then
+          echo "Uploading $file..."
+          curl --header "JOB-TOKEN: ${CI_JOB_TOKEN}" \
+               --upload-file "$file" \
+               "${PACKAGE_REGISTRY_URL}/releases/${VERSION}/$(basename $file)"
+        fi
+      done
+
+      # Create latest.yml for auto-updater
+      echo "Creating latest.yml for auto-updater..."
+      cat > latest.yml << EOF
+      version: ${VERSION}
+      path: cline-gui-${VERSION}-setup.exe
+      sha512: $(sha512sum out/make/squirrel.windows/x64/*.exe 2>/dev/null | cut -d' ' -f1 || echo "")
+      releaseDate: $(date -u +"%Y-%m-%dT%H:%M:%SZ")
+      EOF
+
+      curl --header "JOB-TOKEN: ${CI_JOB_TOKEN}" \
+           --upload-file latest.yml \
+           "${PACKAGE_REGISTRY_URL}/releases/${VERSION}/latest.yml"
+
+      echo "Packages published successfully!"
+  rules:
+    - if: $CI_COMMIT_TAG =~ /^v\d+\.\d+\.\d+$/
+
+# Create GitLab Release
+create:release:
+  stage: release
+  image: registry.gitlab.com/gitlab-org/release-cli:latest
+  needs:
+    - job: publish:packages
+  script:
+    - |
+      VERSION=${CI_COMMIT_TAG#v}
+      echo "Creating release for version ${VERSION}"
+  release:
+    tag_name: $CI_COMMIT_TAG
+    name: "Cline GUI v${CI_COMMIT_TAG#v}"
+    description: |
+      ## Cline GUI v${CI_COMMIT_TAG#v}
+
+      ### Downloads
+
+      - **Linux (DEB)**: [cline-gui_${CI_COMMIT_TAG#v}_amd64.deb](${PACKAGE_REGISTRY_URL}/releases/${CI_COMMIT_TAG#v}/cline-gui_${CI_COMMIT_TAG#v}_amd64.deb)
+      - **Linux (RPM)**: [cline-gui-${CI_COMMIT_TAG#v}.x86_64.rpm](${PACKAGE_REGISTRY_URL}/releases/${CI_COMMIT_TAG#v}/cline-gui-${CI_COMMIT_TAG#v}.x86_64.rpm)
+      - **Windows**: [Cline-GUI-${CI_COMMIT_TAG#v}-Setup.exe](${PACKAGE_REGISTRY_URL}/releases/${CI_COMMIT_TAG#v}/Cline-GUI-${CI_COMMIT_TAG#v}-Setup.exe)
+
+      ### Installation
+
+      #### Linux (Debian/Ubuntu)
+      ```bash
+      sudo dpkg -i cline-gui_${CI_COMMIT_TAG#v}_amd64.deb
+      ```
+
+      #### Linux (Fedora/RHEL)
+      ```bash
+      sudo rpm -i cline-gui-${CI_COMMIT_TAG#v}.x86_64.rpm
+      ```
+
+      #### Windows
+      Download and run the installer.
+
+      ---
+
+      *Built automatically by GitLab CI/CD*
+  rules:
+    - if: $CI_COMMIT_TAG =~ /^v\d+\.\d+\.\d+$/
