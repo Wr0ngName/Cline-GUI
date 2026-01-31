@@ -1,93 +1,161 @@
 # Cline GUI
 
+A user-friendly desktop application that brings the power of Claude Code to non-technical users.
 
+## Overview
 
-## Getting started
+Cline GUI wraps the official [@anthropic-ai/claude-code](https://www.npmjs.com/package/@anthropic-ai/claude-code) CLI in a clean, intuitive graphical interface. No terminal required, no Node.js installation needed - just download, install, and start coding with Claude.
 
-To make it easy for you to get started with GitLab, here's a list of recommended next steps.
+## Features
 
-Already a pro? Just edit this README.md and make it your own. Want to make it easy? [Use the template at the bottom](#editing-this-readme)!
+- **Zero Setup**: Single installer includes Node.js runtime and all dependencies
+- **Visual Chat Interface**: Clean, modern UI for conversing with Claude
+- **File Operations Made Easy**: See file changes before approving them with visual diffs
+- **Action Approval**: Click buttons instead of typing "yes/no" for approvals
+- **Project Management**: Pick working directories with file browser, not terminal commands
+- **Conversation History**: Save and resume past coding sessions
+- **Auto-Updates**: Stay current with automatic updates via GitLab Releases
+- **Cross-Platform**: Works on Windows, macOS, and Linux
 
-## Add your files
+## Tech Stack
 
-* [Create](https://docs.gitlab.com/ee/user/project/repository/web_editor.html#create-a-file) or [upload](https://docs.gitlab.com/ee/user/project/repository/web_editor.html#upload-a-file) files
-* [Add files using the command line](https://docs.gitlab.com/topics/git/add_files/#add-files-to-a-git-repository) or push an existing Git repository with the following command:
+- **Electron 40+** - Desktop application framework
+- **Vue 3 + TypeScript** - Modern, reactive UI
+- **Tailwind CSS** - Utility-first styling
+- **Electron Forge** - Build and packaging pipeline
+- **@anthropic-ai/claude-code** - Official Claude Code CLI
+
+## Project Status
+
+**Current Phase**: Planning  
+See [plan.md](./plan.md) for detailed implementation roadmap.
+
+## Development Roadmap
+
+### Phase 1: Foundation (2-3 days)
+- Set up Electron + Vue project structure
+- Create basic chat UI
+- Configure development environment
+
+### Phase 2: Claude Integration (3-4 days)
+- Connect to Anthropic API
+- Implement message streaming
+- Add settings panel for API key
+
+### Phase 3: File Operations (4-5 days)
+- Build file tree browser
+- Create diff viewer for file changes
+- Implement action approval workflow
+
+### Phase 4: Polish (3-4 days)
+- Add conversation history
+- Improve error handling
+- Optimize performance
+
+### Phase 5: Distribution (3-4 days)
+- Create installers for all platforms
+- Set up auto-update system
+- Test on clean machines
+
+**Total Estimated Time**: 15-20 days for MVP
+
+## Installation (Future)
+
+### Windows
+Download `Cline-GUI-Setup.exe` from [Releases](https://dev.web.wr0ng.name/wrongname/cline-gui/-/releases) and run the installer.
+
+### macOS
+Download `Cline-GUI.dmg` from [Releases](https://dev.web.wr0ng.name/wrongname/cline-gui/-/releases), open it, and drag the app to Applications.
+
+### Linux
+Download your preferred package:
+- `.deb` for Debian/Ubuntu: `sudo dpkg -i cline-gui_1.0.0_amd64.deb`
+- `.rpm` for Fedora/RHEL: `sudo rpm -i cline-gui-1.0.0.x86_64.rpm`
+- `.AppImage` for universal: `chmod +x Cline-GUI-1.0.0.AppImage && ./Cline-GUI-1.0.0.AppImage`
+
+## Usage (Future)
+
+1. Launch Cline GUI
+2. Enter your Anthropic API key in Settings
+3. Select a working directory for your project
+4. Start chatting with Claude!
+5. Review and approve file changes before they're executed
+6. Watch your code come to life
+
+## Development Setup
+
+### Prerequisites
+- Node.js 20+ (for development only)
+- npm 10+
+
+### Getting Started
+```bash
+# Clone the repository
+git clone https://dev.web.wr0ng.name/wrongname/cline-gui.git
+cd cline-gui
+
+# Install dependencies
+npm install
+
+# Start development server
+npm run start
+```
+
+### Build Commands
+```bash
+# Package app (no installer)
+npm run package
+
+# Create platform-specific installers
+npm run make
+
+# Run linter
+npm run lint
+
+# Type checking
+npm run typecheck
+```
+
+## Architecture
 
 ```
-cd existing_repo
-git remote add origin https://dev.web.wr0ng.name/wrongname/cline-gui.git
-git branch -M main
-git push -uf origin main
+Electron App
+├── Main Process (Node.js)
+│   ├── Claude Code Service (wraps @anthropic-ai/claude-code)
+│   ├── File Watcher Service
+│   ├── Config Service (secure API key storage)
+│   └── IPC Handlers
+│
+└── Renderer Process (Vue 3)
+    ├── Chat Interface
+    ├── File Browser
+    ├── Settings Panel
+    └── Action Approval UI
 ```
 
-## Integrate with your tools
+## Security
 
-* [Set up project integrations](https://dev.web.wr0ng.name/wrongname/cline-gui/-/settings/integrations)
-
-## Collaborate with your team
-
-* [Invite team members and collaborators](https://docs.gitlab.com/ee/user/project/members/)
-* [Create a new merge request](https://docs.gitlab.com/ee/user/project/merge_requests/creating_merge_requests.html)
-* [Automatically close issues from merge requests](https://docs.gitlab.com/ee/user/project/issues/managing_issues.html#closing-issues-automatically)
-* [Enable merge request approvals](https://docs.gitlab.com/ee/user/project/merge_requests/approvals/)
-* [Set auto-merge](https://docs.gitlab.com/user/project/merge_requests/auto_merge/)
-
-## Test and Deploy
-
-Use the built-in continuous integration in GitLab.
-
-* [Get started with GitLab CI/CD](https://docs.gitlab.com/ee/ci/quick_start/)
-* [Analyze your code for known vulnerabilities with Static Application Security Testing (SAST)](https://docs.gitlab.com/ee/user/application_security/sast/)
-* [Deploy to Kubernetes, Amazon EC2, or Amazon ECS using Auto Deploy](https://docs.gitlab.com/ee/topics/autodevops/requirements.html)
-* [Use pull-based deployments for improved Kubernetes management](https://docs.gitlab.com/ee/user/clusters/agent/)
-* [Set up protected environments](https://docs.gitlab.com/ee/ci/environments/protected_environments.html)
-
-***
-
-# Editing this README
-
-When you're ready to make this README your own, just edit this file and use the handy template below (or feel free to structure it however you want - this is just a starting point!). Thanks to [makeareadme.com](https://www.makeareadme.com/) for this template.
-
-## Suggestions for a good README
-
-Every project is different, so consider which of these sections apply to yours. The sections used in the template are suggestions for most open source projects. Also keep in mind that while a README can be too long and detailed, too long is better than too short. If you think your README is too long, consider utilizing another form of documentation rather than cutting out information.
-
-## Name
-Choose a self-explaining name for your project.
-
-## Description
-Let people know what your project can do specifically. Provide context and add a link to any reference visitors might be unfamiliar with. A list of Features or a Background subsection can also be added here. If there are alternatives to your project, this is a good place to list differentiating factors.
-
-## Badges
-On some READMEs, you may see small images that convey metadata, such as whether or not all the tests are passing for the project. You can use Shields to add some to your README. Many services also have instructions for adding a badge.
-
-## Visuals
-Depending on what you are making, it can be a good idea to include screenshots or even a video (you'll frequently see GIFs rather than actual videos). Tools like ttygif can help, but check out Asciinema for a more sophisticated method.
-
-## Installation
-Within a particular ecosystem, there may be a common way of installing things, such as using Yarn, NuGet, or Homebrew. However, consider the possibility that whoever is reading your README is a novice and would like more guidance. Listing specific steps helps remove ambiguity and gets people to using your project as quickly as possible. If it only runs in a specific context like a particular programming language version or operating system or has dependencies that have to be installed manually, also add a Requirements subsection.
-
-## Usage
-Use examples liberally, and show the expected output if you can. It's helpful to have inline the smallest example of usage that you can demonstrate, while providing links to more sophisticated examples if they are too long to reasonably include in the README.
-
-## Support
-Tell people where they can go to for help. It can be any combination of an issue tracker, a chat room, an email address, etc.
-
-## Roadmap
-If you have ideas for releases in the future, it is a good idea to list them in the README.
+- API keys encrypted at rest using Electron's safeStorage
+- Context isolation enabled (no direct Node.js access from renderer)
+- All IPC communication through secure contextBridge
+- File system access limited to user-selected directories
+- Code signing for macOS and Windows installers
 
 ## Contributing
-State if you are open to contributions and what your requirements are for accepting them.
 
-For people who want to make changes to your project, it's helpful to have some documentation on how to get started. Perhaps there is a script that they should run or some environment variables that they need to set. Make these steps explicit. These instructions could also be useful to your future self.
-
-You can also document commands to lint the code or run tests. These steps help to ensure high code quality and reduce the likelihood that the changes inadvertently break something. Having instructions for running tests is especially helpful if it requires external setup, such as starting a Selenium server for testing in a browser.
-
-## Authors and acknowledgment
-Show your appreciation to those who have contributed to the project.
+This project is in early development. Contributions welcome once MVP is complete.
 
 ## License
-For open source projects, say how it is licensed.
 
-## Project status
-If you have run out of energy or time for your project, put a note at the top of the README saying that development has slowed down or stopped completely. Someone may choose to fork your project or volunteer to step in as a maintainer or owner, allowing your project to keep going. You can also make an explicit request for maintainers.
+TBD
+
+## Acknowledgments
+
+- Built on top of [@anthropic-ai/claude-code](https://www.npmjs.com/package/@anthropic-ai/claude-code)
+- Powered by [Anthropic's Claude AI](https://www.anthropic.com/claude)
+- UI framework: [Vue.js](https://vuejs.org/)
+- Desktop framework: [Electron](https://www.electronjs.org/)
+
+---
+
+**Note**: This is a community project and is not officially affiliated with Anthropic.
