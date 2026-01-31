@@ -1,0 +1,148 @@
+/**
+ * Settings store - manages app configuration
+ */
+
+import { defineStore } from 'pinia';
+import { ref, computed, onMounted, onUnmounted } from 'vue';
+
+import type { AppConfig } from '@shared/types';
+import { DEFAULT_CONFIG } from '@shared/types';
+
+export const useSettingsStore = defineStore('settings', () => {
+  // State
+  const config = ref<AppConfig>({ ...DEFAULT_CONFIG });
+  const isLoading = ref(true);
+  const isSaving = ref(false);
+
+  // Cleanup function for config change listener
+  let unsubscribe: (() => void) | null = null;
+
+  // Getters
+  const hasApiKey = computed(() => !!config.value.apiKey);
+  const workingDirectory = computed(() => config.value.workingDirectory);
+  const recentProjects = computed(() => config.value.recentProjects);
+  const theme = computed(() => config.value.theme);
+  const isDarkMode = computed(() => {
+    if (config.value.theme === 'system') {
+      return window.matchMedia('(prefers-color-scheme: dark)').matches;
+    }
+    return config.value.theme === 'dark';
+  });
+
+  // Actions
+  async function loadConfig() {
+    isLoading.value = true;
+    try {
+      const loadedConfig = await window.electron.config.get();
+      config.value = loadedConfig;
+    } catch (error) {
+      console.error('Failed to load config:', error);
+    } finally {
+      isLoading.value = false;
+    }
+  }
+
+  async function saveConfig(updates: Partial<AppConfig>) {
+    isSaving.value = true;
+    try {
+      await window.electron.config.set(updates);
+      // Update local state
+      Object.assign(config.value, updates);
+    } catch (error) {
+      console.error('Failed to save config:', error);
+      throw error;
+    } finally {
+      isSaving.value = false;
+    }
+  }
+
+  async function setApiKey(apiKey: string) {
+    await saveConfig({ apiKey });
+  }
+
+  async function setWorkingDirectory(directory: string) {
+    await saveConfig({ workingDirectory: directory });
+  }
+
+  async function setTheme(theme: 'light' | 'dark' | 'system') {
+    await saveConfig({ theme });
+    applyTheme(theme);
+  }
+
+  async function setFontSize(fontSize: number) {
+    await saveConfig({ fontSize });
+  }
+
+  function applyTheme(theme: 'light' | 'dark' | 'system') {
+    const html = document.documentElement;
+
+    if (theme === 'dark') {
+      html.classList.add('dark');
+    } else if (theme === 'light') {
+      html.classList.remove('dark');
+    } else {
+      // System preference
+      if (window.matchMedia('(prefers-color-scheme: dark)').matches) {
+        html.classList.add('dark');
+      } else {
+        html.classList.remove('dark');
+      }
+    }
+  }
+
+  // Initialize
+  function initialize() {
+    loadConfig().then(() => {
+      applyTheme(config.value.theme);
+    });
+
+    // Listen for config changes from main process
+    unsubscribe = window.electron.config.onChange((updates) => {
+      Object.assign(config.value, updates);
+      if (updates.theme) {
+        applyTheme(updates.theme);
+      }
+    });
+
+    // Listen for system theme changes
+    const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
+    const handleSystemThemeChange = () => {
+      if (config.value.theme === 'system') {
+        applyTheme('system');
+      }
+    };
+    mediaQuery.addEventListener('change', handleSystemThemeChange);
+  }
+
+  function cleanup() {
+    if (unsubscribe) {
+      unsubscribe();
+      unsubscribe = null;
+    }
+  }
+
+  return {
+    // State
+    config,
+    isLoading,
+    isSaving,
+
+    // Getters
+    hasApiKey,
+    workingDirectory,
+    recentProjects,
+    theme,
+    isDarkMode,
+
+    // Actions
+    loadConfig,
+    saveConfig,
+    setApiKey,
+    setWorkingDirectory,
+    setTheme,
+    setFontSize,
+    applyTheme,
+    initialize,
+    cleanup,
+  };
+});
