@@ -26,9 +26,8 @@ lint:
       docker run --rm \
         -v "$CI_PROJECT_DIR:/app" \
         -w /app \
-        -u "$(id -u):$(id -g)" \
         node:${NODE_VERSION} \
-        sh -c "npm ci --prefer-offline && npm run lint"
+        sh -c "npm ci --prefer-offline && npm run lint && chown -R $(id -u):$(id -g) /app"
   rules:
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
@@ -43,9 +42,8 @@ test:
       docker run --rm \
         -v "$CI_PROJECT_DIR:/app" \
         -w /app \
-        -u "$(id -u):$(id -g)" \
         node:${NODE_VERSION} \
-        sh -c "npm ci --prefer-offline && npm run test"
+        sh -c "npm ci --prefer-offline && npm run test && chown -R $(id -u):$(id -g) /app"
   rules:
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
@@ -60,9 +58,8 @@ typecheck:
       docker run --rm \
         -v "$CI_PROJECT_DIR:/app" \
         -w /app \
-        -u "$(id -u):$(id -g)" \
         node:${NODE_VERSION} \
-        sh -c "npm ci --prefer-offline && npm run typecheck"
+        sh -c "npm ci --prefer-offline && npm run typecheck && chown -R $(id -u):$(id -g) /app"
   rules:
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
@@ -83,9 +80,8 @@ build:linux:
       docker run --rm \
         -v "$CI_PROJECT_DIR:/app" \
         -w /app \
-        -u "$(id -u):$(id -g)" \
         electronuserland/builder:18 \
-        sh -c "npm ci && npm run make -- --platform=linux"
+        sh -c "npm ci && npm run make -- --platform=linux && chown -R $(id -u):$(id -g) /app"
   artifacts:
     name: "cline-gui-linux-${CI_COMMIT_REF_SLUG}"
     paths:
@@ -109,9 +105,8 @@ build:windows:
       docker run --rm \
         -v "$CI_PROJECT_DIR:/app" \
         -w /app \
-        -u "$(id -u):$(id -g)" \
         electronuserland/builder:18-wine-mono \
-        sh -c "npm ci && npm run make -- --platform=win32"
+        sh -c "npm ci && npm run make -- --platform=win32 && chown -R $(id -u):$(id -g) /app"
   artifacts:
     name: "cline-gui-windows-${CI_COMMIT_REF_SLUG}"
     paths:
