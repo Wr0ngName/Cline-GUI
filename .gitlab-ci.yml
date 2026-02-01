@@ -19,6 +19,8 @@ variables:
 
 lint:
   stage: test
+  tags:
+    - shell
   script:
     - |
       docker run --rm \
@@ -34,6 +36,8 @@ lint:
 
 test:
   stage: test
+  tags:
+    - shell
   script:
     - |
       docker run --rm \
@@ -49,6 +53,8 @@ test:
 
 typecheck:
   stage: test
+  tags:
+    - shell
   script:
     - |
       docker run --rm \
@@ -70,6 +76,8 @@ typecheck:
 # Linux build (DEB, RPM)
 build:linux:
   stage: build
+  tags:
+    - shell
   script:
     - |
       docker run --rm \
@@ -94,6 +102,8 @@ build:linux:
 # Requires wine-mono for Squirrel.Windows target
 build:windows:
   stage: build
+  tags:
+    - shell
   script:
     - |
       docker run --rm \
@@ -143,6 +153,8 @@ build:windows:
 # Upload artifacts to GitLab Package Registry for auto-updates
 publish:packages:
   stage: release
+  tags:
+    - shell
   needs:
     - job: build:linux
       artifacts: true
@@ -205,6 +217,8 @@ publish:packages:
 # Create GitLab Release
 create:release:
   stage: release
+  tags:
+    - shell
   needs:
     - job: publish:packages
   script:
