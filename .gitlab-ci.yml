@@ -97,8 +97,8 @@ build:linux:
       docker run --rm \
         -v "$CI_PROJECT_DIR:/app" \
         -w /app \
-        electronuserland/builder:18 \
-        sh -c "npm ci && npm run make -- --platform=linux"
+        electronuserland/builder:20 \
+        bash -c "apt-get update && apt-get install -y dpkg fakeroot rpm && npm ci && npm run make -- --platform=linux"
   artifacts:
     name: "cline-gui-linux-${CI_COMMIT_REF_SLUG}"
     paths:
@@ -123,8 +123,8 @@ build:windows:
       docker run --rm \
         -v "$CI_PROJECT_DIR:/app" \
         -w /app \
-        electronuserland/builder:18-wine-mono \
-        sh -c "npm ci && npm run make -- --platform=win32"
+        electronuserland/builder:20-wine-mono \
+        bash -c "npm ci && npm run make -- --platform=win32"
   artifacts:
     name: "cline-gui-windows-${CI_COMMIT_REF_SLUG}"
     paths:
