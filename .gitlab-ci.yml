@@ -200,34 +200,49 @@ publish:packages:
 
       echo "Publishing version ${VERSION} to package registry..."
 
+      # Initialize release info file
+      mkdir -p release-info
+      echo "TAG_VERSION=${VERSION}" > release-info/urls.env
+
       # Upload Linux DEB
       for file in out/make/deb/x64/*.deb; do
         if [ -f "$file" ]; then
+          DEB_NAME=$(basename "$file")
+          DEB_URL="${PACKAGE_REGISTRY_URL}/releases/${VERSION}/${DEB_NAME}"
           echo "Uploading $file..."
           curl --header "JOB-TOKEN: ${CI_JOB_TOKEN}" \
                --upload-file "$file" \
-               "${PACKAGE_REGISTRY_URL}/releases/${VERSION}/$(basename $file)"
+               "${DEB_URL}"
+          echo "DEB_NAME=${DEB_NAME}" >> release-info/urls.env
+          echo "DEB_URL=${DEB_URL}" >> release-info/urls.env
         fi
       done
 
       # Upload Linux RPM
       for file in out/make/rpm/x64/*.rpm; do
         if [ -f "$file" ]; then
+          RPM_NAME=$(basename "$file")
+          RPM_URL="${PACKAGE_REGISTRY_URL}/releases/${VERSION}/${RPM_NAME}"
           echo "Uploading $file..."
           curl --header "JOB-TOKEN: ${CI_JOB_TOKEN}" \
                --upload-file "$file" \
-               "${PACKAGE_REGISTRY_URL}/releases/${VERSION}/$(basename $file)"
+               "${RPM_URL}"
+          echo "RPM_NAME=${RPM_NAME}" >> release-info/urls.env
+          echo "RPM_URL=${RPM_URL}" >> release-info/urls.env
         fi
       done
 
       # Upload Windows installer (replace spaces in filename with dashes for URL)
       for file in out/make/squirrel.windows/x64/*.exe; do
         if [ -f "$file" ]; then
-          FILENAME=$(basename "$file" | tr ' ' '-')
-          echo "Uploading $file as ${FILENAME}..."
+          WIN_NAME=$(basename "$file" | tr ' ' '-')
+          WIN_URL="${PACKAGE_REGISTRY_URL}/releases/${VERSION}/${WIN_NAME}"
+          echo "Uploading $file as ${WIN_NAME}..."
           curl --header "JOB-TOKEN: ${CI_JOB_TOKEN}" \
                --upload-file "$file" \
-               "${PACKAGE_REGISTRY_URL}/releases/${VERSION}/${FILENAME}"
+               "${WIN_URL}"
+          echo "WIN_NAME=${WIN_NAME}" >> release-info/urls.env
+          echo "WIN_URL=${WIN_URL}" >> release-info/urls.env
         fi
       done
 
@@ -247,6 +262,11 @@ publish:packages:
            "${PACKAGE_REGISTRY_URL}/releases/${VERSION}/latest.yml"
 
       echo "Packages published successfully!"
+      cat release-info/urls.env
+  artifacts:
+    paths:
+      - release-info/
+    expire_in: 1 day
   rules:
     - if: $CI_COMMIT_TAG =~ /^v\d+\.\d+\.\d+$/
 
@@ -257,26 +277,30 @@ create:release:
     - shell
   needs:
     - job: publish:packages
+      artifacts: true
   script:
     - |
-      VERSION=${CI_COMMIT_TAG#v}
       TAG=${CI_COMMIT_TAG}
-      PKG_URL=${PACKAGE_REGISTRY_URL}
       echo "Creating release for ${TAG}"
 
-      # Create description file (on host, will mount into container)
+      # Load URLs from publish:packages artifact
+      source release-info/urls.env
+
+      # Create description file with actual URLs
       cat > /tmp/release_description.md << DESCEOF
       ## Cline GUI ${TAG}
 
       ### Downloads
 
-      - **Linux (DEB)**: [cline-gui_${VERSION}_amd64.deb](${PKG_URL}/releases/${VERSION}/cline-gui_${VERSION}_amd64.deb)
-      - **Linux (RPM)**: [cline-gui-${VERSION}.x86_64.rpm](${PKG_URL}/releases/${VERSION}/cline-gui-${VERSION}.x86_64.rpm)
-      - **Windows**: [Cline-GUI-${VERSION}-Setup.exe](${PKG_URL}/releases/${VERSION}/Cline-GUI-${VERSION}-Setup.exe) *(filename may vary)*
+      - **Linux (DEB)**: [${DEB_NAME}](${DEB_URL})
+      - **Linux (RPM)**: [${RPM_NAME}](${RPM_URL})
+      - **Windows**: [${WIN_NAME}](${WIN_URL})
 
       ---
       *Built automatically by GitLab CI/CD*
       DESCEOF
+
+      cat /tmp/release_description.md
 
       docker run --rm \
         -e CI_JOB_TOKEN \
