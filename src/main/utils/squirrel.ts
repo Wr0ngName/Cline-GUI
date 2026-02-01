@@ -1,5 +1,9 @@
 /**
  * Squirrel.Windows event handler with user data cleanup prompt
+ *
+ * Note: This file must NOT import electron-log or other dependencies
+ * that may not be available during Squirrel install/update events
+ * when the app runs from a temporary location.
  */
 
 import { app, dialog } from 'electron';
@@ -7,7 +11,11 @@ import { spawn } from 'child_process';
 import * as path from 'path';
 import * as fs from 'fs';
 
-import logger from './logger';
+// Simple console logging for Squirrel events (no dependencies)
+const log = {
+  info: (...args: unknown[]) => console.log('[Squirrel]', ...args),
+  error: (...args: unknown[]) => console.error('[Squirrel]', ...args),
+};
 
 /**
  * Get the path to user data directory
@@ -40,10 +48,10 @@ function removeUserData(): void {
     try {
       if (fs.existsSync(dataPath)) {
         fs.rmSync(dataPath, { recursive: true, force: true });
-        logger.info('Removed user data directory', { path: dataPath });
+        log.info('Removed user data directory:', dataPath);
       }
     } catch (error) {
-      logger.error('Failed to remove user data directory', { path: dataPath, error });
+      log.error('Failed to remove user data directory:', dataPath, error);
     }
   }
 }
@@ -58,7 +66,7 @@ function runSquirrelCommand(args: string[]): void {
   try {
     spawn(updateExe, args.concat([appName]), { detached: true });
   } catch (error) {
-    logger.error('Failed to run Squirrel command', { args, error });
+    log.error('Failed to run Squirrel command:', args, error);
   }
 }
 
@@ -132,13 +140,13 @@ async function handleUninstall(): Promise<void> {
     if (result.response === 1) {
       // User chose "Remove Everything"
       removeUserData();
-      logger.info('User chose to remove all data during uninstall');
+      log.info('User chose to remove all data during uninstall');
     } else {
-      logger.info('User chose to keep data during uninstall');
+      log.info('User chose to keep data during uninstall');
     }
   } catch (error) {
     // If dialog fails, default to keeping data (safer option)
-    logger.error('Failed to show uninstall dialog, keeping user data', error);
+    log.error('Failed to show uninstall dialog, keeping user data:', error);
   }
 }
 
