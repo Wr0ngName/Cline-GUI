@@ -19,13 +19,12 @@ variables:
 
 lint:
   stage: test
-  tags:
-    - shell
   script:
     - |
       docker run --rm \
         -v "$CI_PROJECT_DIR:/app" \
         -w /app \
+        -u "$(id -u):$(id -g)" \
         node:${NODE_VERSION} \
         sh -c "npm ci --prefer-offline && npm run lint"
   rules:
@@ -35,13 +34,12 @@ lint:
 
 test:
   stage: test
-  tags:
-    - shell
   script:
     - |
       docker run --rm \
         -v "$CI_PROJECT_DIR:/app" \
         -w /app \
+        -u "$(id -u):$(id -g)" \
         node:${NODE_VERSION} \
         sh -c "npm ci --prefer-offline && npm run test"
   rules:
@@ -51,13 +49,12 @@ test:
 
 typecheck:
   stage: test
-  tags:
-    - shell
   script:
     - |
       docker run --rm \
         -v "$CI_PROJECT_DIR:/app" \
         -w /app \
+        -u "$(id -u):$(id -g)" \
         node:${NODE_VERSION} \
         sh -c "npm ci --prefer-offline && npm run typecheck"
   rules:
@@ -73,13 +70,12 @@ typecheck:
 # Linux build (DEB, RPM)
 build:linux:
   stage: build
-  tags:
-    - shell
   script:
     - |
       docker run --rm \
         -v "$CI_PROJECT_DIR:/app" \
         -w /app \
+        -u "$(id -u):$(id -g)" \
         electronuserland/builder:18 \
         sh -c "npm ci && npm run make -- --platform=linux"
   artifacts:
@@ -98,13 +94,12 @@ build:linux:
 # Requires wine-mono for Squirrel.Windows target
 build:windows:
   stage: build
-  tags:
-    - shell
   script:
     - |
       docker run --rm \
         -v "$CI_PROJECT_DIR:/app" \
         -w /app \
+        -u "$(id -u):$(id -g)" \
         electronuserland/builder:18-wine-mono \
         sh -c "npm ci && npm run make -- --platform=win32"
   artifacts:
@@ -148,8 +143,6 @@ build:windows:
 # Upload artifacts to GitLab Package Registry for auto-updates
 publish:packages:
   stage: release
-  tags:
-    - shell
   needs:
     - job: build:linux
       artifacts: true
@@ -212,8 +205,6 @@ publish:packages:
 # Create GitLab Release
 create:release:
   stage: release
-  tags:
-    - shell
   needs:
     - job: publish:packages
   script:
