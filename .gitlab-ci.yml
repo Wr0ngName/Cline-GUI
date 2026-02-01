@@ -34,6 +34,8 @@ variables:
 
 lint:
   stage: test
+  tags:
+    - shell
   extends: .base
   <<: *node_cache
   script:
@@ -45,6 +47,8 @@ lint:
 
 typecheck:
   stage: test
+  tags:
+    - shell
   extends: .base
   <<: *node_cache
   script:
@@ -62,6 +66,8 @@ typecheck:
 # Linux build (DEB, RPM)
 build:linux:
   stage: build
+  tags:
+    - shell
   extends: .base
   # Use base builder image for Linux (no wine needed)
   image: electronuserland/builder:18
@@ -85,6 +91,8 @@ build:linux:
 # Requires wine-mono for Squirrel.Windows target
 build:windows:
   stage: build
+  tags:
+    - shell
   extends: .base
   # wine-mono includes Wine AND Mono required for Squirrel.Windows
   image: electronuserland/builder:18-wine-mono
@@ -135,6 +143,8 @@ build:windows:
 # Upload artifacts to GitLab Package Registry for auto-updates
 publish:packages:
   stage: release
+  tags:
+    - shell
   image: curlimages/curl:latest
   needs:
     - job: build:linux
