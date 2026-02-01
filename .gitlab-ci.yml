@@ -59,11 +59,12 @@ typecheck:
 # BUILD STAGE
 # =============================================================================
 
-# Linux build (DEB, RPM, AppImage)
+# Linux build (DEB, RPM)
 build:linux:
   stage: build
   extends: .base
-  image: electronuserland/builder:wine
+  # Use base builder image for Linux (no wine needed)
+  image: electronuserland/builder:18
   <<: *node_cache
   script:
     - npm ci
@@ -81,19 +82,23 @@ build:linux:
       allow_failure: true
 
 # Windows build (Squirrel installer)
+# Requires wine-mono for Squirrel.Windows target
 build:windows:
   stage: build
   extends: .base
-  image: electronuserland/builder:wine
+  # wine-mono includes Wine AND Mono required for Squirrel.Windows
+  image: electronuserland/builder:18-wine-mono
   <<: *node_cache
   script:
     - npm ci
+    # Rebuild native modules for Windows target
     - npm run make -- --platform=win32
   artifacts:
     name: "cline-gui-windows-${CI_COMMIT_REF_SLUG}"
     paths:
       - out/make/**/*.exe
       - out/make/**/*.nupkg
+      - out/make/**/RELEASES
     expire_in: 1 week
   rules:
     - if: $CI_COMMIT_TAG
