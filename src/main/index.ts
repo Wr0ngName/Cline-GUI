@@ -3,7 +3,6 @@
  */
 
 import { app, BrowserWindow } from 'electron';
-import started from 'electron-squirrel-startup';
 
 import { setupIPC } from './ipc';
 import AuthService from './services/AuthService';
@@ -13,12 +12,21 @@ import ConversationService from './services/ConversationService';
 import FileWatcherService from './services/FileWatcherService';
 import UpdateService from './services/UpdateService';
 import logger from './utils/logger';
+import handleSquirrelEvents from './utils/squirrel';
 import { createWindow, getMainWindow } from './window';
 
-// Handle creating/removing shortcuts on Windows when installing/uninstalling.
-if (started) {
-  app.quit();
-}
+// Handle Squirrel.Windows install/update/uninstall events
+// This includes prompting user about data cleanup on uninstall
+handleSquirrelEvents().then((handled) => {
+  if (handled) {
+    // Squirrel event was handled, app will quit
+    return;
+  }
+  // Continue with normal app startup
+  startApp();
+});
+
+let appStarted = false;
 
 // Initialize services
 let authService: AuthService;
@@ -51,6 +59,8 @@ async function initializeServices(): Promise<void> {
  * Application ready handler
  */
 async function onReady(): Promise<void> {
+  if (!appStarted) return; // Don't run if handling Squirrel event
+
   logger.info('Application ready');
 
   // Initialize services
@@ -91,8 +101,19 @@ async function onReady(): Promise<void> {
   }, 5000);
 }
 
-// This method will be called when Electron has finished initialization
-app.on('ready', onReady);
+/**
+ * Start the application (called after Squirrel events are handled)
+ */
+function startApp(): void {
+  appStarted = true;
+
+  // This method will be called when Electron has finished initialization
+  if (app.isReady()) {
+    onReady();
+  } else {
+    app.on('ready', onReady);
+  }
+}
 
 // Quit when all windows are closed, except on macOS
 app.on('window-all-closed', () => {

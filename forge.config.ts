@@ -27,6 +27,9 @@ const config: ForgeConfig = {
       options: {
         icon: './resources/icons/icon.png',
         categories: ['Development'],
+        scripts: {
+          postun: './resources/linux/postrm.rpm',
+        },
       },
     }),
     new MakerDeb({
@@ -35,6 +38,9 @@ const config: ForgeConfig = {
         categories: ['Development'],
         maintainer: 'wrongname',
         homepage: 'https://dev.web.wr0ng.name/wrongname/cline-gui',
+        scripts: {
+          postrm: './resources/linux/postrm',
+        },
       },
     }),
   ],

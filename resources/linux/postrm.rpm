@@ -1,0 +1,19 @@
+#!/bin/bash
+# Post-removal script for Cline GUI (RPM)
+
+APP_NAME="cline-gui"
+
+if [ "$1" = "0" ]; then
+    # Package is being removed (not upgraded)
+    echo ""
+    echo "Cline GUI has been removed."
+    echo ""
+    echo "Your configuration and conversation history have been preserved in:"
+    echo "  ~/.config/$APP_NAME"
+    echo ""
+    echo "To completely remove all data, run:"
+    echo "  rm -rf ~/.config/$APP_NAME"
+    echo ""
+fi
+
+exit 0

@@ -1,0 +1,58 @@
+#!/bin/bash
+# Post-removal script for Cline GUI
+# Prompts user about removing configuration data
+
+set -e
+
+APP_NAME="cline-gui"
+
+case "$1" in
+    purge)
+        # Called with 'apt purge' - remove all config without asking
+        echo "Purging Cline GUI configuration data..."
+
+        # Remove config for all users who have it
+        for USER_HOME in /home/*; do
+            if [ -d "$USER_HOME" ]; then
+                USER_NAME=$(basename "$USER_HOME")
+                CONFIG_DIR="$USER_HOME/.config/$APP_NAME"
+
+                if [ -d "$CONFIG_DIR" ]; then
+                    rm -rf "$CONFIG_DIR"
+                    echo "Removed configuration for user $USER_NAME"
+                fi
+            fi
+        done
+
+        # Also check root's config
+        if [ -d "/root/.config/$APP_NAME" ]; then
+            rm -rf "/root/.config/$APP_NAME"
+            echo "Removed configuration for root"
+        fi
+        ;;
+
+    remove)
+        # Called with 'apt remove' - ask user about keeping config
+        echo ""
+        echo "Cline GUI has been removed."
+        echo ""
+        echo "Your configuration and conversation history have been preserved in:"
+        echo "  ~/.config/$APP_NAME"
+        echo ""
+        echo "To completely remove all data, run:"
+        echo "  sudo apt purge $APP_NAME"
+        echo "  # or manually: rm -rf ~/.config/$APP_NAME"
+        echo ""
+        ;;
+
+    upgrade|failed-upgrade|abort-install|abort-upgrade|disappear)
+        # Nothing to do for these cases
+        ;;
+
+    *)
+        echo "postrm called with unknown argument '$1'" >&2
+        exit 1
+        ;;
+esac
+
+exit 0
