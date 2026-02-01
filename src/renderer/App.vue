@@ -8,25 +8,31 @@ import { storeToRefs } from 'pinia';
 
 import { useSettingsStore } from './stores/settings';
 import { useFilesStore } from './stores/files';
+import { useConversationsStore } from './stores/conversations';
 import ChatWindow from './components/chat/ChatWindow.vue';
 import WorkingDirectory from './components/files/WorkingDirectory.vue';
 import FileTree from './components/files/FileTree.vue';
+import ConversationHistory from './components/conversations/ConversationHistory.vue';
 import SettingsPanel from './components/settings/SettingsPanel.vue';
 import InitWizard from './components/wizard/InitWizard.vue';
 import ErrorBoundary from './components/shared/ErrorBoundary.vue';
 
 const settingsStore = useSettingsStore();
 const filesStore = useFilesStore();
+const conversationsStore = useConversationsStore();
 const { isLoading, needsSetup } = storeToRefs(settingsStore);
 
 const showSettings = ref(false);
 const showWizard = ref(false);
+const showHistory = ref(true);
 const sidebarWidth = ref(280);
+const historyWidth = ref(240);
 
 // Initialize stores on mount
 onMounted(() => {
   settingsStore.initialize();
   filesStore.initialize();
+  conversationsStore.initialize();
 });
 
 // Show wizard when setup is needed (after loading completes)
@@ -44,6 +50,7 @@ watch(
 onUnmounted(() => {
   settingsStore.cleanup();
   filesStore.cleanup();
+  conversationsStore.cleanup();
 });
 
 function onWizardComplete() {
@@ -59,6 +66,10 @@ function openSettings() {
 
 function closeSettings() {
   showSettings.value = false;
+}
+
+function toggleHistory() {
+  showHistory.value = !showHistory.value;
 }
 
 // Window controls
@@ -115,6 +126,26 @@ const isMac = window.electron?.platform === 'darwin';
 
       <!-- Actions -->
       <div class="flex items-center gap-2 no-drag">
+        <button
+          class="btn-icon"
+          :class="{ 'bg-surface-200 dark:bg-surface-700': showHistory }"
+          title="Toggle conversation history"
+          @click="toggleHistory"
+        >
+          <svg
+            class="w-5 h-5"
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+          >
+            <path
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="2"
+              d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
+            />
+          </svg>
+        </button>
         <button
           class="btn-icon"
           title="Settings"
@@ -209,7 +240,25 @@ const isMac = window.electron?.platform === 'darwin';
 
     <!-- Main content -->
     <main class="flex-1 flex overflow-hidden">
-      <!-- Sidebar -->
+      <!-- Conversation History Sidebar -->
+      <Transition
+        enter-active-class="transition-all duration-200 ease-out"
+        enter-from-class="w-0 opacity-0"
+        enter-to-class="opacity-100"
+        leave-active-class="transition-all duration-150 ease-in"
+        leave-from-class="opacity-100"
+        leave-to-class="w-0 opacity-0"
+      >
+        <aside
+          v-if="showHistory"
+          class="history-sidebar flex flex-col border-r border-surface-200 dark:border-surface-700 bg-surface-50 dark:bg-surface-900"
+          :style="{ width: `${historyWidth}px` }"
+        >
+          <ConversationHistory />
+        </aside>
+      </Transition>
+
+      <!-- Files Sidebar -->
       <aside
         class="sidebar flex flex-col"
         :style="{ width: `${sidebarWidth}px` }"

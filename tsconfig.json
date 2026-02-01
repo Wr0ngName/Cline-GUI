@@ -15,10 +15,5 @@
     "noUnusedParameters": true,
     "noFallthroughCasesInSwitch": true,
     "allowSyntheticDefaultImports": true
-  },
-  "references": [
-    { "path": "./tsconfig.main.json" },
-    { "path": "./tsconfig.preload.json" },
-    { "path": "./tsconfig.renderer.json" }
-  ]
+  }
 }

@@ -102,6 +102,148 @@ export const useFilesStore = defineStore('files', () => {
     workingDirectory.value = directory;
   }
 
+  /**
+   * Apply incremental changes to the file tree
+   * This avoids full tree reload on every file change
+   */
+  function applyFileChanges(changes: FileChange[]) {
+    for (const change of changes) {
+      const pathParts = getRelativePathParts(change.path);
+      if (!pathParts) continue;
+
+      switch (change.type) {
+        case 'add':
+          addNodeToTree(pathParts, change.path);
+          break;
+        case 'unlink':
+          removeNodeFromTree(pathParts);
+          break;
+        case 'change':
+          // For file content changes, we just need to update the modifiedAt timestamp
+          // which requires refetching the file info - for now, mark as needing refresh
+          updateNodeInTree(pathParts);
+          break;
+      }
+    }
+
+    // Force reactivity update
+    fileTree.value = [...fileTree.value];
+  }
+
+  /**
+   * Get the path parts relative to working directory
+   */
+  function getRelativePathParts(fullPath: string): string[] | null {
+    if (!workingDirectory.value) return null;
+
+    // Normalize paths for comparison
+    const normalizedFull = fullPath.replace(/\\/g, '/');
+    const normalizedWork = workingDirectory.value.replace(/\\/g, '/');
+
+    if (!normalizedFull.startsWith(normalizedWork)) {
+      return null;
+    }
+
+    const relativePath = normalizedFull.slice(normalizedWork.length).replace(/^\//, '');
+    if (!relativePath) return null;
+
+    return relativePath.split('/');
+  }
+
+  /**
+   * Find a node in the tree by path parts
+   */
+  function findParentNode(pathParts: string[]): { parent: FileNode[] | null; name: string } {
+    if (pathParts.length === 0) {
+      return { parent: null, name: '' };
+    }
+
+    if (pathParts.length === 1) {
+      return { parent: fileTree.value, name: pathParts[0] };
+    }
+
+    let current = fileTree.value;
+    for (let i = 0; i < pathParts.length - 1; i++) {
+      const node = current.find(n => n.name === pathParts[i] && n.type === 'directory');
+      if (!node || !node.children) {
+        return { parent: null, name: '' };
+      }
+      current = node.children;
+    }
+
+    return { parent: current, name: pathParts[pathParts.length - 1] };
+  }
+
+  /**
+   * Add a new node to the tree
+   */
+  function addNodeToTree(pathParts: string[], fullPath: string) {
+    const { parent, name } = findParentNode(pathParts);
+    if (!parent || !name) return;
+
+    // Check if already exists
+    const existingIndex = parent.findIndex(n => n.name === name);
+    if (existingIndex !== -1) {
+      return; // Already exists
+    }
+
+    // Determine if it's a file or directory
+    // For now, treat as file unless it has no extension (heuristic)
+    const isDirectory = !name.includes('.');
+
+    const newNode: FileNode = {
+      name,
+      path: fullPath,
+      type: isDirectory ? 'directory' : 'file',
+      ...(isDirectory ? { children: [] } : { modifiedAt: Date.now() }),
+    };
+
+    // Insert in sorted position (directories first, then alphabetically)
+    let insertIndex = parent.length;
+    for (let i = 0; i < parent.length; i++) {
+      const existing = parent[i];
+      if (isDirectory && existing.type === 'file') {
+        insertIndex = i;
+        break;
+      }
+      if (isDirectory === (existing.type === 'directory') && name.localeCompare(existing.name) < 0) {
+        insertIndex = i;
+        break;
+      }
+    }
+
+    parent.splice(insertIndex, 0, newNode);
+    logger.debug('Added node to tree', { name, fullPath });
+  }
+
+  /**
+   * Remove a node from the tree
+   */
+  function removeNodeFromTree(pathParts: string[]) {
+    const { parent, name } = findParentNode(pathParts);
+    if (!parent || !name) return;
+
+    const index = parent.findIndex(n => n.name === name);
+    if (index !== -1) {
+      parent.splice(index, 1);
+      logger.debug('Removed node from tree', { name });
+    }
+  }
+
+  /**
+   * Update a node in the tree (mark as modified)
+   */
+  function updateNodeInTree(pathParts: string[]) {
+    const { parent, name } = findParentNode(pathParts);
+    if (!parent || !name) return;
+
+    const node = parent.find(n => n.name === name);
+    if (node && node.type === 'file') {
+      node.modifiedAt = Date.now();
+      logger.debug('Updated node in tree', { name });
+    }
+  }
+
   function setupFileWatcher() {
     // Clean up existing watcher
     if (unsubscribe) {
@@ -111,8 +253,14 @@ export const useFilesStore = defineStore('files', () => {
     // Set up new watcher
     unsubscribe = window.electron.files.onChange((changes: FileChange[]) => {
       logger.debug('File changes detected', { changeCount: changes.length });
-      // Reload file tree on changes
-      loadFileTree();
+
+      // Use incremental updates for better performance
+      // Only reload full tree if there are many changes (likely a major operation)
+      if (changes.length > 10) {
+        loadFileTree();
+      } else {
+        applyFileChanges(changes);
+      }
     });
   }
 
