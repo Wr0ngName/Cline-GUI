@@ -19,9 +19,12 @@ export const useSettingsStore = defineStore('settings', () => {
 
   // Getters
   const hasApiKey = computed(() => !!config.value.apiKey);
+  const hasOAuthToken = computed(() => !!config.value.oauthToken);
+  const hasAuth = computed(() => hasApiKey.value || hasOAuthToken.value);
   const workingDirectory = computed(() => config.value.workingDirectory);
   const recentProjects = computed(() => config.value.recentProjects);
   const theme = computed(() => config.value.theme);
+  const needsSetup = computed(() => !workingDirectory.value || !hasAuth.value);
   const isDarkMode = computed(() => {
     if (config.value.theme === 'system') {
       return window.matchMedia('(prefers-color-scheme: dark)').matches;
@@ -129,10 +132,13 @@ export const useSettingsStore = defineStore('settings', () => {
 
     // Getters
     hasApiKey,
+    hasOAuthToken,
+    hasAuth,
     workingDirectory,
     recentProjects,
     theme,
     isDarkMode,
+    needsSetup,
 
     // Actions
     loadConfig,

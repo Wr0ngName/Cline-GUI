@@ -3,7 +3,8 @@
  * Root application component
  */
 
-import { ref, onMounted, onUnmounted } from 'vue';
+import { ref, onMounted, onUnmounted, watch } from 'vue';
+import { storeToRefs } from 'pinia';
 
 import { useSettingsStore } from './stores/settings';
 import { useFilesStore } from './stores/files';
@@ -11,11 +12,14 @@ import ChatWindow from './components/chat/ChatWindow.vue';
 import WorkingDirectory from './components/files/WorkingDirectory.vue';
 import FileTree from './components/files/FileTree.vue';
 import SettingsPanel from './components/settings/SettingsPanel.vue';
+import InitWizard from './components/wizard/InitWizard.vue';
 
 const settingsStore = useSettingsStore();
 const filesStore = useFilesStore();
+const { isLoading, needsSetup } = storeToRefs(settingsStore);
 
 const showSettings = ref(false);
+const showWizard = ref(false);
 const sidebarWidth = ref(280);
 
 // Initialize stores on mount
@@ -24,11 +28,29 @@ onMounted(() => {
   filesStore.initialize();
 });
 
+// Show wizard when setup is needed (after loading completes)
+watch(
+  [isLoading, needsSetup],
+  ([loading, needs]) => {
+    if (!loading && needs) {
+      showWizard.value = true;
+    }
+  },
+  { immediate: true }
+);
+
 // Cleanup on unmount
 onUnmounted(() => {
   settingsStore.cleanup();
   filesStore.cleanup();
 });
+
+function onWizardComplete() {
+  showWizard.value = false;
+  // Reload config and files after wizard completes
+  settingsStore.loadConfig();
+  filesStore.initialize();
+}
 
 function openSettings() {
   showSettings.value = true;
@@ -204,6 +226,12 @@ const isMac = window.electron?.platform === 'darwin';
     <SettingsPanel
       :open="showSettings"
       @close="closeSettings"
+    />
+
+    <!-- Initial Setup Wizard -->
+    <InitWizard
+      v-if="showWizard"
+      @complete="onWizardComplete"
     />
   </div>
 </template>
