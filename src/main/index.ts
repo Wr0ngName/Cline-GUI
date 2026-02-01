@@ -1,40 +1,52 @@
 /**
  * Main process entry point for Cline GUI
+ *
+ * IMPORTANT: Squirrel events must be handled before importing dependencies
+ * that may not be available during install/update (e.g., electron-log).
+ * Only import Electron built-ins and Node.js built-ins before Squirrel check.
  */
 
 import { app, BrowserWindow } from 'electron';
-
-import { setupIPC } from './ipc';
-import AuthService from './services/AuthService';
-import ClaudeCodeService from './services/ClaudeCodeService';
-import ConfigService from './services/ConfigService';
-import ConversationService from './services/ConversationService';
-import FileWatcherService from './services/FileWatcherService';
-import UpdateService from './services/UpdateService';
-import logger from './utils/logger';
 import handleSquirrelEvents from './utils/squirrel';
-import { createWindow, getMainWindow } from './window';
 
-// Handle Squirrel.Windows install/update/uninstall events
+// Handle Squirrel.Windows install/update/uninstall events FIRST
 // This includes prompting user about data cleanup on uninstall
 handleSquirrelEvents().then((handled) => {
   if (handled) {
     // Squirrel event was handled, app will quit
     return;
   }
-  // Continue with normal app startup
+  // Continue with normal app startup - now safe to import dependencies
   startApp();
 });
 
+// Lazy imports - only loaded after Squirrel check passes
+let setupIPC: typeof import('./ipc').setupIPC;
+let AuthService: typeof import('./services/AuthService').default;
+let ClaudeCodeService: typeof import('./services/ClaudeCodeService').default;
+let ConfigService: typeof import('./services/ConfigService').default;
+let ConversationService: typeof import('./services/ConversationService').default;
+let FileWatcherService: typeof import('./services/FileWatcherService').default;
+let UpdateService: typeof import('./services/UpdateService').default;
+let logger: typeof import('./utils/logger').default;
+let createWindow: typeof import('./window').createWindow;
+let getMainWindow: typeof import('./window').getMainWindow;
+
 let appStarted = false;
 
-// Initialize services
-let authService: AuthService;
-let configService: ConfigService;
-let claudeService: ClaudeCodeService;
-let fileWatcher: FileWatcherService;
-let conversationService: ConversationService;
-let updateService: UpdateService;
+// Service instances (typed as any since classes are dynamically imported)
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let authService: any;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let configService: any;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let claudeService: any;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let fileWatcher: any;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let conversationService: any;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let updateService: any;
 
 /**
  * Initialize all services
@@ -95,7 +107,7 @@ async function onReady(): Promise<void> {
 
   // Check for updates on startup (after a delay)
   setTimeout(() => {
-    updateService.checkForUpdates().catch((error) => {
+    updateService.checkForUpdates().catch((error: unknown) => {
       logger.warn('Failed to check for updates on startup', error);
     });
   }, 5000);
@@ -104,7 +116,29 @@ async function onReady(): Promise<void> {
 /**
  * Start the application (called after Squirrel events are handled)
  */
-function startApp(): void {
+async function startApp(): Promise<void> {
+  // Now safe to import dependencies that may use npm packages
+  const ipcModule = await import('./ipc');
+  const authModule = await import('./services/AuthService');
+  const claudeModule = await import('./services/ClaudeCodeService');
+  const configModule = await import('./services/ConfigService');
+  const conversationModule = await import('./services/ConversationService');
+  const fileWatcherModule = await import('./services/FileWatcherService');
+  const updateModule = await import('./services/UpdateService');
+  const loggerModule = await import('./utils/logger');
+  const windowModule = await import('./window');
+
+  setupIPC = ipcModule.setupIPC;
+  AuthService = authModule.default;
+  ClaudeCodeService = claudeModule.default;
+  ConfigService = configModule.default;
+  ConversationService = conversationModule.default;
+  FileWatcherService = fileWatcherModule.default;
+  UpdateService = updateModule.default;
+  logger = loggerModule.default;
+  createWindow = windowModule.createWindow;
+  getMainWindow = windowModule.getMainWindow;
+
   appStarted = true;
 
   // This method will be called when Electron has finished initialization
@@ -113,43 +147,51 @@ function startApp(): void {
   } else {
     app.on('ready', onReady);
   }
+
+  // Set up event handlers that need logger
+  setupEventHandlers();
 }
 
-// Quit when all windows are closed, except on macOS
-app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') {
-    app.quit();
-  }
-});
+/**
+ * Set up event handlers (called after imports are loaded)
+ */
+function setupEventHandlers(): void {
+  // Quit when all windows are closed, except on macOS
+  app.on('window-all-closed', () => {
+    if (process.platform !== 'darwin') {
+      app.quit();
+    }
+  });
 
-// On macOS, re-create window when dock icon is clicked
-app.on('activate', () => {
-  if (BrowserWindow.getAllWindows().length === 0) {
-    createWindow().then((mainWindow) => {
-      claudeService.setMainWindow(mainWindow);
-      updateService.setMainWindow(mainWindow);
-    });
-  }
-});
+  // On macOS, re-create window when dock icon is clicked
+  app.on('activate', () => {
+    if (BrowserWindow.getAllWindows().length === 0) {
+      createWindow().then((mainWindow) => {
+        claudeService.setMainWindow(mainWindow);
+        updateService.setMainWindow(mainWindow);
+      });
+    }
+  });
 
-// Handle app before quit
-app.on('before-quit', () => {
-  logger.info('Application quitting');
-  fileWatcher.stop();
-});
+  // Handle app before quit
+  app.on('before-quit', () => {
+    logger.info('Application quitting');
+    fileWatcher.stop();
+  });
 
-// Handle uncaught exceptions
-process.on('uncaughtException', (error) => {
-  logger.error('Uncaught exception', error);
-});
+  // Handle uncaught exceptions
+  process.on('uncaughtException', (error) => {
+    logger.error('Uncaught exception', error);
+  });
 
-process.on('unhandledRejection', (reason) => {
-  logger.error('Unhandled rejection', reason);
-});
+  process.on('unhandledRejection', (reason) => {
+    logger.error('Unhandled rejection', reason);
+  });
 
-logger.info('Main process started', {
-  platform: process.platform,
-  arch: process.arch,
-  electronVersion: process.versions.electron,
-  nodeVersion: process.versions.node,
-});
+  logger.info('Main process started', {
+    platform: process.platform,
+    arch: process.arch,
+    electronVersion: process.versions.electron,
+    nodeVersion: process.versions.node,
+  });
+}
