@@ -37,12 +37,20 @@ export async function createWindow(): Promise<BrowserWindow> {
   });
 
   // Load the app
-  if (MAIN_WINDOW_VITE_DEV_SERVER_URL) {
-    await mainWindow.loadURL(MAIN_WINDOW_VITE_DEV_SERVER_URL);
-  } else {
-    await mainWindow.loadFile(
-      path.join(__dirname, `../renderer/${MAIN_WINDOW_VITE_NAME}/index.html`)
-    );
+  try {
+    if (MAIN_WINDOW_VITE_DEV_SERVER_URL) {
+      logger.info('Loading from dev server:', MAIN_WINDOW_VITE_DEV_SERVER_URL);
+      await mainWindow.loadURL(MAIN_WINDOW_VITE_DEV_SERVER_URL);
+    } else {
+      const indexPath = path.join(__dirname, `../renderer/${MAIN_WINDOW_VITE_NAME}/index.html`);
+      logger.info('Loading from file:', indexPath);
+      await mainWindow.loadFile(indexPath);
+    }
+  } catch (error) {
+    logger.error('Failed to load main window content:', error);
+    // Show window anyway so user can see something went wrong
+    mainWindow.show();
+    return mainWindow;
   }
 
   // Show window when ready
@@ -50,6 +58,14 @@ export async function createWindow(): Promise<BrowserWindow> {
     mainWindow?.show();
     logger.info('Main window ready and shown');
   });
+
+  // Fallback: show window after timeout if ready-to-show doesn't fire
+  setTimeout(() => {
+    if (mainWindow && !mainWindow.isVisible()) {
+      logger.warn('Window not shown after timeout, forcing show');
+      mainWindow.show();
+    }
+  }, 5000);
 
   // Open external links in browser
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
