@@ -280,7 +280,7 @@ create:release:
 
       docker run --rm \
         -e CI_JOB_TOKEN \
-        -e CI_API_V4_URL \
+        -e CI_SERVER_URL \
         -e CI_PROJECT_ID \
         -v /tmp/release_description.md:/description.md:ro \
         registry.gitlab.com/gitlab-org/release-cli:latest release-cli create \
