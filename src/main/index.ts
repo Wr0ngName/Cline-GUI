@@ -3,23 +3,29 @@
  *
  * IMPORTANT: Squirrel events must be handled before importing dependencies
  * that may not be available during install/update (e.g., electron-log).
- * Only import Electron built-ins and Node.js built-ins before Squirrel check.
  */
 
 import { app, BrowserWindow } from 'electron';
+// electron-squirrel-startup only uses Node built-ins, safe to import
+import started from 'electron-squirrel-startup';
 
 import handleSquirrelEvents from './utils/squirrel';
 
-// Handle Squirrel.Windows install/update/uninstall events FIRST
-// This includes prompting user about data cleanup on uninstall
-handleSquirrelEvents().then((handled) => {
-  if (handled) {
-    // Squirrel event was handled, app will quit
-    return;
-  }
-  // Continue with normal app startup - now safe to import dependencies
-  startApp();
-});
+// Handle Squirrel.Windows install/update events via electron-squirrel-startup
+// This is the most reliable way to handle shortcuts creation
+if (started) {
+  app.quit();
+} else {
+  // Check for uninstall event (we handle this specially for cleanup prompt)
+  handleSquirrelEvents().then((handled) => {
+    if (handled) {
+      // Uninstall event was handled, app will quit
+      return;
+    }
+    // Continue with normal app startup - now safe to import dependencies
+    startApp();
+  });
+}
 
 // Lazy imports - only loaded after Squirrel check passes
 let setupIPC: typeof import('./ipc').setupIPC;

@@ -1,9 +1,11 @@
 /**
  * Squirrel.Windows event handler with user data cleanup prompt
  *
- * Note: This file must NOT import electron-log or other dependencies
- * that may not be available during Squirrel install/update events
- * when the app runs from a temporary location.
+ * Uses electron-squirrel-startup for install/update events (reliable),
+ * but intercepts uninstall to show a cleanup prompt.
+ *
+ * Note: This file must NOT import npm dependencies that may not be
+ * available during Squirrel events when the app runs from a temp location.
  */
 
 import { spawn } from 'child_process';
@@ -19,24 +21,27 @@ const log = {
 };
 
 /**
- * Get the path to user data directory
- */
-function getUserDataPath(): string {
-  return app.getPath('userData');
-}
-
-/**
- * Get the path to app data (electron-store config)
+ * Get the path to app data directories
  */
 function getAppDataPaths(): string[] {
-  const userDataPath = getUserDataPath();
-  const configPath = app.getPath('appData');
+  try {
+    const userDataPath = app.getPath('userData');
+    const configPath = app.getPath('appData');
 
-  return [
-    userDataPath,
-    path.join(configPath, 'cline-gui'),
-    path.join(configPath, 'Cline GUI'),
-  ].filter(p => fs.existsSync(p));
+    return [
+      userDataPath,
+      path.join(configPath, 'cline-gui'),
+      path.join(configPath, 'Cline GUI'),
+    ].filter(p => {
+      try {
+        return fs.existsSync(p);
+      } catch {
+        return false;
+      }
+    });
+  } catch {
+    return [];
+  }
 }
 
 /**
@@ -64,6 +69,8 @@ function runSquirrelCommand(args: string[]): void {
   const updateExe = path.resolve(path.dirname(process.execPath), '..', 'Update.exe');
   const appName = path.basename(process.execPath, '.exe');
 
+  log.info('Running Squirrel command:', updateExe, args, appName);
+
   try {
     spawn(updateExe, args.concat([appName]), { detached: true });
   } catch (error) {
@@ -72,59 +79,9 @@ function runSquirrelCommand(args: string[]): void {
 }
 
 /**
- * Handle Squirrel.Windows events
- * Returns true if a Squirrel event was handled (app should quit)
- */
-export async function handleSquirrelEvents(): Promise<boolean> {
-  if (process.platform !== 'win32') {
-    return false;
-  }
-
-  const squirrelEvent = process.argv[1];
-
-  if (!squirrelEvent?.startsWith('--squirrel-')) {
-    return false;
-  }
-
-  switch (squirrelEvent) {
-    case '--squirrel-install':
-    case '--squirrel-updated':
-      // Create desktop and start menu shortcuts
-      runSquirrelCommand(['--createShortcut']);
-      app.quit();
-      return true;
-
-    case '--squirrel-uninstall':
-      // Show dialog asking about user data cleanup
-      // Note: We need to handle this before app is fully ready
-      await handleUninstall();
-
-      // Remove shortcuts
-      runSquirrelCommand(['--removeShortcut']);
-      app.quit();
-      return true;
-
-    case '--squirrel-obsolete':
-      // Called on older version being updated
-      app.quit();
-      return true;
-
-    case '--squirrel-firstrun':
-      // First run after install - could show welcome screen
-      return false;
-
-    default:
-      return false;
-  }
-}
-
-/**
  * Handle uninstall event - prompt user about data cleanup
  */
 async function handleUninstall(): Promise<void> {
-  // We need to show a dialog, but app might not be ready yet
-  // Use a simple approach with app.whenReady()
-
   try {
     await app.whenReady();
 
@@ -139,7 +96,6 @@ async function handleUninstall(): Promise<void> {
     });
 
     if (result.response === 1) {
-      // User chose "Remove Everything"
       removeUserData();
       log.info('User chose to remove all data during uninstall');
     } else {
@@ -149,6 +105,38 @@ async function handleUninstall(): Promise<void> {
     // If dialog fails, default to keeping data (safer option)
     log.error('Failed to show uninstall dialog, keeping user data:', error);
   }
+}
+
+/**
+ * Handle Squirrel.Windows events
+ * Returns true if a Squirrel event was handled (app should quit)
+ *
+ * Only handles uninstall specially (for cleanup prompt).
+ * Install/update use electron-squirrel-startup (more reliable).
+ */
+export async function handleSquirrelEvents(): Promise<boolean> {
+  if (process.platform !== 'win32') {
+    return false;
+  }
+
+  const squirrelEvent = process.argv[1];
+
+  // Only intercept uninstall for our custom cleanup prompt
+  // Let electron-squirrel-startup handle install/update (it's more reliable)
+  if (squirrelEvent === '--squirrel-uninstall') {
+    log.info('Handling uninstall event');
+
+    await handleUninstall();
+
+    // Remove shortcuts
+    runSquirrelCommand(['--removeShortcut']);
+
+    // Give time for shortcut removal
+    setTimeout(() => app.quit(), 1000);
+    return true;
+  }
+
+  return false;
 }
 
 export default handleSquirrelEvents;
