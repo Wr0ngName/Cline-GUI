@@ -7,6 +7,7 @@
  */
 
 import { app, BrowserWindow } from 'electron';
+
 import handleSquirrelEvents from './utils/squirrel';
 
 // Handle Squirrel.Windows install/update/uninstall events FIRST

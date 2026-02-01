@@ -6,10 +6,11 @@
  * when the app runs from a temporary location.
  */
 
-import { app, dialog } from 'electron';
 import { spawn } from 'child_process';
-import * as path from 'path';
 import * as fs from 'fs';
+import * as path from 'path';
+
+import { app, dialog } from 'electron';
 
 // Simple console logging for Squirrel events (no dependencies)
 const log = {
