@@ -8,12 +8,13 @@ import { storeToRefs } from 'pinia';
 import { useFilesStore } from '../../stores/files';
 import FileTreeItem from './FileTreeItem.vue';
 import Spinner from '../shared/Spinner.vue';
+import { logger } from '../../utils/logger';
 
 const filesStore = useFilesStore();
 const { fileTree, hasFiles, isLoading, error } = storeToRefs(filesStore);
 
 function handleFileSelect(path: string) {
-  console.log('File selected:', path);
+  logger.debug('File selected', { path });
   // Could open in editor, show preview, etc.
 }
 

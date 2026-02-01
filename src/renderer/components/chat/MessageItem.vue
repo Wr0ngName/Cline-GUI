@@ -16,7 +16,6 @@ interface Props {
 const props = defineProps<Props>();
 
 const isUser = computed(() => props.message.role === 'user');
-const isAssistant = computed(() => props.message.role === 'assistant');
 
 const formattedTime = computed(() => {
   const date = new Date(props.message.timestamp);

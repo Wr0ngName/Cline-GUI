@@ -6,6 +6,7 @@ import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
 
 import type { FileNode, FileChange } from '@shared/types';
+import { logger } from '../utils/logger';
 
 export const useFilesStore = defineStore('files', () => {
   // State
@@ -34,7 +35,7 @@ export const useFilesStore = defineStore('files', () => {
       }
       return directory;
     } catch (err) {
-      console.error('Failed to select directory:', err);
+      logger.error('Failed to select directory', err);
       error.value = 'Failed to select directory';
       return null;
     }
@@ -52,7 +53,7 @@ export const useFilesStore = defineStore('files', () => {
       const tree = await window.electron.files.getTree(workingDirectory.value);
       fileTree.value = tree;
     } catch (err) {
-      console.error('Failed to load file tree:', err);
+      logger.error('Failed to load file tree', err);
       error.value = 'Failed to load file tree';
     } finally {
       isLoading.value = false;
@@ -63,7 +64,7 @@ export const useFilesStore = defineStore('files', () => {
     try {
       return await window.electron.files.read(filePath);
     } catch (err) {
-      console.error('Failed to read file:', err);
+      logger.error('Failed to read file', err);
       error.value = 'Failed to read file';
       return null;
     }
@@ -109,7 +110,7 @@ export const useFilesStore = defineStore('files', () => {
 
     // Set up new watcher
     unsubscribe = window.electron.files.onChange((changes: FileChange[]) => {
-      console.log('File changes detected:', changes);
+      logger.debug('File changes detected', { changeCount: changes.length });
       // Reload file tree on changes
       loadFileTree();
     });
@@ -142,7 +143,7 @@ export const useFilesStore = defineStore('files', () => {
         setupFileWatcher();
       }
     } catch (err) {
-      console.error('Failed to initialize files store:', err);
+      logger.error('Failed to initialize files store', err);
     }
   }
 

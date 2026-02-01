@@ -19,17 +19,12 @@ interface StoredConfig {
   autoApproveReads: boolean;
 }
 
-// Type for the dynamically imported Store
-type ElectronStore<T> = {
-  store: T;
-  get<K extends keyof T>(key: K, defaultValue?: T[K]): T[K];
-  set<K extends keyof T>(key: K, value: T[K]): void;
-  delete<K extends keyof T>(key: K): void;
-  clear(): void;
-};
+// Use any for the dynamically imported Store to avoid type conflicts
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type StoreInstance = any;
 
 export class ConfigService {
-  private store: ElectronStore<StoredConfig> | null = null;
+  private store: StoreInstance = null;
   private initPromise: Promise<void> | null = null;
 
   constructor() {
@@ -50,7 +45,7 @@ export class ConfigService {
           fontSize: 14,
           autoApproveReads: true,
         },
-      }) as ElectronStore<StoredConfig>;
+      });
       logger.info('ConfigService initialized');
     } catch (error) {
       logger.error('Failed to initialize ConfigService', error);
@@ -265,8 +260,8 @@ export class ConfigService {
     this.store.set('workingDirectory', directory);
 
     // Update recent projects
-    const recent = this.store.get('recentProjects', []);
-    const filtered = recent.filter((p) => p !== directory);
+    const recent = this.store.get('recentProjects', []) as string[];
+    const filtered = recent.filter((p: string) => p !== directory);
     const updated = [directory, ...filtered].slice(0, 10);
     this.store.set('recentProjects', updated);
 

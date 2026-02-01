@@ -5,7 +5,7 @@
 import { contextBridge, ipcRenderer } from 'electron';
 
 import type { ElectronAPI } from '../shared/preload-api';
-import { IPC_CHANNELS } from '../shared/types';
+import { IPC_CHANNELS, ActionResponse } from '../shared/types';
 
 // Create the API object that will be exposed to the renderer
 const electronAPI: ElectronAPI = {
@@ -14,11 +14,17 @@ const electronAPI: ElectronAPI = {
     send: (message: string, workingDir: string) =>
       ipcRenderer.invoke(IPC_CHANNELS.CLAUDE_SEND, message, workingDir),
 
-    approve: (actionId: string) =>
-      ipcRenderer.invoke(IPC_CHANNELS.CLAUDE_APPROVE, actionId),
+    approve: (
+      actionId: string,
+      updatedInput?: Record<string, unknown>,
+      alwaysAllow?: boolean
+    ) => ipcRenderer.invoke(IPC_CHANNELS.CLAUDE_APPROVE, actionId, updatedInput, alwaysAllow),
 
-    reject: (actionId: string) =>
-      ipcRenderer.invoke(IPC_CHANNELS.CLAUDE_REJECT, actionId),
+    reject: (actionId: string, message?: string) =>
+      ipcRenderer.invoke(IPC_CHANNELS.CLAUDE_REJECT, actionId, message),
+
+    respondToAction: (response: ActionResponse) =>
+      ipcRenderer.invoke(IPC_CHANNELS.CLAUDE_ACTION_RESPONSE, response),
 
     abort: () => ipcRenderer.invoke(IPC_CHANNELS.CLAUDE_ABORT),
 

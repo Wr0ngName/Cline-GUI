@@ -10,6 +10,7 @@ import { useSettingsStore } from '../../stores/settings';
 import type { AuthStatus } from '../../../shared/types';
 import Button from '../shared/Button.vue';
 import Modal from '../shared/Modal.vue';
+import { logger } from '../../utils/logger';
 
 interface Props {
   open: boolean;
@@ -22,7 +23,7 @@ const emit = defineEmits<{
 }>();
 
 const settingsStore = useSettingsStore();
-const { config, isSaving, theme } = storeToRefs(settingsStore);
+const { config, isSaving } = storeToRefs(settingsStore);
 
 // Auth state
 const authStatus = ref<AuthStatus>({ isAuthenticated: false, method: 'none' });
@@ -46,8 +47,8 @@ onMounted(async () => {
 async function refreshAuthStatus() {
   try {
     authStatus.value = await window.electron.auth.getStatus();
-  } catch (error) {
-    console.error('Failed to get auth status:', error);
+  } catch (err) {
+    logger.error('Failed to get auth status', err);
   }
 }
 
@@ -134,8 +135,8 @@ async function logout() {
     await window.electron.auth.logout();
     await refreshAuthStatus();
     localApiKey.value = '';
-  } catch (error) {
-    console.error('Logout failed:', error);
+  } catch (err) {
+    logger.error('Logout failed', err);
   }
 }
 

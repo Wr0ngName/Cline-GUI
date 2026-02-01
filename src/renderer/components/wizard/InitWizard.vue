@@ -8,6 +8,7 @@ import { ref, computed, onMounted } from 'vue';
 
 import Button from '../shared/Button.vue';
 import type { AuthStatus } from '../../../shared/types';
+import { logger } from '../../utils/logger';
 
 const emit = defineEmits<{
   (e: 'complete'): void;
@@ -81,8 +82,8 @@ async function selectFolder() {
     if (folder) {
       selectedFolder.value = folder;
     }
-  } catch (error) {
-    console.error('Failed to select folder:', error);
+  } catch (err) {
+    logger.error('Failed to select folder', err);
   } finally {
     isSelectingFolder.value = false;
   }
@@ -91,8 +92,8 @@ async function selectFolder() {
 async function refreshAuthStatus() {
   try {
     authStatus.value = await window.electron.auth.getStatus();
-  } catch (error) {
-    console.error('Failed to get auth status:', error);
+  } catch (err) {
+    logger.error('Failed to get auth status', err);
   }
 }
 

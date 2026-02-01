@@ -3,10 +3,11 @@
  */
 
 import { defineStore } from 'pinia';
-import { ref, computed, onMounted, onUnmounted } from 'vue';
+import { ref, computed } from 'vue';
 
 import type { AppConfig } from '@shared/types';
 import { DEFAULT_CONFIG } from '@shared/types';
+import { logger } from '../utils/logger';
 
 export const useSettingsStore = defineStore('settings', () => {
   // State
@@ -38,8 +39,8 @@ export const useSettingsStore = defineStore('settings', () => {
     try {
       const loadedConfig = await window.electron.config.get();
       config.value = loadedConfig;
-    } catch (error) {
-      console.error('Failed to load config:', error);
+    } catch (err) {
+      logger.error('Failed to load config', err);
     } finally {
       isLoading.value = false;
     }
@@ -51,9 +52,9 @@ export const useSettingsStore = defineStore('settings', () => {
       await window.electron.config.set(updates);
       // Update local state
       Object.assign(config.value, updates);
-    } catch (error) {
-      console.error('Failed to save config:', error);
-      throw error;
+    } catch (err) {
+      logger.error('Failed to save config', err);
+      throw err;
     } finally {
       isSaving.value = false;
     }

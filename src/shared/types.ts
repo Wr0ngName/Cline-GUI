@@ -21,10 +21,21 @@ export type ActionStatus = 'pending' | 'approved' | 'rejected' | 'executed' | 'f
 export interface PendingAction {
   id: string;
   type: ActionType;
+  toolName: string;
   description: string;
   details: ActionDetails;
+  input: Record<string, unknown>;
   status: ActionStatus;
   timestamp: number;
+}
+
+// Response from renderer for action approval
+export interface ActionResponse {
+  actionId: string;
+  approved: boolean;
+  updatedInput?: Record<string, unknown>;
+  alwaysAllow?: boolean;
+  denyMessage?: string;
 }
 
 export interface FileEditDetails {
@@ -140,6 +151,8 @@ export const IPC_CHANNELS = {
   CLAUDE_ERROR: 'claude:error',
   CLAUDE_DONE: 'claude:done',
   CLAUDE_ABORT: 'claude:abort',
+  CLAUDE_TOOL_RESULT: 'claude:tool-result',
+  CLAUDE_ACTION_RESPONSE: 'claude:action-response',
 
   // File operations
   FILES_SELECT_DIR: 'files:select-directory',

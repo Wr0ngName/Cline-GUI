@@ -3,9 +3,11 @@
  */
 
 import type {
+  ActionResponse,
   AppConfig,
   AuthStatus,
   Conversation,
+  FileChange,
   FileNode,
   PendingAction,
   UpdateInfo,
@@ -16,8 +18,13 @@ export interface ElectronAPI {
   // Claude operations
   claude: {
     send: (message: string, workingDir: string) => Promise<void>;
-    approve: (actionId: string) => Promise<void>;
-    reject: (actionId: string) => Promise<void>;
+    approve: (
+      actionId: string,
+      updatedInput?: Record<string, unknown>,
+      alwaysAllow?: boolean
+    ) => Promise<void>;
+    reject: (actionId: string, message?: string) => Promise<void>;
+    respondToAction: (response: ActionResponse) => Promise<void>;
     abort: () => Promise<void>;
     onChunk: (callback: (chunk: string) => void) => () => void;
     onToolUse: (callback: (action: PendingAction) => void) => () => void;
@@ -30,7 +37,7 @@ export interface ElectronAPI {
     selectDirectory: () => Promise<string | null>;
     getTree: (directory: string) => Promise<FileNode[]>;
     read: (filePath: string) => Promise<string>;
-    onChange: (callback: (changes: { type: string; path: string }[]) => void) => () => void;
+    onChange: (callback: (changes: FileChange[]) => void) => () => void;
   };
 
   // Config operations
@@ -74,7 +81,7 @@ export interface ElectronAPI {
   };
 
   // Platform info
-  platform: NodeJS.Platform;
+  platform: string;
 }
 
 declare global {

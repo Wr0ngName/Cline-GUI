@@ -1,12 +1,21 @@
 /**
  * Service for integrating with @anthropic-ai/claude-code
- * Uses the Claude Code SDK query() function for full Claude Code capabilities
+ * Uses the Claude Code SDK query() function with canUseTool callback
+ * for custom permission UI integration.
  * Supports both OAuth tokens (Pro/Max) and API keys
  */
 
 import { BrowserWindow } from 'electron';
 import { query } from '@anthropic-ai/claude-code';
-import type { SDKMessage, SDKAssistantMessage, SDKResultMessage, Query } from '@anthropic-ai/claude-code';
+import type {
+  SDKMessage,
+  SDKAssistantMessage,
+  SDKResultMessage,
+  Query,
+  CanUseTool,
+  PermissionResult,
+  PermissionUpdate,
+} from '@anthropic-ai/claude-code';
 
 import {
   ActionType,
@@ -15,16 +24,27 @@ import {
   IPC_CHANNELS,
   PendingAction,
   ReadFileDetails,
+  ActionResponse,
 } from '../../shared/types';
 import logger from '../utils/logger';
 import ConfigService from './ConfigService';
+
+interface PendingPermission {
+  actionId: string;
+  toolName: string;
+  input: Record<string, unknown>;
+  resolve: (result: PermissionResult) => void;
+  reject: (error: Error) => void;
+  suggestions?: PermissionUpdate[];
+}
 
 export class ClaudeCodeService {
   private configService: ConfigService;
   private abortController: AbortController | null = null;
   private currentQuery: Query | null = null;
-  private pendingActions: Map<string, PendingAction> = new Map();
+  private pendingPermissions: Map<string, PendingPermission> = new Map();
   private mainWindow: BrowserWindow | null = null;
+  private actionCounter = 0;
 
   constructor(configService: ConfigService) {
     this.configService = configService;
@@ -41,7 +61,7 @@ export class ClaudeCodeService {
   /**
    * Check if authentication is configured (OAuth or API key)
    */
-  private async hasAuth(): Promise<boolean> {
+  private async hasAuthInternal(): Promise<boolean> {
     return await this.configService.hasAuth();
   }
 
@@ -71,11 +91,244 @@ export class ClaudeCodeService {
   }
 
   /**
+   * Generate a unique action ID
+   */
+  private generateActionId(): string {
+    return `action_${Date.now()}_${++this.actionCounter}`;
+  }
+
+  /**
+   * Create the canUseTool callback for custom permission handling
+   * This is called by the SDK when Claude wants to use a tool
+   */
+  private createCanUseToolCallback(): CanUseTool {
+    return async (toolName, input, options): Promise<PermissionResult> => {
+      const actionId = this.generateActionId();
+
+      logger.info('Tool permission requested', { actionId, toolName, input });
+
+      // Check if operation was aborted
+      if (options.signal.aborted) {
+        return {
+          behavior: 'deny',
+          message: 'Operation was cancelled',
+          interrupt: true,
+        };
+      }
+
+      // Auto-approve read operations if configured
+      const config = await this.configService.getConfig();
+      if (config.autoApproveReads && this.isReadOnlyTool(toolName)) {
+        logger.debug('Auto-approving read operation', { toolName });
+        return {
+          behavior: 'allow',
+          updatedInput: input,
+        };
+      }
+
+      // Create pending action for UI
+      const action = this.createPendingAction(actionId, toolName, input);
+      if (!action) {
+        logger.warn('Could not create action for tool', { toolName });
+        return {
+          behavior: 'deny',
+          message: `Unknown tool: ${toolName}`,
+        };
+      }
+
+      // Send to renderer for user approval
+      this.emitToolUse(action);
+
+      // Create promise that will be resolved when user responds
+      return new Promise<PermissionResult>((resolve, reject) => {
+        const pendingPermission: PendingPermission = {
+          actionId,
+          toolName,
+          input,
+          resolve,
+          reject,
+          suggestions: options.suggestions,
+        };
+
+        this.pendingPermissions.set(actionId, pendingPermission);
+
+        // Set up abort handler
+        options.signal.addEventListener('abort', () => {
+          const pending = this.pendingPermissions.get(actionId);
+          if (pending) {
+            this.pendingPermissions.delete(actionId);
+            resolve({
+              behavior: 'deny',
+              message: 'Operation was cancelled',
+              interrupt: true,
+            });
+          }
+        });
+
+        // Timeout after 60 seconds (SDK requirement)
+        setTimeout(() => {
+          const pending = this.pendingPermissions.get(actionId);
+          if (pending) {
+            this.pendingPermissions.delete(actionId);
+            logger.warn('Permission request timed out', { actionId });
+            resolve({
+              behavior: 'deny',
+              message: 'Permission request timed out',
+              interrupt: false,
+            });
+          }
+        }, 60000);
+      });
+    };
+  }
+
+  /**
+   * Check if a tool is read-only (safe to auto-approve)
+   */
+  private isReadOnlyTool(toolName: string): boolean {
+    const readOnlyTools = ['Read', 'Glob', 'Grep', 'LS', 'ListFiles'];
+    return readOnlyTools.includes(toolName);
+  }
+
+  /**
+   * Create a PendingAction from tool info for UI display
+   */
+  private createPendingAction(
+    actionId: string,
+    toolName: string,
+    input: Record<string, unknown>
+  ): PendingAction | null {
+    let actionType: ActionType;
+    let description: string;
+    let details: FileEditDetails | BashCommandDetails | ReadFileDetails;
+
+    switch (toolName) {
+      case 'Edit':
+        actionType = 'file-edit';
+        description = `Edit file: ${input.file_path}`;
+        details = {
+          filePath: input.file_path as string,
+          originalContent: input.old_string as string | undefined,
+          newContent: input.new_string as string,
+        } as FileEditDetails;
+        break;
+
+      case 'Write':
+        actionType = 'file-create';
+        description = `Write file: ${input.file_path}`;
+        details = {
+          filePath: input.file_path as string,
+          newContent: input.content as string,
+        } as FileEditDetails;
+        break;
+
+      case 'Bash':
+        actionType = 'bash-command';
+        const cmd = input.command as string;
+        description = `Run command: ${cmd.length > 50 ? cmd.slice(0, 50) + '...' : cmd}`;
+        details = {
+          command: cmd,
+          workingDirectory: (input.cwd as string) || '',
+        } as BashCommandDetails;
+        break;
+
+      case 'Read':
+        actionType = 'read-file';
+        description = `Read file: ${input.file_path}`;
+        details = {
+          filePath: input.file_path as string,
+        } as ReadFileDetails;
+        break;
+
+      case 'Glob':
+        actionType = 'read-file';
+        description = `Search files: ${input.pattern}`;
+        details = {
+          filePath: (input.path as string) || '.',
+        } as ReadFileDetails;
+        break;
+
+      case 'Grep':
+        actionType = 'read-file';
+        description = `Search content: ${input.pattern}`;
+        details = {
+          filePath: (input.path as string) || '.',
+        } as ReadFileDetails;
+        break;
+
+      default:
+        // Handle unknown tools generically
+        actionType = 'bash-command';
+        description = `Tool: ${toolName}`;
+        details = {
+          command: JSON.stringify(input),
+          workingDirectory: '',
+        } as BashCommandDetails;
+    }
+
+    return {
+      id: actionId,
+      type: actionType,
+      toolName,
+      description,
+      details,
+      input,
+      status: 'pending',
+      timestamp: Date.now(),
+    };
+  }
+
+  /**
+   * Handle action response from renderer (approve/reject)
+   */
+  handleActionResponse(response: ActionResponse): void {
+    const pending = this.pendingPermissions.get(response.actionId);
+    if (!pending) {
+      logger.warn('No pending permission found for action', { actionId: response.actionId });
+      return;
+    }
+
+    this.pendingPermissions.delete(response.actionId);
+
+    if (response.approved) {
+      logger.info('Action approved by user', {
+        actionId: response.actionId,
+        toolName: pending.toolName,
+        alwaysAllow: response.alwaysAllow,
+      });
+
+      const result: PermissionResult = {
+        behavior: 'allow',
+        updatedInput: response.updatedInput || pending.input,
+      };
+
+      // Include permission updates if user chose "always allow"
+      if (response.alwaysAllow && pending.suggestions) {
+        result.updatedPermissions = pending.suggestions;
+      }
+
+      pending.resolve(result);
+    } else {
+      logger.info('Action rejected by user', {
+        actionId: response.actionId,
+        toolName: pending.toolName,
+        message: response.denyMessage,
+      });
+
+      pending.resolve({
+        behavior: 'deny',
+        message: response.denyMessage || 'User rejected this action',
+        interrupt: !response.denyMessage, // Interrupt if no guidance provided
+      });
+    }
+  }
+
+  /**
    * Send a message to Claude using the Claude Code SDK
    */
   async sendMessage(message: string, workingDirectory: string): Promise<void> {
     // Check if auth is configured
-    if (!(await this.hasAuth())) {
+    if (!(await this.hasAuthInternal())) {
       this.emitError('Not authenticated. Please login with your Claude account or add an API key in Settings.');
       return;
     }
@@ -92,15 +345,15 @@ export class ClaudeCodeService {
       // Set up authentication environment
       const authEnv = await this.setupAuthEnv();
 
-      // Use Claude Code SDK query function
+      // Use Claude Code SDK query function with canUseTool callback
       const queryIterator = query({
         prompt: message,
         options: {
           cwd: workingDirectory,
           abortController: this.abortController,
           env: authEnv,
-          // Auto-approve read operations for better UX
-          permissionMode: 'default',
+          // Use canUseTool for custom permission UI
+          canUseTool: this.createCanUseToolCallback(),
           // Stream partial messages for real-time updates
           includePartialMessages: true,
         },
@@ -110,7 +363,6 @@ export class ClaudeCodeService {
 
       // Process the async generator
       for await (const sdkMessage of queryIterator) {
-        // Handle different message types
         await this.handleSDKMessage(sdkMessage);
       }
 
@@ -128,6 +380,8 @@ export class ClaudeCodeService {
     } finally {
       this.abortController = null;
       this.currentQuery = null;
+      // Clear any pending permissions
+      this.pendingPermissions.clear();
     }
   }
 
@@ -137,12 +391,10 @@ export class ClaudeCodeService {
   private async handleSDKMessage(message: SDKMessage): Promise<void> {
     switch (message.type) {
       case 'assistant':
-        // Process assistant message content blocks
         await this.processAssistantMessage(message as SDKAssistantMessage);
         break;
 
       case 'result':
-        // Log result info
         const resultMsg = message as SDKResultMessage;
         if (resultMsg.subtype === 'success') {
           logger.info('Query completed successfully', {
@@ -155,12 +407,11 @@ export class ClaudeCodeService {
         break;
 
       case 'stream_event':
-        // Handle streaming text updates
         this.handleStreamEvent(message);
         break;
 
       case 'system':
-        logger.debug('System message', { subtype: (message as any).subtype });
+        logger.debug('System message', { subtype: (message as { subtype?: string }).subtype });
         break;
 
       default:
@@ -177,13 +428,8 @@ export class ClaudeCodeService {
     for (const block of content) {
       if (block.type === 'text') {
         this.emitChunk(block.text);
-      } else if (block.type === 'tool_use') {
-        await this.handleToolUse({
-          id: block.id,
-          name: block.name,
-          input: block.input,
-        });
       }
+      // Tool use is handled via canUseTool callback, not here
     }
   }
 
@@ -191,120 +437,33 @@ export class ClaudeCodeService {
    * Handle streaming events for real-time text updates
    */
   private handleStreamEvent(message: SDKMessage): void {
-    const event = (message as any).event;
+    const event = (message as { event?: { type?: string; delta?: { type?: string; text?: string } } }).event;
     if (event?.type === 'content_block_delta' && event?.delta?.type === 'text_delta') {
-      this.emitChunk(event.delta.text);
+      this.emitChunk(event.delta.text || '');
     }
   }
 
   /**
-   * Handle tool use from Claude's response
+   * Approve a pending action (called from IPC handler)
    */
-  private async handleToolUse(toolBlock: { id: string; name: string; input: unknown }): Promise<void> {
-    const action = this.parseToolUse(toolBlock);
-    if (action) {
-      this.pendingActions.set(action.id, action);
-      this.emitToolUse(action);
-    }
+  async approveAction(actionId: string, updatedInput?: Record<string, unknown>, alwaysAllow?: boolean): Promise<void> {
+    this.handleActionResponse({
+      actionId,
+      approved: true,
+      updatedInput,
+      alwaysAllow,
+    });
   }
 
   /**
-   * Parse a tool use block into a PendingAction
+   * Reject a pending action (called from IPC handler)
    */
-  private parseToolUse(toolBlock: { id: string; name: string; input: unknown }): PendingAction | null {
-    const { id, name, input } = toolBlock;
-    const inputObj = input as Record<string, unknown>;
-
-    let actionType: ActionType;
-    let description: string;
-    let details: ActionDetails;
-
-    switch (name) {
-      case 'edit_file':
-      case 'write_file':
-        actionType = name === 'edit_file' ? 'file-edit' : 'file-create';
-        description = `${name === 'edit_file' ? 'Edit' : 'Create'} file: ${inputObj.path}`;
-        details = {
-          filePath: inputObj.path as string,
-          newContent: inputObj.content as string,
-          diff: inputObj.diff as string | undefined,
-        } as FileEditDetails;
-        break;
-
-      case 'delete_file':
-        actionType = 'file-delete';
-        description = `Delete file: ${inputObj.path}`;
-        details = {
-          filePath: inputObj.path as string,
-          newContent: '',
-        } as FileEditDetails;
-        break;
-
-      case 'run_command':
-      case 'bash':
-        actionType = 'bash-command';
-        description = `Run command: ${(inputObj.command as string).slice(0, 50)}...`;
-        details = {
-          command: inputObj.command as string,
-          workingDirectory: (inputObj.cwd as string) || '',
-        } as BashCommandDetails;
-        break;
-
-      case 'read_file':
-        actionType = 'read-file';
-        description = `Read file: ${inputObj.path}`;
-        details = {
-          filePath: inputObj.path as string,
-        } as ReadFileDetails;
-        break;
-
-      default:
-        logger.warn('Unknown tool use', { name });
-        return null;
-    }
-
-    return {
-      id,
-      type: actionType,
-      description,
-      details,
-      status: 'pending',
-      timestamp: Date.now(),
-    };
-  }
-
-  /**
-   * Approve a pending action
-   */
-  async approveAction(actionId: string): Promise<void> {
-    const action = this.pendingActions.get(actionId);
-    if (!action) {
-      logger.warn('Action not found for approval', { actionId });
-      return;
-    }
-
-    action.status = 'approved';
-    logger.info('Action approved', { actionId, type: action.type });
-
-    // TODO: Execute the approved action
-    // This will be implemented when we have the file system integration
-    action.status = 'executed';
-    this.pendingActions.delete(actionId);
-  }
-
-  /**
-   * Reject a pending action
-   */
-  async rejectAction(actionId: string): Promise<void> {
-    const action = this.pendingActions.get(actionId);
-    if (!action) {
-      logger.warn('Action not found for rejection', { actionId });
-      return;
-    }
-
-    action.status = 'rejected';
-    logger.info('Action rejected', { actionId, type: action.type });
-    this.pendingActions.delete(actionId);
+  async rejectAction(actionId: string, message?: string): Promise<void> {
+    this.handleActionResponse({
+      actionId,
+      approved: false,
+      denyMessage: message,
+    });
   }
 
   /**
@@ -323,6 +482,15 @@ export class ClaudeCodeService {
       this.abortController.abort();
       logger.info('Request abort requested');
     }
+    // Clear pending permissions
+    for (const [, pending] of this.pendingPermissions) {
+      pending.resolve({
+        behavior: 'deny',
+        message: 'Operation was cancelled',
+        interrupt: true,
+      });
+    }
+    this.pendingPermissions.clear();
   }
 
   /**
@@ -342,7 +510,7 @@ export class ClaudeCodeService {
   }
 
   /**
-   * Emit a tool use event to the renderer
+   * Emit a tool use event to the renderer for permission request
    */
   private emitToolUse(action: PendingAction): void {
     if (this.mainWindow && !this.mainWindow.isDestroyed()) {

@@ -7,6 +7,7 @@ import { onMounted, onUnmounted } from 'vue';
 import { useChatStore } from '../stores/chat';
 import { useFilesStore } from '../stores/files';
 import { useSettingsStore } from '../stores/settings';
+import { logger } from '../utils/logger';
 
 export function useClaudeChat() {
   const chatStore = useChatStore();
@@ -51,8 +52,8 @@ export function useClaudeChat() {
     try {
       // Send message via IPC
       await window.electron.claude.send(content, filesStore.workingDirectory);
-    } catch (error) {
-      console.error('Failed to send message:', error);
+    } catch (err) {
+      logger.error('Failed to send message', err);
       chatStore.setError('Failed to send message to Claude');
       chatStore.setLoading(false);
     }
@@ -66,8 +67,8 @@ export function useClaudeChat() {
       chatStore.updateActionStatus(actionId, 'approved');
       await window.electron.claude.approve(actionId);
       chatStore.removePendingAction(actionId);
-    } catch (error) {
-      console.error('Failed to approve action:', error);
+    } catch (err) {
+      logger.error('Failed to approve action', err);
       chatStore.setError('Failed to approve action');
     }
   }
@@ -80,8 +81,8 @@ export function useClaudeChat() {
       chatStore.updateActionStatus(actionId, 'rejected');
       await window.electron.claude.reject(actionId);
       chatStore.removePendingAction(actionId);
-    } catch (error) {
-      console.error('Failed to reject action:', error);
+    } catch (err) {
+      logger.error('Failed to reject action', err);
       chatStore.setError('Failed to reject action');
     }
   }
@@ -94,8 +95,8 @@ export function useClaudeChat() {
       await window.electron.claude.abort();
       chatStore.setLoading(false);
       chatStore.finishStreaming();
-    } catch (error) {
-      console.error('Failed to abort:', error);
+    } catch (err) {
+      logger.error('Failed to abort', err);
     }
   }
 

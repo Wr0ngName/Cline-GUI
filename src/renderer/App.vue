@@ -13,6 +13,7 @@ import WorkingDirectory from './components/files/WorkingDirectory.vue';
 import FileTree from './components/files/FileTree.vue';
 import SettingsPanel from './components/settings/SettingsPanel.vue';
 import InitWizard from './components/wizard/InitWizard.vue';
+import ErrorBoundary from './components/shared/ErrorBoundary.vue';
 
 const settingsStore = useSettingsStore();
 const filesStore = useFilesStore();
@@ -77,6 +78,7 @@ const isMac = window.electron?.platform === 'darwin';
 </script>
 
 <template>
+  <ErrorBoundary>
   <div class="h-screen flex flex-col bg-surface-50 dark:bg-surface-900">
     <!-- Header -->
     <header class="header flex items-center gap-4 drag-region">
@@ -234,4 +236,5 @@ const isMac = window.electron?.platform === 'darwin';
       @complete="onWizardComplete"
     />
   </div>
+  </ErrorBoundary>
 </template>
