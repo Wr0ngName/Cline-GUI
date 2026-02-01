@@ -1,5 +1,6 @@
 # GitLab CI/CD Pipeline for Cline GUI
 # Builds Electron app for Windows, macOS, and Linux
+# Uses shell executor with docker run for containerized builds
 
 stages:
   - test
@@ -12,36 +13,19 @@ variables:
   # Package registry for auto-updates
   PACKAGE_REGISTRY_URL: "${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic"
 
-# Cache node_modules between jobs
-.node_cache: &node_cache
-  cache:
-    key:
-      files:
-        - package-lock.json
-    paths:
-      - node_modules/
-    policy: pull-push
-
-# Base configuration for all jobs (requires Docker executor)
-.base:
-  image: node:${NODE_VERSION}
-  tags:
-    - docker
-  before_script:
-    - npm ci --prefer-offline
-
 # =============================================================================
 # TEST STAGE
 # =============================================================================
 
 lint:
   stage: test
-  tags:
-    - shell
-  extends: .base
-  <<: *node_cache
   script:
-    - npm run lint
+    - |
+      docker run --rm \
+        -v "$CI_PROJECT_DIR:/app" \
+        -w /app \
+        node:${NODE_VERSION} \
+        sh -c "npm ci --prefer-offline && npm run lint"
   rules:
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
@@ -49,10 +33,13 @@ lint:
 
 test:
   stage: test
-  extends: .base
-  <<: *node_cache
   script:
-    - npm run test
+    - |
+      docker run --rm \
+        -v "$CI_PROJECT_DIR:/app" \
+        -w /app \
+        node:${NODE_VERSION} \
+        sh -c "npm ci --prefer-offline && npm run test"
   rules:
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
@@ -60,12 +47,13 @@ test:
 
 typecheck:
   stage: test
-  tags:
-    - shell
-  extends: .base
-  <<: *node_cache
   script:
-    - npm run typecheck
+    - |
+      docker run --rm \
+        -v "$CI_PROJECT_DIR:/app" \
+        -w /app \
+        node:${NODE_VERSION} \
+        sh -c "npm ci --prefer-offline && npm run typecheck"
   rules:
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
@@ -79,15 +67,13 @@ typecheck:
 # Linux build (DEB, RPM)
 build:linux:
   stage: build
-  tags:
-    - shell
-  extends: .base
-  # Use base builder image for Linux (no wine needed)
-  image: electronuserland/builder:18
-  <<: *node_cache
   script:
-    - npm ci
-    - npm run make -- --platform=linux
+    - |
+      docker run --rm \
+        -v "$CI_PROJECT_DIR:/app" \
+        -w /app \
+        electronuserland/builder:18 \
+        sh -c "npm ci && npm run make -- --platform=linux"
   artifacts:
     name: "cline-gui-linux-${CI_COMMIT_REF_SLUG}"
     paths:
@@ -104,16 +90,13 @@ build:linux:
 # Requires wine-mono for Squirrel.Windows target
 build:windows:
   stage: build
-  tags:
-    - shell
-  extends: .base
-  # wine-mono includes Wine AND Mono required for Squirrel.Windows
-  image: electronuserland/builder:18-wine-mono
-  <<: *node_cache
   script:
-    - npm ci
-    # Rebuild native modules for Windows target
-    - npm run make -- --platform=win32
+    - |
+      docker run --rm \
+        -v "$CI_PROJECT_DIR:/app" \
+        -w /app \
+        electronuserland/builder:18-wine-mono \
+        sh -c "npm ci && npm run make -- --platform=win32"
   artifacts:
     name: "cline-gui-windows-${CI_COMMIT_REF_SLUG}"
     paths:
@@ -133,9 +116,8 @@ build:windows:
 #   stage: build
 #   tags:
 #     - macos
-#   before_script:
-#     - npm ci
 #   script:
+#     - npm ci
 #     - npm run make -- --platform=darwin
 #   artifacts:
 #     name: "cline-gui-macos-${CI_COMMIT_REF_SLUG}"
@@ -156,9 +138,6 @@ build:windows:
 # Upload artifacts to GitLab Package Registry for auto-updates
 publish:packages:
   stage: release
-  tags:
-    - shell
-  image: curlimages/curl:latest
   needs:
     - job: build:linux
       artifacts: true
@@ -221,42 +200,21 @@ publish:packages:
 # Create GitLab Release
 create:release:
   stage: release
-  image: registry.gitlab.com/gitlab-org/release-cli:latest
   needs:
     - job: publish:packages
   script:
     - |
       VERSION=${CI_COMMIT_TAG#v}
       echo "Creating release for version ${VERSION}"
-  release:
-    tag_name: $CI_COMMIT_TAG
-    name: "Cline GUI v${CI_COMMIT_TAG#v}"
-    description: |
-      ## Cline GUI v${CI_COMMIT_TAG#v}
 
-      ### Downloads
-
-      - **Linux (DEB)**: [cline-gui_${CI_COMMIT_TAG#v}_amd64.deb](${PACKAGE_REGISTRY_URL}/releases/${CI_COMMIT_TAG#v}/cline-gui_${CI_COMMIT_TAG#v}_amd64.deb)
-      - **Linux (RPM)**: [cline-gui-${CI_COMMIT_TAG#v}.x86_64.rpm](${PACKAGE_REGISTRY_URL}/releases/${CI_COMMIT_TAG#v}/cline-gui-${CI_COMMIT_TAG#v}.x86_64.rpm)
-      - **Windows**: [Cline-GUI-${CI_COMMIT_TAG#v}-Setup.exe](${PACKAGE_REGISTRY_URL}/releases/${CI_COMMIT_TAG#v}/Cline-GUI-${CI_COMMIT_TAG#v}-Setup.exe)
-
-      ### Installation
-
-      #### Linux (Debian/Ubuntu)
-      ```bash
-      sudo dpkg -i cline-gui_${CI_COMMIT_TAG#v}_amd64.deb
-      ```
-
-      #### Linux (Fedora/RHEL)
-      ```bash
-      sudo rpm -i cline-gui-${CI_COMMIT_TAG#v}.x86_64.rpm
-      ```
-
-      #### Windows
-      Download and run the installer.
-
-      ---
-
-      *Built automatically by GitLab CI/CD*
+      # Use curl to create release via GitLab API
+      curl --header "PRIVATE-TOKEN: ${CI_JOB_TOKEN}" \
+           --header "Content-Type: application/json" \
+           --data "{
+             \"tag_name\": \"${CI_COMMIT_TAG}\",
+             \"name\": \"Cline GUI v${VERSION}\",
+             \"description\": \"## Cline GUI v${VERSION}\n\n### Downloads\n\n- **Linux (DEB)**: [cline-gui_${VERSION}_amd64.deb](${PACKAGE_REGISTRY_URL}/releases/${VERSION}/cline-gui_${VERSION}_amd64.deb)\n- **Linux (RPM)**: [cline-gui-${VERSION}.x86_64.rpm](${PACKAGE_REGISTRY_URL}/releases/${VERSION}/cline-gui-${VERSION}.x86_64.rpm)\n- **Windows**: [Cline-GUI-${VERSION}-Setup.exe](${PACKAGE_REGISTRY_URL}/releases/${VERSION}/Cline-GUI-${VERSION}-Setup.exe)\n\n---\n\n*Built automatically by GitLab CI/CD*\"
+           }" \
+           "${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/releases"
   rules:
     - if: $CI_COMMIT_TAG =~ /^v\d+\.\d+\.\d+$/
