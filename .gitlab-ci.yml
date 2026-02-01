@@ -113,6 +113,7 @@ build:linux:
 
 # Windows build (Squirrel installer)
 # Requires wine-mono for Squirrel.Windows target
+# Use :wine-mono base and install Node 20 (no :20-wine-mono image with proper sh)
 build:windows:
   stage: build
   tags:
@@ -123,8 +124,8 @@ build:windows:
       docker run --rm \
         -v "$CI_PROJECT_DIR:/app" \
         -w /app \
-        electronuserland/builder:20-wine-mono \
-        bash -c "npm ci && npm run make -- --platform=win32"
+        electronuserland/builder:wine-mono \
+        bash -c "source ~/.nvm/nvm.sh && nvm install 20 && nvm use 20 && npm ci && npm run make -- --platform=win32"
   artifacts:
     name: "cline-gui-windows-${CI_COMMIT_REF_SLUG}"
     paths:
