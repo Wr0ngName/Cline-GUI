@@ -17,6 +17,8 @@ export default defineConfig({
         'electron-updater',
         '@anthropic-ai/claude-code',
         '@anthropic-ai/sdk',
+        // Native modules must be external
+        'node-pty',
       ],
     },
   },

@@ -4,20 +4,21 @@
  * Uses the Claude CLI `setup-token` command to get an OAuth URL,
  * then sends the user's code back to complete authentication.
  *
- * Based on the mautrix-claude sidecar implementation, but using
- * child_process.spawn instead of node-pty for Vite compatibility.
+ * Uses node-pty for cross-platform PTY support.
  */
 
-import { spawn, ChildProcess } from 'child_process';
 import * as path from 'path';
 import * as fs from 'fs';
 import * as os from 'os';
+import { execSync } from 'child_process';
 import { shell } from 'electron';
+import * as pty from 'node-pty';
+import type { IPty } from 'node-pty';
 
 import logger from '../utils/logger';
 
 export interface OAuthFlowState {
-  process: ChildProcess | null;
+  pty: IPty | null;
   configDir: string;
   createdAt: number;
   output: string;
@@ -63,7 +64,6 @@ export class AuthService {
 
     // Try to find via which/where command
     try {
-      const { execSync } = require('child_process');
       const cmd = process.platform === 'win32' ? 'where claude' : 'which claude';
       const result = execSync(cmd, { encoding: 'utf8' }).trim().split('\n')[0];
       if (result && fs.existsSync(result)) {
@@ -80,7 +80,7 @@ export class AuthService {
   }
 
   /**
-   * Start the OAuth login flow.
+   * Start the OAuth login flow using node-pty.
    * Returns the authorization URL that the user should visit.
    */
   async startOAuthFlow(): Promise<{ authUrl: string; error?: string }> {
@@ -94,41 +94,41 @@ export class AuthService {
     const claudeCli = this.findClaudeCli();
     const isNpx = claudeCli === 'npx';
 
-    // Build command args
-    const args = isNpx ? ['@anthropic-ai/claude-code', 'setup-token'] : ['setup-token'];
-    const command = isNpx ? 'npx' : claudeCli;
+    // Build command and args
+    const shell_cmd = process.platform === 'win32' ? 'cmd.exe' : '/bin/bash';
+    const claudeCmd = isNpx
+      ? 'npx @anthropic-ai/claude-code setup-token'
+      : `"${claudeCli}" setup-token`;
 
-    logger.info(`Starting OAuth flow with: ${command} ${args.join(' ')}`);
+    logger.info(`Starting OAuth flow with: ${claudeCmd}`);
 
     // Environment without browser auto-open
-    const env = {
-      ...process.env,
+    const env: Record<string, string> = {
+      ...process.env as Record<string, string>,
       BROWSER: process.platform === 'win32' ? 'echo' : '/bin/false',
       CLAUDE_CONFIG_DIR: configDir,
-      // Force non-interactive mode / prevent escape codes
-      TERM: 'dumb',
+      TERM: 'xterm-256color',
       NO_COLOR: '1',
     };
-    delete env.DISPLAY; // Prevent X11 browser launch
+    delete env.DISPLAY; // Prevent X11 browser launch on Linux
 
     return new Promise((resolve) => {
       try {
-        const proc = spawn(command, args, {
+        // Create PTY
+        const ptyProcess = pty.spawn(shell_cmd, [process.platform === 'win32' ? '/c' : '-c', claudeCmd], {
+          name: 'xterm-256color',
+          cols: 120,
+          rows: 30,
           cwd: os.homedir(),
-          env: env as NodeJS.ProcessEnv,
-          stdio: ['pipe', 'pipe', 'pipe'],
+          env,
         });
 
         let output = '';
         let authUrl = '';
         const startTime = Date.now();
+        let resolved = false;
 
-        // Handle stdout
-        proc.stdout?.on('data', (data: Buffer) => {
-          const text = data.toString();
-          output += text;
-          logger.debug(`OAuth stdout: ${text.slice(0, 200)}`);
-
+        const checkForUrl = () => {
           // Remove ANSI escape codes for parsing
           const clean = this.stripAnsi(output);
 
@@ -139,44 +139,30 @@ export class AuthService {
             logger.info(`Found OAuth URL (length=${authUrl.length})`);
           }
 
-          // Check if we have URL (might not have prompt in non-tty mode)
-          if (authUrl && (clean.includes('Paste') || clean.includes('code') || Date.now() - startTime > 5000)) {
+          // Check if we have URL and prompt (or enough time has passed after finding URL)
+          if (authUrl && !resolved && (clean.includes('Paste') || clean.includes('code') || Date.now() - startTime > 3000)) {
+            resolved = true;
             logger.info('OAuth flow ready for code input');
             this.pendingOAuthFlow = {
-              process: proc,
+              pty: ptyProcess,
               configDir,
               createdAt: startTime,
               output,
             };
             resolve({ authUrl });
           }
-        });
+        };
 
-        // Handle stderr
-        proc.stderr?.on('data', (data: Buffer) => {
-          const text = data.toString();
-          output += text;
-          logger.debug(`OAuth stderr: ${text.slice(0, 200)}`);
-
-          // Also check stderr for URL (some CLIs output there)
-          const clean = this.stripAnsi(output);
-          const urlMatch = clean.match(/(https:\/\/claude\.ai\/oauth\/authorize\S+)/);
-          if (urlMatch && !authUrl) {
-            authUrl = urlMatch[1];
-            logger.info(`Found OAuth URL in stderr (length=${authUrl.length})`);
-            this.pendingOAuthFlow = {
-              process: proc,
-              configDir,
-              createdAt: startTime,
-              output,
-            };
-            resolve({ authUrl });
-          }
+        // Handle PTY output
+        ptyProcess.onData((data: string) => {
+          output += data;
+          logger.debug(`OAuth pty data: ${data.slice(0, 200)}`);
+          checkForUrl();
         });
 
         // Timeout after 30 seconds
-        setTimeout(() => {
-          if (!authUrl) {
+        const timeoutId = setTimeout(() => {
+          if (!resolved) {
             logger.error('Timeout waiting for OAuth URL');
             logger.debug(`Output so far: ${this.stripAnsi(output).slice(-500)}`);
             this.cleanupOAuthFlow();
@@ -184,18 +170,18 @@ export class AuthService {
           }
         }, 30000);
 
-        proc.on('error', (error) => {
-          logger.error('OAuth process error:', error);
-          this.cleanupOAuthFlow();
-          resolve({ authUrl: '', error: `Failed to start authentication: ${error.message}` });
-        });
-
-        proc.on('exit', (exitCode) => {
-          if (!authUrl) {
-            logger.error(`PTY exited with code ${exitCode} before getting URL`);
-            logger.debug(`Output: ${this.stripAnsi(output).slice(-500)}`);
-            resolve({ authUrl: '', error: 'Authentication process exited unexpectedly. Is Claude CLI installed?' });
-          }
+        ptyProcess.onExit(({ exitCode }) => {
+          clearTimeout(timeoutId);
+          // Give time for output to be processed
+          setTimeout(() => {
+            checkForUrl();
+            if (!resolved) {
+              logger.error(`PTY exited with code ${exitCode} before getting URL`);
+              logger.debug(`Output: ${this.stripAnsi(output).slice(-500)}`);
+              this.cleanupOAuthFlow();
+              resolve({ authUrl: '', error: 'Authentication process exited unexpectedly. Is Claude CLI installed?' });
+            }
+          }, 500);
         });
       } catch (error) {
         logger.error('Failed to start OAuth flow:', error);
@@ -206,14 +192,14 @@ export class AuthService {
   }
 
   /**
-   * Complete the OAuth flow by sending the code to the waiting process.
+   * Complete the OAuth flow by sending the code to the PTY.
    */
   async completeOAuthFlow(code: string): Promise<{ success: boolean; token?: string; error?: string }> {
     if (!this.pendingOAuthFlow) {
       return { success: false, error: 'No pending authentication flow. Please start login again.' };
     }
 
-    const { process: proc, configDir, createdAt } = this.pendingOAuthFlow;
+    const { pty: ptyProcess, configDir, createdAt } = this.pendingOAuthFlow;
 
     // Check expiration
     if (Date.now() - createdAt > this.OAUTH_TIMEOUT) {
@@ -221,7 +207,7 @@ export class AuthService {
       return { success: false, error: 'Authentication flow expired. Please start again.' };
     }
 
-    if (!proc || proc.killed) {
+    if (!ptyProcess) {
       this.cleanupOAuthFlow();
       return { success: false, error: 'Authentication process not running. Please start again.' };
     }
@@ -229,27 +215,29 @@ export class AuthService {
     return new Promise((resolve) => {
       try {
         let output = this.pendingOAuthFlow!.output;
+        let resolved = false;
 
         // Listen for more output
-        proc.stdout?.on('data', (data: Buffer) => {
-          output += data.toString();
-        });
-        proc.stderr?.on('data', (data: Buffer) => {
-          output += data.toString();
+        const dataHandler = ptyProcess.onData((data: string) => {
+          output += data;
+          logger.debug(`OAuth completion data: ${data.slice(0, 200)}`);
+          checkResult();
         });
 
-        // Send the code followed by newline
+        // Send the code followed by Enter
         logger.info(`Sending OAuth code (length=${code.length})`);
-        proc.stdin?.write(code + '\n');
-        proc.stdin?.end();
+        ptyProcess.write(code + '\r');
 
-        // Wait for result
-        const checkResult = () => {
+        const checkResult = (): boolean => {
+          if (resolved) return true;
+
           const clean = this.stripAnsi(output);
 
           // Look for OAuth token in output (sk-ant-oat01-...)
           const tokenMatch = clean.match(/(sk-ant-oat01-[A-Za-z0-9_\-]+)/);
           if (tokenMatch) {
+            resolved = true;
+            dataHandler.dispose();
             const token = tokenMatch[1];
             logger.info(`OAuth token extracted (length=${token.length})`);
             this.cleanupOAuthFlow();
@@ -262,17 +250,45 @@ export class AuthService {
           if (fs.existsSync(credsFile)) {
             try {
               const creds = JSON.parse(fs.readFileSync(credsFile, 'utf8'));
+              resolved = true;
+              dataHandler.dispose();
               logger.info('OAuth credentials file found');
+              // Extract oauthToken if present
+              const token = creds.oauthToken || creds.claudeAiOauth?.accessToken || JSON.stringify(creds);
               this.cleanupOAuthFlow();
-              resolve({ success: true, token: JSON.stringify(creds) });
+              resolve({ success: true, token });
               return true;
             } catch {
               // Invalid JSON, keep waiting
             }
           }
 
+          // Check for success message
+          if (clean.includes('Successfully authenticated') || clean.includes('logged in')) {
+            // Check credentials file after a short delay
+            setTimeout(() => {
+              if (resolved) return;
+              try {
+                const creds = JSON.parse(fs.readFileSync(path.join(configDir, '.credentials.json'), 'utf8'));
+                resolved = true;
+                dataHandler.dispose();
+                const token = creds.oauthToken || creds.claudeAiOauth?.accessToken || JSON.stringify(creds);
+                this.cleanupOAuthFlow();
+                resolve({ success: true, token });
+              } catch {
+                // Continue waiting
+              }
+            }, 500);
+          }
+
           // Check for error indicators
-          if (clean.toLowerCase().includes('error') || clean.toLowerCase().includes('invalid')) {
+          const lowerClean = clean.toLowerCase();
+          if (
+            (lowerClean.includes('invalid code') || lowerClean.includes('error:') || lowerClean.includes('failed')) &&
+            !lowerClean.includes('no error')
+          ) {
+            resolved = true;
+            dataHandler.dispose();
             logger.error('OAuth error detected in output');
             this.cleanupOAuthFlow();
             resolve({ success: false, error: 'Invalid code. Please try again.' });
@@ -293,27 +309,28 @@ export class AuthService {
           }
           if (attempts >= maxAttempts) {
             clearInterval(pollInterval);
-            logger.error('Timeout waiting for OAuth completion');
-            logger.debug(`Final output: ${this.stripAnsi(output).slice(-1000)}`);
-            this.cleanupOAuthFlow();
-            resolve({ success: false, error: 'Timeout waiting for authentication to complete' });
+            if (!resolved) {
+              resolved = true;
+              dataHandler.dispose();
+              logger.error('Timeout waiting for OAuth completion');
+              logger.debug(`Final output: ${this.stripAnsi(output).slice(-1000)}`);
+              this.cleanupOAuthFlow();
+              resolve({ success: false, error: 'Timeout waiting for authentication to complete' });
+            }
           }
         }, 500);
 
-        // Handle process exit
-        proc.on('exit', (exitCode) => {
-          logger.info(`OAuth process exited with code ${exitCode}`);
+        // Handle PTY exit
+        ptyProcess.onExit(({ exitCode }) => {
+          logger.info(`OAuth PTY exited with code ${exitCode}`);
           // Give a moment for any final output
           setTimeout(() => {
-            if (!checkResult()) {
+            if (!resolved) {
               clearInterval(pollInterval);
-              // Last chance - check output for token
-              const clean = this.stripAnsi(output);
-              const tokenMatch = clean.match(/(sk-ant-oat01-[A-Za-z0-9_\-]+)/);
-              if (tokenMatch) {
-                this.cleanupOAuthFlow();
-                resolve({ success: true, token: tokenMatch[1] });
-              } else {
+              checkResult();
+              if (!resolved) {
+                resolved = true;
+                dataHandler.dispose();
                 this.cleanupOAuthFlow();
                 resolve({ success: false, error: 'Authentication failed. Please try again.' });
               }
@@ -347,23 +364,29 @@ export class AuthService {
    */
   cleanupOAuthFlow(): void {
     if (this.pendingOAuthFlow) {
-      try {
-        if (this.pendingOAuthFlow.process && !this.pendingOAuthFlow.process.killed) {
-          this.pendingOAuthFlow.process.kill();
-        }
-      } catch {
-        // Process may already be dead
-      }
+      const configDir = this.pendingOAuthFlow.configDir;
 
       try {
-        if (this.pendingOAuthFlow.configDir && fs.existsSync(this.pendingOAuthFlow.configDir)) {
-          fs.rmSync(this.pendingOAuthFlow.configDir, { recursive: true, force: true });
+        if (this.pendingOAuthFlow.pty) {
+          this.pendingOAuthFlow.pty.kill();
         }
       } catch {
-        // Directory may already be removed
+        // PTY may already be dead
       }
 
       this.pendingOAuthFlow = null;
+
+      // Small delay before cleaning up files
+      setTimeout(() => {
+        try {
+          if (configDir && fs.existsSync(configDir)) {
+            fs.rmSync(configDir, { recursive: true, force: true });
+          }
+        } catch {
+          // Directory may already be removed
+        }
+      }, 1000);
+
       logger.info('OAuth flow cleaned up');
     }
   }
