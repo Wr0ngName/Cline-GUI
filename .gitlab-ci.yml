@@ -123,7 +123,7 @@ build:linux:manual:
 
 # Windows build template
 # Requires wine-mono for Squirrel.Windows target
-# Use :wine-mono base and install Node 20 (no :20-wine-mono image with proper sh)
+# Install Node 20 via NodeSource (base image has Node 18)
 .build_windows:
   stage: build
   tags:
@@ -135,7 +135,7 @@ build:linux:manual:
         -v "$CI_PROJECT_DIR:/app" \
         -w /app \
         electronuserland/builder:wine-mono \
-        bash -c "source ~/.nvm/nvm.sh && nvm install 20 && nvm use 20 && npm ci && npm run make -- --platform=win32"
+        bash -c "curl -fsSL https://deb.nodesource.com/setup_20.x | bash - && apt-get install -y nodejs && npm ci && npm run make -- --platform=win32"
 
 # Windows build for tags (with artifacts for release)
 build:windows:
