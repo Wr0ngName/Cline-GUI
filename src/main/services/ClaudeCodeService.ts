@@ -5,7 +5,6 @@
  * Supports both OAuth tokens (Pro/Max) and API keys
  */
 
-import { BrowserWindow } from 'electron';
 import { query } from '@anthropic-ai/claude-code';
 import type {
   SDKMessage,
@@ -16,6 +15,7 @@ import type {
   PermissionResult,
   PermissionUpdate,
 } from '@anthropic-ai/claude-code';
+import { BrowserWindow } from 'electron';
 
 import {
   ActionType,
@@ -27,6 +27,7 @@ import {
   ActionResponse,
 } from '../../shared/types';
 import logger from '../utils/logger';
+
 import ConfigService from './ConfigService';
 
 interface PendingPermission {
@@ -222,7 +223,7 @@ export class ClaudeCodeService {
         } as FileEditDetails;
         break;
 
-      case 'Bash':
+      case 'Bash': {
         actionType = 'bash-command';
         const cmd = input.command as string;
         description = `Run command: ${cmd.length > 50 ? cmd.slice(0, 50) + '...' : cmd}`;
@@ -231,6 +232,7 @@ export class ClaudeCodeService {
           workingDirectory: (input.cwd as string) || '',
         } as BashCommandDetails;
         break;
+      }
 
       case 'Read':
         actionType = 'read-file';
@@ -394,7 +396,7 @@ export class ClaudeCodeService {
         await this.processAssistantMessage(message as SDKAssistantMessage);
         break;
 
-      case 'result':
+      case 'result': {
         const resultMsg = message as SDKResultMessage;
         if (resultMsg.subtype === 'success') {
           logger.info('Query completed successfully', {
@@ -405,6 +407,7 @@ export class ClaudeCodeService {
           logger.warn('Query ended with non-success', { subtype: resultMsg.subtype });
         }
         break;
+      }
 
       case 'stream_event':
         this.handleStreamEvent(message);

@@ -5,8 +5,8 @@
 import { ipcMain } from 'electron';
 
 import { IPC_CHANNELS } from '../../shared/types';
-import { closeWindow, maximizeWindow, minimizeWindow } from '../window';
 import logger from '../utils/logger';
+import { closeWindow, maximizeWindow, minimizeWindow } from '../window';
 
 export function setupWindowIPC(): void {
   ipcMain.on(IPC_CHANNELS.WINDOW_MINIMIZE, () => {

@@ -2,11 +2,12 @@
  * Settings store - manages app configuration
  */
 
+import type { AppConfig } from '@shared/types';
+import { DEFAULT_CONFIG } from '@shared/types';
 import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
 
-import type { AppConfig } from '@shared/types';
-import { DEFAULT_CONFIG } from '@shared/types';
+
 import { logger } from '../utils/logger';
 
 export const useSettingsStore = defineStore('settings', () => {

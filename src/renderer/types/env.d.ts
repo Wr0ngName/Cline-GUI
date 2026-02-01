@@ -4,11 +4,9 @@
 export * from '../../shared/types';
 export * from '../../shared/preload-api';
 
-// Extend ImportMeta for Vite
-interface ImportMetaEnv {
-  readonly VITE_APP_TITLE: string;
-}
-
-interface ImportMeta {
-  readonly env: ImportMetaEnv;
+// Extend Vite's ImportMetaEnv
+declare global {
+  interface ImportMetaEnv {
+    readonly VITE_APP_TITLE: string;
+  }
 }

@@ -7,10 +7,11 @@
  * Uses node-pty for cross-platform PTY support.
  */
 
-import * as path from 'path';
+import { execSync } from 'child_process';
 import * as fs from 'fs';
 import * as os from 'os';
-import { execSync } from 'child_process';
+import * as path from 'path';
+
 import { shell } from 'electron';
 import * as pty from 'node-pty';
 import type { IPty } from 'node-pty';
@@ -234,7 +235,7 @@ export class AuthService {
           const clean = this.stripAnsi(output);
 
           // Look for OAuth token in output (sk-ant-oat01-...)
-          const tokenMatch = clean.match(/(sk-ant-oat01-[A-Za-z0-9_\-]+)/);
+          const tokenMatch = clean.match(/(sk-ant-oat01-[A-Za-z0-9_-]+)/);
           if (tokenMatch) {
             resolved = true;
             dataHandler.dispose();
@@ -395,6 +396,7 @@ export class AuthService {
    * Strip ANSI escape codes from string.
    */
   private stripAnsi(str: string): string {
+    /* eslint-disable no-control-regex */
     // CSI sequences (most common)
     let clean = str.replace(/\x1b\[[0-9;?]*[a-zA-Z]/g, '');
     // OSC sequences
@@ -403,6 +405,7 @@ export class AuthService {
     clean = clean.replace(/\x1b[PX^_][^\x1b]*\x1b\\/g, '');
     // Other single-char escapes
     clean = clean.replace(/\x1b./g, '');
+    /* eslint-enable no-control-regex */
     return clean;
   }
 }

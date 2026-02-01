@@ -3,9 +3,10 @@
  * Provides consistent logging across the main process
  */
 
-import log from 'electron-log';
 import path from 'node:path';
+
 import { app } from 'electron';
+import log from 'electron-log';
 
 // Configure log file location
 const logPath = path.join(app.getPath('userData'), 'logs');

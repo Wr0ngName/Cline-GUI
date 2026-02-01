@@ -2,8 +2,9 @@
  * Window management for the main application window
  */
 
-import { BrowserWindow, shell } from 'electron';
 import path from 'node:path';
+
+import { BrowserWindow, shell } from 'electron';
 
 import logger from './utils/logger';
 

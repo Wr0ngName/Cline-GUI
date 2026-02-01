@@ -2,10 +2,10 @@
  * Chat store - manages chat messages and Claude interactions
  */
 
+import type { ChatMessage, PendingAction } from '@shared/types';
 import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
 
-import type { ChatMessage, PendingAction } from '@shared/types';
 
 export const useChatStore = defineStore('chat', () => {
   // State

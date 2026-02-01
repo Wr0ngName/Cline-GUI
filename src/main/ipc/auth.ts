@@ -5,9 +5,9 @@
 import { ipcMain } from 'electron';
 
 import { IPC_CHANNELS, AuthStatus } from '../../shared/types';
-import logger from '../utils/logger';
 import AuthService from '../services/AuthService';
 import ConfigService from '../services/ConfigService';
+import logger from '../utils/logger';
 
 export function setupAuthHandlers(
   authService: AuthService,
@@ -69,7 +69,17 @@ export function setupAuthHandlers(
         return { success: false, error: 'Please enter the code from your browser' };
       }
 
-      const result = await authService.completeOAuthFlow(code.trim());
+      const trimmedCode = code.trim();
+
+      // Validate OAuth code format - Claude uses alphanumeric codes with hyphens
+      // Typical format is a base64-like string or UUID-like format
+      const oauthCodePattern = /^[A-Za-z0-9_-]{10,200}$/;
+      if (!oauthCodePattern.test(trimmedCode)) {
+        logger.warn('Invalid OAuth code format received', { codeLength: trimmedCode.length });
+        return { success: false, error: 'Invalid code format. Please copy the complete code from your browser.' };
+      }
+
+      const result = await authService.completeOAuthFlow(trimmedCode);
 
       if (result.success && result.token) {
         // Save the OAuth token

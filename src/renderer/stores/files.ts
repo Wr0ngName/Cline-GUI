@@ -2,10 +2,10 @@
  * Files store - manages file tree and file operations
  */
 
+import type { FileNode, FileChange } from '@shared/types';
 import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
 
-import type { FileNode, FileChange } from '@shared/types';
 import { logger } from '../utils/logger';
 
 export const useFilesStore = defineStore('files', () => {

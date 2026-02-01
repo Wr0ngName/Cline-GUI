@@ -3,8 +3,8 @@
  * Configured for GitLab Package Registry
  */
 
-import { autoUpdater, UpdateInfo as ElectronUpdateInfo } from 'electron-updater';
 import { BrowserWindow, app } from 'electron';
+import { autoUpdater, UpdateInfo as ElectronUpdateInfo } from 'electron-updater';
 
 import { IPC_CHANNELS, UpdateInfo, UpdateProgress } from '../../shared/types';
 import logger from '../utils/logger';
