@@ -220,22 +220,25 @@ publish:packages:
         fi
       done
 
-      # Upload Windows installer
+      # Upload Windows installer (replace spaces in filename with dashes for URL)
       for file in out/make/squirrel.windows/x64/*.exe; do
         if [ -f "$file" ]; then
-          echo "Uploading $file..."
+          FILENAME=$(basename "$file" | tr ' ' '-')
+          echo "Uploading $file as ${FILENAME}..."
           curl --header "JOB-TOKEN: ${CI_JOB_TOKEN}" \
                --upload-file "$file" \
-               "${PACKAGE_REGISTRY_URL}/releases/${VERSION}/$(basename $file)"
+               "${PACKAGE_REGISTRY_URL}/releases/${VERSION}/${FILENAME}"
         fi
       done
 
       # Create latest.yml for auto-updater
       echo "Creating latest.yml for auto-updater..."
+      WIN_EXE=$(ls out/make/squirrel.windows/x64/*.exe 2>/dev/null | head -1)
+      WIN_FILENAME=$(basename "$WIN_EXE" | tr ' ' '-')
       cat > latest.yml << EOF
       version: ${VERSION}
-      path: cline-gui-${VERSION}-setup.exe
-      sha512: $(sha512sum out/make/squirrel.windows/x64/*.exe 2>/dev/null | cut -d' ' -f1 || echo "")
+      path: ${WIN_FILENAME}
+      sha512: $(sha512sum "$WIN_EXE" 2>/dev/null | cut -d' ' -f1 || echo "")
       releaseDate: $(date -u +"%Y-%m-%dT%H:%M:%SZ")
       EOF
 
@@ -269,7 +272,7 @@ create:release:
 
       - **Linux (DEB)**: [cline-gui_${VERSION}_amd64.deb](${PKG_URL}/releases/${VERSION}/cline-gui_${VERSION}_amd64.deb)
       - **Linux (RPM)**: [cline-gui-${VERSION}.x86_64.rpm](${PKG_URL}/releases/${VERSION}/cline-gui-${VERSION}.x86_64.rpm)
-      - **Windows**: [Cline-GUI-${VERSION}-Setup.exe](${PKG_URL}/releases/${VERSION}/Cline-GUI-${VERSION}-Setup.exe)
+      - **Windows**: [Cline-GUI-${VERSION}-Setup.exe](${PKG_URL}/releases/${VERSION}/Cline-GUI-${VERSION}-Setup.exe) *(filename may vary)*
 
       ---
       *Built automatically by GitLab CI/CD*
