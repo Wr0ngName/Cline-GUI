@@ -247,7 +247,7 @@ publish:packages:
   rules:
     - if: $CI_COMMIT_TAG =~ /^v\d+\.\d+\.\d+$/
 
-# Create GitLab Release
+# Create GitLab Release using release-cli
 create:release:
   stage: release
   tags:
@@ -257,16 +257,32 @@ create:release:
   script:
     - |
       VERSION=${CI_COMMIT_TAG#v}
-      echo "Creating release for version ${VERSION}"
+      TAG=${CI_COMMIT_TAG}
+      PKG_URL=${PACKAGE_REGISTRY_URL}
+      echo "Creating release for ${TAG}"
 
-      # Use curl to create release via GitLab API
-      curl --header "PRIVATE-TOKEN: ${CI_JOB_TOKEN}" \
-           --header "Content-Type: application/json" \
-           --data "{
-             \"tag_name\": \"${CI_COMMIT_TAG}\",
-             \"name\": \"Cline GUI v${VERSION}\",
-             \"description\": \"## Cline GUI v${VERSION}\n\n### Downloads\n\n- **Linux (DEB)**: [cline-gui_${VERSION}_amd64.deb](${PACKAGE_REGISTRY_URL}/releases/${VERSION}/cline-gui_${VERSION}_amd64.deb)\n- **Linux (RPM)**: [cline-gui-${VERSION}.x86_64.rpm](${PACKAGE_REGISTRY_URL}/releases/${VERSION}/cline-gui-${VERSION}.x86_64.rpm)\n- **Windows**: [Cline-GUI-${VERSION}-Setup.exe](${PACKAGE_REGISTRY_URL}/releases/${VERSION}/Cline-GUI-${VERSION}-Setup.exe)\n\n---\n\n*Built automatically by GitLab CI/CD*\"
-           }" \
-           "${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/releases"
+      # Create description file (on host, will mount into container)
+      cat > /tmp/release_description.md << DESCEOF
+      ## Cline GUI ${TAG}
+
+      ### Downloads
+
+      - **Linux (DEB)**: [cline-gui_${VERSION}_amd64.deb](${PKG_URL}/releases/${VERSION}/cline-gui_${VERSION}_amd64.deb)
+      - **Linux (RPM)**: [cline-gui-${VERSION}.x86_64.rpm](${PKG_URL}/releases/${VERSION}/cline-gui-${VERSION}.x86_64.rpm)
+      - **Windows**: [Cline-GUI-${VERSION}-Setup.exe](${PKG_URL}/releases/${VERSION}/Cline-GUI-${VERSION}-Setup.exe)
+
+      ---
+      *Built automatically by GitLab CI/CD*
+      DESCEOF
+
+      docker run --rm \
+        -e CI_JOB_TOKEN \
+        -e CI_API_V4_URL \
+        -e CI_PROJECT_ID \
+        -v /tmp/release_description.md:/description.md:ro \
+        registry.gitlab.com/gitlab-org/release-cli:latest release-cli create \
+          --name "Cline GUI ${TAG}" \
+          --tag-name "${TAG}" \
+          --description-file /description.md
   rules:
     - if: $CI_COMMIT_TAG =~ /^v\d+\.\d+\.\d+$/
