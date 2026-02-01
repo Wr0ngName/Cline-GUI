@@ -16,15 +16,16 @@ variables:
   GIT_CLEAN_FLAGS: none
 
 # Common cleanup template - fixes root-owned files from docker
+# Uses docker to run chown as root (since host doesn't have passwordless sudo)
 .docker_cleanup:
   before_script:
-    # Fix permissions from any previous failed runs
-    - sudo chown -R $(id -u):$(id -g) "$CI_PROJECT_DIR" || true
+    # Fix permissions from any previous failed runs (using docker to get root)
+    - docker run --rm -v "$CI_PROJECT_DIR:/app" alpine chown -R $(id -u):$(id -g) /app || true
     # Now clean up old files (git clean was disabled via GIT_CLEAN_FLAGS)
     - git clean -ffdx || true
   after_script:
     # Always fix permissions after job (even on failure)
-    - sudo chown -R $(id -u):$(id -g) "$CI_PROJECT_DIR" || true
+    - docker run --rm -v "$CI_PROJECT_DIR:/app" alpine chown -R $(id -u):$(id -g) /app || true
 
 # =============================================================================
 # TEST STAGE
