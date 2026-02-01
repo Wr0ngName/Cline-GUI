@@ -13,6 +13,15 @@ variables:
   # Package registry for auto-updates
   PACKAGE_REGISTRY_URL: "${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic"
 
+# Common cleanup template - fixes root-owned files from docker
+.docker_cleanup:
+  before_script:
+    # Fix permissions from any previous failed runs
+    - sudo chown -R $(id -u):$(id -g) "$CI_PROJECT_DIR" || true
+  after_script:
+    # Always fix permissions after job (even on failure)
+    - sudo chown -R $(id -u):$(id -g) "$CI_PROJECT_DIR" || true
+
 # =============================================================================
 # TEST STAGE
 # =============================================================================
@@ -21,13 +30,14 @@ lint:
   stage: test
   tags:
     - shell
+  extends: .docker_cleanup
   script:
     - |
       docker run --rm \
         -v "$CI_PROJECT_DIR:/app" \
         -w /app \
         node:${NODE_VERSION} \
-        sh -c "npm ci --prefer-offline && npm run lint && chown -R $(id -u):$(id -g) /app"
+        sh -c "npm ci --prefer-offline && npm run lint"
   rules:
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
@@ -37,13 +47,14 @@ test:
   stage: test
   tags:
     - shell
+  extends: .docker_cleanup
   script:
     - |
       docker run --rm \
         -v "$CI_PROJECT_DIR:/app" \
         -w /app \
         node:${NODE_VERSION} \
-        sh -c "npm ci --prefer-offline && npm run test && chown -R $(id -u):$(id -g) /app"
+        sh -c "npm ci --prefer-offline && npm run test"
   rules:
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
@@ -53,13 +64,14 @@ typecheck:
   stage: test
   tags:
     - shell
+  extends: .docker_cleanup
   script:
     - |
       docker run --rm \
         -v "$CI_PROJECT_DIR:/app" \
         -w /app \
         node:${NODE_VERSION} \
-        sh -c "npm ci --prefer-offline && npm run typecheck && chown -R $(id -u):$(id -g) /app"
+        sh -c "npm ci --prefer-offline && npm run typecheck"
   rules:
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
@@ -75,13 +87,14 @@ build:linux:
   stage: build
   tags:
     - shell
+  extends: .docker_cleanup
   script:
     - |
       docker run --rm \
         -v "$CI_PROJECT_DIR:/app" \
         -w /app \
         electronuserland/builder:18 \
-        sh -c "npm ci && npm run make -- --platform=linux && chown -R $(id -u):$(id -g) /app"
+        sh -c "npm ci && npm run make -- --platform=linux"
   artifacts:
     name: "cline-gui-linux-${CI_COMMIT_REF_SLUG}"
     paths:
@@ -100,13 +113,14 @@ build:windows:
   stage: build
   tags:
     - shell
+  extends: .docker_cleanup
   script:
     - |
       docker run --rm \
         -v "$CI_PROJECT_DIR:/app" \
         -w /app \
         electronuserland/builder:18-wine-mono \
-        sh -c "npm ci && npm run make -- --platform=win32 && chown -R $(id -u):$(id -g) /app"
+        sh -c "npm ci && npm run make -- --platform=win32"
   artifacts:
     name: "cline-gui-windows-${CI_COMMIT_REF_SLUG}"
     paths:
