@@ -282,10 +282,11 @@ create:release:
         -e CI_JOB_TOKEN \
         -e CI_SERVER_URL \
         -e CI_PROJECT_ID \
-        -v /tmp/release_description.md:/description.md:ro \
+        -v /tmp/release_description.md:/work/description.md:ro \
+        -w /work \
         registry.gitlab.com/gitlab-org/release-cli:latest release-cli create \
           --name "Cline GUI ${TAG}" \
           --tag-name "${TAG}" \
-          --description-file /description.md
+          --description description.md
   rules:
     - if: $CI_COMMIT_TAG =~ /^v\d+\.\d+\.\d+$/
