@@ -1,17 +1,17 @@
 /**
  * Auto-update service using electron-updater
- * Configured for GitLab releases
+ * Configured for GitLab Package Registry
  */
 
 import { autoUpdater, UpdateInfo as ElectronUpdateInfo } from 'electron-updater';
-import { BrowserWindow } from 'electron';
+import { BrowserWindow, app } from 'electron';
 
 import { IPC_CHANNELS, UpdateInfo, UpdateProgress } from '../../shared/types';
 import logger from '../utils/logger';
 
 // GitLab server configuration
 const GITLAB_HOST = 'https://dev.web.wr0ng.name';
-const GITLAB_PROJECT = 'wrongname/cline-gui';
+const GITLAB_PROJECT_ID = 'wrongname%2Fcline-gui'; // URL-encoded project path
 
 export class UpdateService {
   private mainWindow: BrowserWindow | null = null;
@@ -23,13 +23,24 @@ export class UpdateService {
   }
 
   /**
-   * Configure the auto-updater for GitLab
+   * Configure the auto-updater for GitLab Package Registry
    */
   private configureUpdater(): void {
-    // Configure for GitLab Generic Server
+    // Get current version for update feed URL
+    const currentVersion = app.getVersion();
+
+    // Configure for GitLab Generic Package Registry
+    // The CI/CD pipeline uploads packages to:
+    // ${GITLAB_HOST}/api/v4/projects/${PROJECT_ID}/packages/generic/releases/${VERSION}/
     autoUpdater.setFeedURL({
       provider: 'generic',
-      url: `${GITLAB_HOST}/api/v4/projects/${encodeURIComponent(GITLAB_PROJECT)}/packages/generic/releases`,
+      url: `${GITLAB_HOST}/api/v4/projects/${GITLAB_PROJECT_ID}/packages/generic/releases`,
+    });
+
+    // Log the configured URL for debugging
+    logger.info('Auto-updater configured', {
+      currentVersion,
+      feedUrl: `${GITLAB_HOST}/api/v4/projects/${GITLAB_PROJECT_ID}/packages/generic/releases`,
     });
 
     // Auto download updates
