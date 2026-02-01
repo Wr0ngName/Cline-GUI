@@ -12,12 +12,16 @@ variables:
   NODE_VERSION: "20"
   # Package registry for auto-updates
   PACKAGE_REGISTRY_URL: "${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic"
+  # Disable git clean during checkout - we handle cleanup ourselves after fixing permissions
+  GIT_CLEAN_FLAGS: none
 
 # Common cleanup template - fixes root-owned files from docker
 .docker_cleanup:
   before_script:
     # Fix permissions from any previous failed runs
     - sudo chown -R $(id -u):$(id -g) "$CI_PROJECT_DIR" || true
+    # Now clean up old files (git clean was disabled via GIT_CLEAN_FLAGS)
+    - git clean -ffdx || true
   after_script:
     # Always fix permissions after job (even on failure)
     - sudo chown -R $(id -u):$(id -g) "$CI_PROJECT_DIR" || true
