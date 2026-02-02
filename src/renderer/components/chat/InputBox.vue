@@ -21,19 +21,19 @@ const filesStore = useFilesStore();
 const settingsStore = useSettingsStore();
 
 const { isLoading } = storeToRefs(chatStore);
-const { hasApiKey } = storeToRefs(settingsStore);
+const { hasAuth } = storeToRefs(settingsStore);
 const { hasWorkingDirectory } = storeToRefs(filesStore);
 
 const inputRef = ref<HTMLTextAreaElement | null>(null);
 const message = ref('');
 
 const canSend = computed(() => {
-  return message.value.trim().length > 0 && hasApiKey.value && hasWorkingDirectory.value && !isLoading.value;
+  return message.value.trim().length > 0 && hasAuth.value && hasWorkingDirectory.value && !isLoading.value;
 });
 
 const placeholder = computed(() => {
-  if (!hasApiKey.value) {
-    return 'Please configure your API key in Settings...';
+  if (!hasAuth.value) {
+    return 'Please log in or configure your API key in Settings...';
   }
   if (!hasWorkingDirectory.value) {
     return 'Please select a working directory first...';
