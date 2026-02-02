@@ -11,14 +11,11 @@ export default defineConfig({
   build: {
     rollupOptions: {
       external: [
+        // Runtime provided by Electron
         'electron',
-        // electron-store has native dependencies via conf
-        'electron-store',
-        'electron-updater',
-        '@anthropic-ai/claude-code',
-        '@anthropic-ai/sdk',
-        // Native modules must be external
+        // Native modules - MUST be external
         'node-pty',
+        '@anthropic-ai/claude-code', // has native ripgrep.node
       ],
     },
   },
