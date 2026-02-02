@@ -5,6 +5,8 @@
  * Supports both OAuth tokens (Pro/Max) and API keys
  */
 
+import { execSync } from 'node:child_process';
+
 import { query } from '@anthropic-ai/claude-agent-sdk';
 import type {
   SDKMessage,
@@ -53,6 +55,49 @@ export class ClaudeCodeService {
    */
   setMainWindow(window: BrowserWindow): void {
     this.mainWindow = window;
+  }
+
+  /**
+   * Check if Node.js is available in the system PATH.
+   * Required for running the Claude Code CLI.
+   */
+  static isNodeAvailable(): boolean {
+    try {
+      execSync('node --version', { stdio: 'ignore' });
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * Check if Claude Code CLI is installed globally.
+   * Returns the version if installed, null otherwise.
+   */
+  static getClaudeCodeVersion(): string | null {
+    try {
+      const version = execSync('claude --version', { encoding: 'utf-8' }).trim();
+      return version;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Check all prerequisites for running Claude Code.
+   * Returns an object with status and any missing requirements.
+   */
+  static checkPrerequisites(): { ready: boolean; nodeAvailable: boolean; claudeCodeInstalled: boolean; claudeCodeVersion: string | null } {
+    const nodeAvailable = ClaudeCodeService.isNodeAvailable();
+    const claudeCodeVersion = ClaudeCodeService.getClaudeCodeVersion();
+    const claudeCodeInstalled = claudeCodeVersion !== null;
+
+    return {
+      ready: nodeAvailable && claudeCodeInstalled,
+      nodeAvailable,
+      claudeCodeInstalled,
+      claudeCodeVersion,
+    };
   }
 
   /**
@@ -382,7 +427,16 @@ export class ClaudeCodeService {
       }
 
       logger.error('Failed to send message', error);
-      this.emitError((error as Error).message || 'Failed to communicate with Claude');
+
+      // Detect missing Node.js (ENOENT when spawning node)
+      const errorMessage = (error as Error).message || '';
+      if (errorMessage.includes('spawn node ENOENT') || errorMessage.includes('spawn') && errorMessage.includes('ENOENT')) {
+        this.emitError(
+          'Node.js is required but not found. Please install Node.js (https://nodejs.org) and the Claude Code CLI (npm install -g @anthropic-ai/claude-code), then restart the application.'
+        );
+      } else {
+        this.emitError(errorMessage || 'Failed to communicate with Claude');
+      }
     } finally {
       this.abortController = null;
       this.currentQuery = null;

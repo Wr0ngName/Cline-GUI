@@ -26,6 +26,12 @@ export interface ElectronAPI {
     reject: (actionId: string, message?: string) => Promise<void>;
     respondToAction: (response: ActionResponse) => Promise<void>;
     abort: () => Promise<void>;
+    checkPrerequisites: () => Promise<{
+      ready: boolean;
+      nodeAvailable: boolean;
+      claudeCodeInstalled: boolean;
+      claudeCodeVersion: string | null;
+    }>;
     onChunk: (callback: (chunk: string) => void) => () => void;
     onToolUse: (callback: (action: PendingAction) => void) => () => void;
     onError: (callback: (error: string) => void) => () => void;

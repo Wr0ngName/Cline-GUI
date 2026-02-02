@@ -171,5 +171,17 @@ export function setupClaudeIPC(claudeService: ClaudeCodeService): void {
     }
   });
 
+  // Check prerequisites (Node.js and Claude Code CLI)
+  ipcMain.handle(IPC_CHANNELS.CLAUDE_CHECK_PREREQUISITES, async () => {
+    try {
+      logger.debug('IPC: claude:check-prerequisites');
+      const { ClaudeCodeService: ClaudeService } = await import('../services/ClaudeCodeService');
+      return ClaudeService.checkPrerequisites();
+    } catch (error) {
+      logger.error('Failed to check prerequisites', { error });
+      throw new Error(`Failed to check prerequisites: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  });
+
   logger.info('Claude IPC handlers registered');
 }

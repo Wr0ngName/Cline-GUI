@@ -28,6 +28,14 @@ const electronAPI: ElectronAPI = {
 
     abort: () => ipcRenderer.invoke(IPC_CHANNELS.CLAUDE_ABORT),
 
+    checkPrerequisites: () =>
+      ipcRenderer.invoke(IPC_CHANNELS.CLAUDE_CHECK_PREREQUISITES) as Promise<{
+        ready: boolean;
+        nodeAvailable: boolean;
+        claudeCodeInstalled: boolean;
+        claudeCodeVersion: string | null;
+      }>,
+
     onChunk: (callback) => {
       const handler = (_event: Electron.IpcRendererEvent, chunk: string) => callback(chunk);
       ipcRenderer.on(IPC_CHANNELS.CLAUDE_CHUNK, handler);
