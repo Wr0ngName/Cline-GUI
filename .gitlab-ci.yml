@@ -124,6 +124,7 @@ build:linux:manual:
 # Windows build template
 # Requires wine-mono for Squirrel.Windows target
 # Install Node 20 via NodeSource (base image has Node 18)
+# Downloads portable Node.js for Windows to bundle with the app
 .build_windows:
   stage: build
   tags:
@@ -135,7 +136,7 @@ build:linux:manual:
         -v "$CI_PROJECT_DIR:/app" \
         -w /app \
         electronuserland/builder:wine-mono \
-        bash -c "curl -fsSL https://deb.nodesource.com/setup_20.x | bash - && apt-get install -y nodejs && npm ci && npm run make -- --platform=win32"
+        bash -c "curl -fsSL https://deb.nodesource.com/setup_20.x | bash - && apt-get install -y nodejs unzip && npm ci && ./scripts/download-node-windows.sh && npm run make -- --platform=win32"
 
 # Windows build for tags (with artifacts for release)
 build:windows:

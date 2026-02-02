@@ -8,13 +8,29 @@ import { VitePlugin } from '@electron-forge/plugin-vite';
 import { FusesPlugin } from '@electron-forge/plugin-fuses';
 import { FuseV1Options, FuseVersion } from '@electron/fuses';
 import { spawn } from 'node:child_process';
+import * as fs from 'node:fs';
+
+// Check if we're building for Windows (either native or cross-compiling)
+// The make command sets --platform=win32 which we can detect via npm_config_platform
+const isWindowsBuild = process.platform === 'win32' ||
+  process.env.npm_config_platform === 'win32' ||
+  process.argv.includes('--platform=win32');
+
+// Check if bundled Node.js exists for Windows builds
+const nodeExePath = './vendor/node-win-x64/node.exe';
+const hasNodeExe = fs.existsSync(nodeExePath);
 
 const config: ForgeConfig = {
   hooks: {
     // Workaround for Electron Forge Vite bug #3738:
     // External modules are not included in the package. Reinstall them after pruning.
     // https://github.com/electron/forge/issues/3738#issuecomment-3199157664
-    packageAfterPrune: async (_config, buildPath) => {
+    packageAfterPrune: async (_config, buildPath, _electronVersion, platform) => {
+      // Warn if building for Windows without bundled Node.js
+      if (platform === 'win32' && !hasNodeExe) {
+        console.warn('\x1b[33m⚠ WARNING: Building for Windows without bundled Node.js!\x1b[0m');
+        console.warn('  OAuth login will not work. Run: ./scripts/download-node-windows.sh');
+      }
       // Dynamically import vite config to get external modules list
       const viteConfig = await import('./vite.main.config');
       const external = viteConfig?.default?.build?.rollupOptions?.external || [];
@@ -57,6 +73,10 @@ const config: ForgeConfig = {
     icon: './resources/icons/icon',
     appBundleId: 'com.cline.gui',
     appCategoryType: 'public.app-category.developer-tools',
+    // Bundle Node.js for Windows (required because Windows GUI apps can't capture
+    // stdout from ELECTRON_RUN_AS_NODE - known Electron limitation)
+    // Run scripts/download-node-windows.sh before building for Windows
+    extraResource: isWindowsBuild && hasNodeExe ? [nodeExePath] : [],
   },
   rebuildConfig: {
     // Rebuild native modules for the target platform

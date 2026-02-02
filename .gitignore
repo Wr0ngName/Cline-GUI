@@ -104,3 +104,6 @@ dist/
 
 # Claude Code local settings
 .claude/
+
+# Vendor binaries (downloaded during build)
+vendor/

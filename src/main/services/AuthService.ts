@@ -132,24 +132,29 @@ export class AuthService {
         : ['-c', 'npx @anthropic-ai/claude-code setup-token'];
     } else if (isBundledCli) {
       if (process.platform === 'win32') {
-        // On Windows, node-pty doesn't pass env vars correctly to Electron
-        // Use PowerShell to set env var and run command (more reliable than cmd.exe)
-        logger.info('Windows: using PowerShell to set ELECTRON_RUN_AS_NODE');
-        spawnFile = 'powershell.exe';
-        // Escape single quotes in paths (double them for PowerShell single-quoted strings)
-        // In single-quoted strings, only ' needs escaping ($ and backticks are literal)
-        const escapeForPowerShell = (s: string): string => {
-          return s.replace(/'/g, "''");
-        };
-        const escapedExePath = escapeForPowerShell(process.execPath);
-        const escapedCliPath = escapeForPowerShell(claudeCli);
-        // -NoProfile for faster startup, -Command to run inline script
-        // Set env var then call the executable with & operator
-        const psCommand = `$env:ELECTRON_RUN_AS_NODE='1'; & '${escapedExePath}' '${escapedCliPath}' 'setup-token'`;
-        spawnArgs = ['-NoProfile', '-Command', psCommand];
-        logger.info(`Windows PowerShell command: ${psCommand}`);
+        // On Windows, use bundled Node.js executable instead of ELECTRON_RUN_AS_NODE
+        // Windows GUI apps (like Electron) have known stdout capture issues
+        // See: https://github.com/electron/electron/issues/4552
+        const resourcesPath = process.resourcesPath || path.dirname(app.getAppPath());
+        const bundledNodeExe = path.join(resourcesPath, 'node.exe');
+
+        if (fs.existsSync(bundledNodeExe)) {
+          logger.info('Windows: using bundled Node.js');
+          spawnFile = bundledNodeExe;
+          spawnArgs = [claudeCli, 'setup-token'];
+        } else {
+          // Fallback to ELECTRON_RUN_AS_NODE via PowerShell (may not capture output)
+          logger.warn('Windows: bundled Node.js not found, falling back to ELECTRON_RUN_AS_NODE');
+          logger.warn(`Expected at: ${bundledNodeExe}`);
+          spawnFile = 'powershell.exe';
+          const escapeForPowerShell = (s: string): string => s.replace(/'/g, "''");
+          const escapedExePath = escapeForPowerShell(process.execPath);
+          const escapedCliPath = escapeForPowerShell(claudeCli);
+          const psCommand = `$env:ELECTRON_RUN_AS_NODE='1'; & '${escapedExePath}' '${escapedCliPath}' 'setup-token'`;
+          spawnArgs = ['-NoProfile', '-Command', psCommand];
+        }
       } else {
-        // On Linux/macOS, spawn Electron directly with env var
+        // On Linux/macOS, spawn Electron directly with env var (works fine)
         spawnFile = process.execPath;
         spawnArgs = [claudeCli, 'setup-token'];
         extraEnv = { ELECTRON_RUN_AS_NODE: '1' };
