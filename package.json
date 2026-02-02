@@ -67,7 +67,7 @@
     "vue-tsc": "^2.1.10"
   },
   "dependencies": {
-    "@anthropic-ai/claude-code": "^1.0.0",
+    "@anthropic-ai/claude-code": "^2.1.29",
     "@anthropic-ai/sdk": "^0.72.1",
     "electron-log": "^5.4.3",
     "electron-squirrel-startup": "^1.0.1",

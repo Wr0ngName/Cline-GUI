@@ -12,7 +12,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 
-import { shell } from 'electron';
+import { app, shell } from 'electron';
 import * as pty from 'node-pty';
 import type { IPty } from 'node-pty';
 
@@ -35,9 +35,26 @@ export class AuthService {
 
   /**
    * Find the Claude CLI executable path.
+   * Prioritizes the bundled CLI in the app resources.
    */
   private findClaudeCli(): string {
-    // Try common locations
+    // First, try the bundled CLI in the app's resources (unpacked from asar)
+    const resourcesPath = process.resourcesPath || path.dirname(app.getAppPath());
+    const bundledCliPaths = [
+      // In packaged app: resources/app.asar.unpacked/node_modules/@anthropic-ai/claude-code/cli.js
+      path.join(resourcesPath, 'app.asar.unpacked', 'node_modules', '@anthropic-ai', 'claude-code', 'cli.js'),
+      // In development: node_modules/@anthropic-ai/claude-code/cli.js
+      path.join(app.getAppPath(), 'node_modules', '@anthropic-ai', 'claude-code', 'cli.js'),
+    ];
+
+    for (const cliPath of bundledCliPaths) {
+      if (fs.existsSync(cliPath)) {
+        logger.info(`Found bundled Claude CLI at: ${cliPath}`);
+        return cliPath;
+      }
+    }
+
+    // Fallback: Try common system locations
     const possiblePaths = [
       // npm global install
       path.join(os.homedir(), '.npm-global', 'bin', 'claude'),
@@ -75,14 +92,20 @@ export class AuthService {
       // which/where failed
     }
 
-    // Use npx as fallback
-    logger.info('Claude CLI not found in common paths, will try npx');
+    // Use npx as fallback (requires Node.js on user's system)
+    logger.warn('Claude CLI not found in bundled or system paths, will try npx');
     return 'npx';
   }
 
   /**
    * Start the OAuth login flow using node-pty.
    * Returns the authorization URL that the user should visit.
+   *
+   * Based on mautrix-claude sidecar pattern:
+   * - Spawns CLI process directly (not through shell)
+   * - Uses wide terminal (500 cols) to prevent URL line-wrapping
+   * - Captures OAuth URL from output
+   * - Keeps PTY alive for code input
    */
   async startOAuthFlow(): Promise<{ authUrl: string; error?: string }> {
     // Clean up any existing flow
@@ -94,18 +117,37 @@ export class AuthService {
 
     const claudeCli = this.findClaudeCli();
     const isNpx = claudeCli === 'npx';
+    const isBundledCli = claudeCli.endsWith('cli.js');
 
-    // Build command and args
-    const shell_cmd = process.platform === 'win32' ? 'cmd.exe' : '/bin/bash';
-    const claudeCmd = isNpx
-      ? 'npx @anthropic-ai/claude-code setup-token'
-      : `"${claudeCli}" setup-token`;
+    // Build command and args - spawn DIRECTLY, not through a shell (like mautrix-claude sidecar)
+    let spawnFile: string;
+    let spawnArgs: string[];
+    let extraEnv: Record<string, string> = {};
 
-    logger.info(`Starting OAuth flow with: ${claudeCmd}`);
+    if (isNpx) {
+      // Fallback: use npx through shell (requires Node.js on system)
+      spawnFile = process.platform === 'win32' ? 'cmd.exe' : '/bin/bash';
+      spawnArgs = process.platform === 'win32'
+        ? ['/c', 'npx @anthropic-ai/claude-code setup-token']
+        : ['-c', 'npx @anthropic-ai/claude-code setup-token'];
+    } else if (isBundledCli) {
+      // Bundled CLI: spawn Electron as Node.js directly with CLI script
+      spawnFile = process.execPath;
+      spawnArgs = [claudeCli, 'setup-token'];
+      extraEnv = { ELECTRON_RUN_AS_NODE: '1' };
+      logger.info(`Using bundled CLI: ${spawnFile} ${claudeCli} setup-token`);
+    } else {
+      // System CLI: spawn directly
+      spawnFile = claudeCli;
+      spawnArgs = ['setup-token'];
+    }
 
-    // Environment without browser auto-open
+    logger.info(`Starting OAuth flow: ${spawnFile} ${spawnArgs.join(' ')}`);
+
+    // Environment without browser auto-open (like mautrix-claude sidecar)
     const env: Record<string, string> = {
       ...process.env as Record<string, string>,
+      ...extraEnv,
       BROWSER: process.platform === 'win32' ? 'echo' : '/bin/false',
       CLAUDE_CONFIG_DIR: configDir,
       TERM: 'xterm-256color',
@@ -115,10 +157,11 @@ export class AuthService {
 
     return new Promise((resolve) => {
       try {
-        // Create PTY
-        const ptyProcess = pty.spawn(shell_cmd, [process.platform === 'win32' ? '/c' : '-c', claudeCmd], {
+        // Create PTY - use wide terminal (500 cols) to prevent URL line-wrapping
+        // This is the pattern from mautrix-claude sidecar
+        const ptyProcess = pty.spawn(spawnFile, spawnArgs, {
           name: 'xterm-256color',
-          cols: 120,
+          cols: 500, // Wide terminal to prevent URL wrapping
           rows: 30,
           cwd: os.homedir(),
           env,
@@ -194,6 +237,11 @@ export class AuthService {
 
   /**
    * Complete the OAuth flow by sending the code to the PTY.
+   *
+   * Based on mautrix-claude sidecar pattern:
+   * - Sends code character by character (Ink/Node.js UIs need individual keystrokes)
+   * - Sends CR+LF to submit
+   * - Looks for sk-ant-oat01-... token in output
    */
   async completeOAuthFlow(code: string): Promise<{ success: boolean; token?: string; error?: string }> {
     if (!this.pendingOAuthFlow) {
@@ -225,9 +273,21 @@ export class AuthService {
           checkResult();
         });
 
-        // Send the code followed by Enter
-        logger.info(`Sending OAuth code (length=${code.length})`);
-        ptyProcess.write(code + '\r');
+        // Send the code character by character (like mautrix-claude sidecar)
+        // Ink/Node.js terminal UIs often need to see individual keystrokes
+        logger.info(`Typing OAuth code character by character (length=${code.length})`);
+        for (const char of code) {
+          ptyProcess.write(char);
+        }
+
+        // Send CR+LF to submit (like mautrix-claude sidecar)
+        setTimeout(() => {
+          ptyProcess.write('\r');
+          setTimeout(() => {
+            ptyProcess.write('\n');
+            logger.info('Finished typing code, sent CR+LF');
+          }, 100);
+        }, 50);
 
         const checkResult = (): boolean => {
           if (resolved) return true;
