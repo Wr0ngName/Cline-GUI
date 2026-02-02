@@ -143,6 +143,8 @@ export class AuthService {
     }
 
     logger.info(`Starting OAuth flow: ${spawnFile} ${spawnArgs.join(' ')}`);
+    logger.info(`CLI path exists: ${fs.existsSync(claudeCli)}`);
+    logger.info(`Spawn file exists: ${fs.existsSync(spawnFile)}`);
 
     // Environment without browser auto-open (like mautrix-claude sidecar)
     const env: Record<string, string> = {
@@ -157,6 +159,7 @@ export class AuthService {
 
     return new Promise((resolve) => {
       try {
+        logger.info('Creating PTY process...');
         // Create PTY - use wide terminal (500 cols) to prevent URL line-wrapping
         // This is the pattern from mautrix-claude sidecar
         const ptyProcess = pty.spawn(spawnFile, spawnArgs, {
@@ -166,6 +169,7 @@ export class AuthService {
           cwd: os.homedir(),
           env,
         });
+        logger.info(`PTY process created, pid: ${ptyProcess.pid}`);
 
         let output = '';
         let authUrl = '';
@@ -200,37 +204,42 @@ export class AuthService {
         // Handle PTY output
         ptyProcess.onData((data: string) => {
           output += data;
-          logger.debug(`OAuth pty data: ${data.slice(0, 200)}`);
+          logger.debug(`OAuth pty data (${data.length} bytes): ${data.slice(0, 200).replace(/\n/g, '\\n')}`);
           checkForUrl();
         });
 
         // Timeout after 30 seconds
         const timeoutId = setTimeout(() => {
           if (!resolved) {
-            logger.error('Timeout waiting for OAuth URL');
-            logger.debug(`Output so far: ${this.stripAnsi(output).slice(-500)}`);
+            logger.error('Timeout waiting for OAuth URL after 30s');
+            logger.error(`Total output received: ${output.length} bytes`);
+            logger.error(`Cleaned output (last 1000 chars): ${this.stripAnsi(output).slice(-1000)}`);
             this.cleanupOAuthFlow();
             resolve({ authUrl: '', error: 'Timeout waiting for authentication URL. Is Claude CLI installed?' });
           }
         }, 30000);
 
-        ptyProcess.onExit(({ exitCode }) => {
+        ptyProcess.onExit(({ exitCode, signal }) => {
           clearTimeout(timeoutId);
+          logger.info(`PTY process exited: code=${exitCode}, signal=${signal}`);
           // Give time for output to be processed
           setTimeout(() => {
             checkForUrl();
             if (!resolved) {
               logger.error(`PTY exited with code ${exitCode} before getting URL`);
-              logger.debug(`Output: ${this.stripAnsi(output).slice(-500)}`);
+              logger.error(`Total output: ${output.length} bytes`);
+              logger.error(`Output (last 1000 chars): ${this.stripAnsi(output).slice(-1000)}`);
               this.cleanupOAuthFlow();
-              resolve({ authUrl: '', error: 'Authentication process exited unexpectedly. Is Claude CLI installed?' });
+              resolve({ authUrl: '', error: `Authentication process exited (code ${exitCode}). Check logs for details.` });
             }
           }, 500);
         });
       } catch (error) {
-        logger.error('Failed to start OAuth flow:', error);
+        const err = error as Error;
+        logger.error('Failed to start OAuth flow:', err.message);
+        logger.error('Stack:', err.stack);
         fs.rmSync(configDir, { recursive: true, force: true });
-        resolve({ authUrl: '', error: `Failed to start authentication: ${error}` });
+        resolve({ authUrl: '', error: `Failed to start authentication: ${err.message}` });
       }
     });
   }
