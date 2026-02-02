@@ -42,7 +42,7 @@ export function setupIPC(
     updateService,
   } = services;
 
-  setupAuthHandlers(authService, configService);
+  setupAuthHandlers(authService, configService, getMainWindow);
   setupClaudeIPC(claudeService);
   setupFilesIPC(fileWatcher, configService, getMainWindow);
   setupConfigIPC(configService, getMainWindow);

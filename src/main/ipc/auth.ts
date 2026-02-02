@@ -2,7 +2,7 @@
  * IPC handlers for authentication operations
  */
 
-import { ipcMain } from 'electron';
+import { ipcMain, BrowserWindow } from 'electron';
 
 import { IPC_CHANNELS, AuthStatus } from '../../shared/types';
 import AuthService from '../services/AuthService';
@@ -11,7 +11,8 @@ import logger from '../utils/logger';
 
 export function setupAuthHandlers(
   authService: AuthService,
-  configService: ConfigService
+  configService: ConfigService,
+  getMainWindow: () => BrowserWindow | null
 ): void {
   // Get current authentication status
   ipcMain.handle(IPC_CHANNELS.AUTH_GET_STATUS, async (): Promise<AuthStatus> => {
@@ -82,10 +83,18 @@ export function setupAuthHandlers(
 
       if (result.success && result.token) {
         // Save the OAuth token
-        await configService.setConfig({
+        const configUpdate = {
           oauthToken: result.token,
-          authMethod: 'oauth',
-        });
+          authMethod: 'oauth' as const,
+        };
+        await configService.setConfig(configUpdate);
+
+        // Notify renderer of config change so UI updates
+        const mainWindow = getMainWindow();
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          mainWindow.webContents.send(IPC_CHANNELS.CONFIG_CHANGED, configUpdate);
+        }
+
         logger.info('OAuth token saved successfully');
         return { success: true };
       }
@@ -99,11 +108,18 @@ export function setupAuthHandlers(
     logger.info('IPC: auth:logout');
 
     // Clear both OAuth token and API key
-    await configService.setConfig({
+    const configUpdate = {
       oauthToken: '',
       apiKey: '',
-      authMethod: 'none',
-    });
+      authMethod: 'none' as const,
+    };
+    await configService.setConfig(configUpdate);
+
+    // Notify renderer of config change so UI updates
+    const mainWindow = getMainWindow();
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send(IPC_CHANNELS.CONFIG_CHANGED, configUpdate);
+    }
 
     // Clean up any pending OAuth flows
     authService.cleanupOAuthFlow();
