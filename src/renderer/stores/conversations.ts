@@ -23,6 +23,9 @@ export const useConversationsStore = defineStore('conversations', () => {
   let autoSaveTimer: ReturnType<typeof setTimeout> | null = null;
   const AUTO_SAVE_DELAY = 2000; // 2 seconds debounce
 
+  // Watch stop function for cleanup
+  let stopMessagesWatcher: (() => void) | null = null;
+
   // Getters
   const currentConversation = computed(() => {
     if (!currentConversationId.value) return null;
@@ -252,7 +255,7 @@ export const useConversationsStore = defineStore('conversations', () => {
 
     // Watch chat messages for auto-save
     const chatStore = useChatStore();
-    watch(
+    stopMessagesWatcher = watch(
       () => chatStore.messages,
       () => {
         if (currentConversationId.value && chatStore.messages.length > 0) {
@@ -267,6 +270,12 @@ export const useConversationsStore = defineStore('conversations', () => {
    * Cleanup on unmount
    */
   function cleanup(): void {
+    // Stop watching for message changes
+    if (stopMessagesWatcher) {
+      stopMessagesWatcher();
+      stopMessagesWatcher = null;
+    }
+
     // Save any pending changes before cleanup
     if (autoSaveTimer) {
       cancelAutoSave();

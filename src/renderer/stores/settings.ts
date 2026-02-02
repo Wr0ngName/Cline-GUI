@@ -16,8 +16,10 @@ export const useSettingsStore = defineStore('settings', () => {
   const isLoading = ref(true);
   const isSaving = ref(false);
 
-  // Cleanup function for config change listener
+  // Cleanup functions for event listeners
   let unsubscribe: (() => void) | null = null;
+  let systemThemeMediaQuery: MediaQueryList | null = null;
+  let systemThemeHandler: (() => void) | null = null;
 
   // Getters
   const hasApiKey = computed(() => !!config.value.apiKey);
@@ -110,19 +112,24 @@ export const useSettingsStore = defineStore('settings', () => {
     });
 
     // Listen for system theme changes
-    const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
-    const handleSystemThemeChange = () => {
+    systemThemeMediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
+    systemThemeHandler = () => {
       if (config.value.theme === 'system') {
         applyTheme('system');
       }
     };
-    mediaQuery.addEventListener('change', handleSystemThemeChange);
+    systemThemeMediaQuery.addEventListener('change', systemThemeHandler);
   }
 
   function cleanup() {
     if (unsubscribe) {
       unsubscribe();
       unsubscribe = null;
+    }
+    if (systemThemeMediaQuery && systemThemeHandler) {
+      systemThemeMediaQuery.removeEventListener('change', systemThemeHandler);
+      systemThemeMediaQuery = null;
+      systemThemeHandler = null;
     }
   }
 

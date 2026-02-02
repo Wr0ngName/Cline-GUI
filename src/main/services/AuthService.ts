@@ -88,8 +88,8 @@ export class AuthService {
         logger.info(`Found Claude CLI via PATH: ${result}`);
         return result;
       }
-    } catch {
-      // which/where failed
+    } catch (err) {
+      logger.debug('Claude CLI not found via which/where command', err);
     }
 
     // Use npx as fallback (requires Node.js on user's system)
@@ -372,8 +372,8 @@ export class AuthService {
                 return true;
               }
               logger.warn('Credentials file found but no valid token format', { creds: JSON.stringify(creds).slice(0, 200) });
-            } catch {
-              // Invalid JSON, keep waiting
+            } catch (err) {
+              logger.debug('Credentials file not ready or invalid JSON', err);
             }
           }
 
@@ -392,8 +392,8 @@ export class AuthService {
                   this.cleanupOAuthFlow();
                   resolve({ success: true, token });
                 }
-              } catch {
-                // Continue waiting
+              } catch (err) {
+                logger.debug('Credentials file not ready after success message', err);
               }
             }, 500);
           }
@@ -487,8 +487,8 @@ export class AuthService {
         if (this.pendingOAuthFlow.pty) {
           this.pendingOAuthFlow.pty.kill();
         }
-      } catch {
-        // PTY may already be dead
+      } catch (err) {
+        logger.debug('PTY already terminated during cleanup', err);
       }
 
       this.pendingOAuthFlow = null;
@@ -499,8 +499,8 @@ export class AuthService {
           if (configDir && fs.existsSync(configDir)) {
             fs.rmSync(configDir, { recursive: true, force: true });
           }
-        } catch {
-          // Directory may already be removed
+        } catch (err) {
+          logger.debug('Temp config directory already removed or inaccessible', err);
         }
       }, 1000);
 
