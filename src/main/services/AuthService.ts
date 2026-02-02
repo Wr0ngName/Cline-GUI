@@ -360,14 +360,18 @@ export class AuthService {
           if (fs.existsSync(credsFile)) {
             try {
               const creds = JSON.parse(fs.readFileSync(credsFile, 'utf8'));
-              resolved = true;
-              dataHandler.dispose();
-              logger.info('OAuth credentials file found');
-              // Extract oauthToken if present
-              const token = creds.oauthToken || creds.claudeAiOauth?.accessToken || JSON.stringify(creds);
-              this.cleanupOAuthFlow();
-              resolve({ success: true, token });
-              return true;
+              logger.info('OAuth credentials file found', { keys: Object.keys(creds) });
+              // Extract oauthToken - try various formats the CLI might use
+              const token = creds.oauthToken || creds.claudeAiOauth?.accessToken;
+              if (token && typeof token === 'string' && token.startsWith('sk-ant-')) {
+                resolved = true;
+                dataHandler.dispose();
+                logger.info(`OAuth token extracted from credentials file (length=${token.length})`);
+                this.cleanupOAuthFlow();
+                resolve({ success: true, token });
+                return true;
+              }
+              logger.warn('Credentials file found but no valid token format', { creds: JSON.stringify(creds).slice(0, 200) });
             } catch {
               // Invalid JSON, keep waiting
             }
@@ -380,11 +384,14 @@ export class AuthService {
               if (resolved) return;
               try {
                 const creds = JSON.parse(fs.readFileSync(path.join(configDir, '.credentials.json'), 'utf8'));
-                resolved = true;
-                dataHandler.dispose();
-                const token = creds.oauthToken || creds.claudeAiOauth?.accessToken || JSON.stringify(creds);
-                this.cleanupOAuthFlow();
-                resolve({ success: true, token });
+                const token = creds.oauthToken || creds.claudeAiOauth?.accessToken;
+                if (token && typeof token === 'string' && token.startsWith('sk-ant-')) {
+                  resolved = true;
+                  dataHandler.dispose();
+                  logger.info(`OAuth token extracted after success message (length=${token.length})`);
+                  this.cleanupOAuthFlow();
+                  resolve({ success: true, token });
+                }
               } catch {
                 // Continue waiting
               }
