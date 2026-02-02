@@ -141,7 +141,12 @@ export class ConfigService {
     try {
       const encrypted = safeStorage.encryptString(value);
       this.store.set(key, encrypted.toString('base64'));
-      logger.info(`${key} stored securely`);
+      // Log token details for debugging (prefix + length only, never full token)
+      logger.info(`${key} stored securely`, {
+        prefix: value.slice(0, 15) + '...',
+        length: value.length,
+        encryptedLength: encrypted.length,
+      });
     } catch (error) {
       logger.error(`Failed to encrypt ${key}`, error);
       throw new ConfigurationError(`Failed to encrypt ${key}: ${error instanceof Error ? error.message : 'Unknown error'}`, ERROR_CODES.CONFIG_SAVE_FAILED, error);
@@ -168,6 +173,11 @@ export class ConfigService {
 
     try {
       const decrypted = safeStorage.decryptString(Buffer.from(encryptedValue, 'base64'));
+      // Log token details for debugging (prefix + length only, never full token)
+      logger.debug(`${key} retrieved`, {
+        prefix: decrypted.slice(0, 15) + '...',
+        length: decrypted.length,
+      });
       return decrypted;
     } catch (error) {
       logger.error(`Failed to decrypt ${key}`, error);

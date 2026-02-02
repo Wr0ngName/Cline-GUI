@@ -360,18 +360,28 @@ export class AuthService {
           if (fs.existsSync(credsFile)) {
             try {
               const creds = JSON.parse(fs.readFileSync(credsFile, 'utf8'));
-              logger.info('OAuth credentials file found', { keys: Object.keys(creds) });
+              logger.info('OAuth credentials file found', {
+                keys: Object.keys(creds),
+                hasOauthToken: !!creds.oauthToken,
+                hasClaudeAiOauth: !!creds.claudeAiOauth,
+              });
               // Extract oauthToken - try various formats the CLI might use
               const token = creds.oauthToken || creds.claudeAiOauth?.accessToken;
               if (token && typeof token === 'string' && token.startsWith('sk-ant-')) {
                 resolved = true;
                 dataHandler.dispose();
-                logger.info(`OAuth token extracted from credentials file (length=${token.length})`);
+                logger.info('OAuth token extracted from credentials file', {
+                  length: token.length,
+                  prefix: token.slice(0, 15) + '...',
+                  source: creds.oauthToken ? 'oauthToken' : 'claudeAiOauth.accessToken',
+                });
                 this.cleanupOAuthFlow();
                 resolve({ success: true, token });
                 return true;
               }
-              logger.warn('Credentials file found but no valid token format', { creds: JSON.stringify(creds).slice(0, 200) });
+              logger.warn('Credentials file found but no valid token format', {
+                creds: JSON.stringify(creds).slice(0, 300),
+              });
             } catch (err) {
               logger.debug('Credentials file not ready or invalid JSON', err);
             }
