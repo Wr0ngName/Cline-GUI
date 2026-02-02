@@ -246,17 +246,24 @@ publish:packages:
         fi
       done
 
-      # Create latest.yml for auto-updater
+      # Create latest.yml for auto-updater (electron-updater expects this at the root)
       echo "Creating latest.yml for auto-updater..."
       WIN_EXE=$(ls out/make/squirrel.windows/x64/*.exe 2>/dev/null | head -1)
       WIN_FILENAME=$(basename "$WIN_EXE" | tr ' ' '-')
       cat > latest.yml << EOF
-      version: ${VERSION}
-      path: ${WIN_FILENAME}
-      sha512: $(sha512sum "$WIN_EXE" 2>/dev/null | cut -d' ' -f1 || echo "")
-      releaseDate: $(date -u +"%Y-%m-%dT%H:%M:%SZ")
-      EOF
+version: ${VERSION}
+path: ${VERSION}/${WIN_FILENAME}
+sha512: $(sha512sum "$WIN_EXE" 2>/dev/null | cut -d' ' -f1 || echo "")
+releaseDate: $(date -u +"%Y-%m-%dT%H:%M:%SZ")
+EOF
 
+      # Upload to root of releases (where auto-updater looks)
+      echo "Uploading latest.yml to ${PACKAGE_REGISTRY_URL}/releases/latest.yml"
+      curl --header "JOB-TOKEN: ${CI_JOB_TOKEN}" \
+           --upload-file latest.yml \
+           "${PACKAGE_REGISTRY_URL}/releases/latest.yml"
+
+      # Also keep a version-specific copy
       curl --header "JOB-TOKEN: ${CI_JOB_TOKEN}" \
            --upload-file latest.yml \
            "${PACKAGE_REGISTRY_URL}/releases/${VERSION}/latest.yml"
