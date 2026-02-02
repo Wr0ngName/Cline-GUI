@@ -11,7 +11,10 @@ const config: ForgeConfig = {
   packagerConfig: {
     name: 'Cline GUI',
     executableName: 'cline-gui',
-    asar: true,
+    asar: {
+      // Unpack native modules so they can be loaded at runtime
+      unpack: '**/node_modules/{node-pty,@anthropic-ai,@img}/**/*',
+    },
     icon: './resources/icons/icon',
     appBundleId: 'com.cline.gui',
     appCategoryType: 'public.app-category.developer-tools',
