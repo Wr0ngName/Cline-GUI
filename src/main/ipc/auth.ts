@@ -71,12 +71,11 @@ export function setupAuthHandlers(
 
       const trimmedCode = code.trim();
 
-      // Validate OAuth code format - Claude uses alphanumeric codes with hyphens
-      // Typical format is a base64-like string or UUID-like format
-      const oauthCodePattern = /^[A-Za-z0-9_-]{10,200}$/;
-      if (!oauthCodePattern.test(trimmedCode)) {
-        logger.warn('Invalid OAuth code format received', { codeLength: trimmedCode.length });
-        return { success: false, error: 'Invalid code format. Please copy the complete code from your browser.' };
+      // Basic length validation only - let the CLI validate the actual format
+      // OAuth codes can contain various characters depending on the provider
+      if (trimmedCode.length < 10 || trimmedCode.length > 500) {
+        logger.warn('OAuth code length out of range', { codeLength: trimmedCode.length });
+        return { success: false, error: 'Invalid code length. Please copy the complete code from your browser.' };
       }
 
       const result = await authService.completeOAuthFlow(trimmedCode);
