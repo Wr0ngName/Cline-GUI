@@ -136,15 +136,17 @@ export class AuthService {
         // Use cmd.exe to set ELECTRON_RUN_AS_NODE before running
         logger.info('Windows: using cmd.exe to set ELECTRON_RUN_AS_NODE');
         spawnFile = 'cmd.exe';
-        // Use /s /c to handle quotes properly, set env var then run command
-        spawnArgs = ['/s', '/c', `"set ELECTRON_RUN_AS_NODE=1 && "${process.execPath}" "${claudeCli}" setup-token"`];
+        // /c runs command then terminates; entire command is one string
+        const cmdLine = `set ELECTRON_RUN_AS_NODE=1 && "${process.execPath}" "${claudeCli}" setup-token`;
+        spawnArgs = ['/c', cmdLine];
+        logger.info(`Windows cmd line: ${cmdLine}`);
       } else {
         // On Linux/macOS, spawn Electron directly with env var
         spawnFile = process.execPath;
         spawnArgs = [claudeCli, 'setup-token'];
         extraEnv = { ELECTRON_RUN_AS_NODE: '1' };
       }
-      logger.info(`Using bundled CLI: ${spawnFile} ${spawnArgs.join(' ')}`);
+      logger.info(`Using bundled CLI: ${spawnFile} ${JSON.stringify(spawnArgs)}`);
     } else {
       // System CLI: spawn directly
       spawnFile = claudeCli;
