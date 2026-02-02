@@ -586,6 +586,13 @@ export class ClaudeCodeService {
    * Handle messages from the Claude Code SDK
    */
   private async handleSDKMessage(message: SDKMessage): Promise<void> {
+    // Log all SDK messages for debugging
+    logger.debug('SDK message received', {
+      type: message.type,
+      subtype: (message as { subtype?: string }).subtype,
+      hasContent: !!(message as SDKAssistantMessage).message?.content,
+    });
+
     switch (message.type) {
       case 'assistant':
         await this.processAssistantMessage(message as SDKAssistantMessage);
@@ -593,13 +600,17 @@ export class ClaudeCodeService {
 
       case 'result': {
         const resultMsg = message as SDKResultMessage;
+        // Log full result details for debugging
+        logger.info('SDK result message', {
+          subtype: resultMsg.subtype,
+          numTurns: resultMsg.num_turns,
+          duration: resultMsg.duration_ms,
+          // Include any error info if present
+          error: (resultMsg as { error?: string }).error,
+        });
         if (resultMsg.subtype === 'success') {
           // Mark query as succeeded - used to handle process exit errors gracefully
           this.querySucceeded = true;
-          logger.info('Query completed successfully', {
-            numTurns: resultMsg.num_turns,
-            duration: resultMsg.duration_ms,
-          });
         } else {
           logger.warn('Query ended with non-success', { subtype: resultMsg.subtype });
         }
@@ -625,8 +636,21 @@ export class ClaudeCodeService {
   private async processAssistantMessage(message: SDKAssistantMessage): Promise<void> {
     const content = message.message.content;
 
+    // Log message content for debugging authentication issues
+    logger.debug('Assistant message content', {
+      blockCount: content.length,
+      blockTypes: content.map(b => b.type),
+    });
+
     for (const block of content) {
       if (block.type === 'text') {
+        // Log text content (truncated) to debug 401 errors
+        const textPreview = block.text.slice(0, 200);
+        if (block.text.toLowerCase().includes('401') ||
+            block.text.toLowerCase().includes('unauthorized') ||
+            block.text.toLowerCase().includes('invalid')) {
+          logger.warn('Assistant message contains error keywords', { textPreview });
+        }
         this.emitChunk(block.text);
       }
       // Tool use is handled via canUseTool callback, not here
