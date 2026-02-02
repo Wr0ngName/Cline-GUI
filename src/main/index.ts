@@ -6,27 +6,67 @@
  * Only electron-squirrel-startup is safe to import statically (uses only Node built-ins).
  */
 
+// DEBUG: File-based logging using ONLY Node built-ins - works during Squirrel events
+import * as fs from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
+
+const debugLogPath = path.join(os.tmpdir(), 'cline-gui-debug.log');
+function debugLog(message: string): void {
+  const timestamp = new Date().toISOString();
+  const line = `[${timestamp}] ${message}\n`;
+  try {
+    fs.appendFileSync(debugLogPath, line);
+  } catch {
+    // Ignore write errors
+  }
+}
+
+debugLog('=== App starting ===');
+debugLog(`process.execPath: ${process.execPath}`);
+debugLog(`process.argv: ${JSON.stringify(process.argv)}`);
+debugLog(`process.cwd(): ${process.cwd()}`);
+debugLog(`__dirname: ${__dirname}`);
+
 // This is safe - electron-squirrel-startup only uses Node built-ins
 import started from 'electron-squirrel-startup';
 
+debugLog(`electron-squirrel-startup returned: ${started}`);
+
 if (started) {
   // Squirrel event handled (install/update/uninstall), exit immediately
+  debugLog('Squirrel event handled, exiting');
   process.exit(0);
 }
 
+debugLog('Not a Squirrel event, continuing to main()');
+
 // Only NOW dynamically import everything else - this runs at runtime, not module load time
 async function main(): Promise<void> {
+  debugLog('main() started');
+
   // Dynamic imports - these happen AFTER the Squirrel check above
+  debugLog('Importing electron...');
   const { app, BrowserWindow, dialog } = await import('electron');
+  debugLog('Importing ipc...');
   const { setupIPC } = await import('./ipc');
+  debugLog('Importing AuthService...');
   const { default: AuthService } = await import('./services/AuthService');
+  debugLog('Importing ClaudeCodeService...');
   const { default: ClaudeCodeService } = await import('./services/ClaudeCodeService');
+  debugLog('Importing ConfigService...');
   const { default: ConfigService } = await import('./services/ConfigService');
+  debugLog('Importing ConversationService...');
   const { default: ConversationService } = await import('./services/ConversationService');
+  debugLog('Importing FileWatcherService...');
   const { default: FileWatcherService } = await import('./services/FileWatcherService');
+  debugLog('Importing UpdateService...');
   const { default: UpdateService } = await import('./services/UpdateService');
+  debugLog('Importing logger...');
   const { default: logger } = await import('./utils/logger');
+  debugLog('Importing window...');
   const { createWindow, getMainWindow } = await import('./window');
+  debugLog('All imports completed');
 
   // Service instances
   let authService: InstanceType<typeof AuthService>;
@@ -58,11 +98,15 @@ async function main(): Promise<void> {
    * Application ready handler
    */
   async function onReady(): Promise<void> {
+    debugLog('onReady() called');
     try {
       logger.info('Application ready');
+      debugLog('Calling initializeServices()...');
 
       await initializeServices();
+      debugLog('Services initialized');
 
+      debugLog('Setting up IPC...');
       setupIPC(
         {
           authService,
@@ -74,8 +118,11 @@ async function main(): Promise<void> {
         },
         getMainWindow
       );
+      debugLog('IPC setup complete');
 
+      debugLog('Creating window...');
       const mainWindow = await createWindow();
+      debugLog(`Window created: ${mainWindow ? 'success' : 'null'}`);
 
       claudeService.setMainWindow(mainWindow);
       updateService.setMainWindow(mainWindow);
@@ -86,12 +133,15 @@ async function main(): Promise<void> {
         logger.info('Restored working directory', { directory: lastWorkingDir });
       }
 
+      debugLog('onReady() completed successfully');
+
       setTimeout(() => {
         updateService.checkForUpdates().catch((error: unknown) => {
           logger.warn('Failed to check for updates on startup', error);
         });
       }, 5000);
     } catch (error) {
+      debugLog(`onReady() ERROR: ${error instanceof Error ? error.stack : String(error)}`);
       logger.error('Critical error during app startup:', error);
       dialog.showErrorBox(
         'Startup Error',
@@ -102,15 +152,18 @@ async function main(): Promise<void> {
   }
 
   // Set up app event handlers
+  debugLog('Setting up app event handlers...');
   app.on('ready', onReady);
 
   app.on('window-all-closed', () => {
+    debugLog('window-all-closed event');
     if (process.platform !== 'darwin') {
       app.quit();
     }
   });
 
   app.on('activate', () => {
+    debugLog('activate event');
     if (BrowserWindow.getAllWindows().length === 0) {
       createWindow().then((mainWindow) => {
         claudeService.setMainWindow(mainWindow);
@@ -120,18 +173,22 @@ async function main(): Promise<void> {
   });
 
   app.on('before-quit', () => {
+    debugLog('before-quit event');
     logger.info('Application quitting');
     fileWatcher?.stop();
   });
 
   process.on('uncaughtException', (error) => {
+    debugLog(`uncaughtException: ${error instanceof Error ? error.stack : String(error)}`);
     logger.error('Uncaught exception', error);
   });
 
   process.on('unhandledRejection', (reason) => {
+    debugLog(`unhandledRejection: ${reason}`);
     logger.error('Unhandled rejection', reason);
   });
 
+  debugLog('Event handlers set up, app is running');
   logger.info('Main process started', {
     platform: process.platform,
     arch: process.arch,
@@ -142,6 +199,7 @@ async function main(): Promise<void> {
 
 // Start the application
 main().catch((error) => {
+  debugLog(`main() FATAL ERROR: ${error instanceof Error ? error.stack : String(error)}`);
   console.error('Fatal error starting application:', error);
   process.exit(1);
 });

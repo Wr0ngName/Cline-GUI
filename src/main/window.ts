@@ -2,11 +2,25 @@
  * Window management for the main application window
  */
 
+import * as fs from 'node:fs';
+import * as os from 'node:os';
 import path from 'node:path';
 
 import { BrowserWindow, shell } from 'electron';
 
 import logger from './utils/logger';
+
+// Debug logging to same file as index.ts
+const debugLogPath = path.join(os.tmpdir(), 'cline-gui-debug.log');
+function debugLog(message: string): void {
+  const timestamp = new Date().toISOString();
+  const line = `[${timestamp}] [window] ${message}\n`;
+  try {
+    fs.appendFileSync(debugLogPath, line);
+  } catch {
+    // Ignore write errors
+  }
+}
 
 let mainWindow: BrowserWindow | null = null;
 
@@ -18,7 +32,12 @@ declare const MAIN_WINDOW_VITE_NAME: string;
  * Create the main application window
  */
 export async function createWindow(): Promise<BrowserWindow> {
+  debugLog('createWindow() called');
   logger.info('Creating main window');
+
+  const preloadPath = path.join(__dirname, 'preload.js');
+  debugLog(`Preload path: ${preloadPath}`);
+  debugLog(`Preload exists: ${fs.existsSync(preloadPath)}`);
 
   mainWindow = new BrowserWindow({
     width: 1400,
@@ -29,24 +48,30 @@ export async function createWindow(): Promise<BrowserWindow> {
     backgroundColor: '#fafafa',
     show: false, // Don't show until ready
     webPreferences: {
-      preload: path.join(__dirname, 'preload.js'),
+      preload: preloadPath,
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: false, // Required for some Electron features
     },
   });
+  debugLog('BrowserWindow created');
 
   // Load the app
   try {
     if (MAIN_WINDOW_VITE_DEV_SERVER_URL) {
+      debugLog(`Loading from dev server: ${MAIN_WINDOW_VITE_DEV_SERVER_URL}`);
       logger.info('Loading from dev server:', MAIN_WINDOW_VITE_DEV_SERVER_URL);
       await mainWindow.loadURL(MAIN_WINDOW_VITE_DEV_SERVER_URL);
     } else {
       const indexPath = path.join(__dirname, `../renderer/${MAIN_WINDOW_VITE_NAME}/index.html`);
+      debugLog(`Loading from file: ${indexPath}`);
+      debugLog(`Index file exists: ${fs.existsSync(indexPath)}`);
       logger.info('Loading from file:', indexPath);
       await mainWindow.loadFile(indexPath);
     }
+    debugLog('Content loaded successfully');
   } catch (error) {
+    debugLog(`Failed to load content: ${error instanceof Error ? error.stack : String(error)}`);
     logger.error('Failed to load main window content:', error);
     // Show window anyway so user can see something went wrong
     mainWindow.show();
@@ -55,13 +80,16 @@ export async function createWindow(): Promise<BrowserWindow> {
 
   // Show window when ready
   mainWindow.once('ready-to-show', () => {
+    debugLog('ready-to-show event fired');
     mainWindow?.show();
+    debugLog('Window shown');
     logger.info('Main window ready and shown');
   });
 
   // Fallback: show window after timeout if ready-to-show doesn't fire
   setTimeout(() => {
     if (mainWindow && !mainWindow.isVisible()) {
+      debugLog('Timeout: window not visible, forcing show');
       logger.warn('Window not shown after timeout, forcing show');
       mainWindow.show();
     }
@@ -75,15 +103,18 @@ export async function createWindow(): Promise<BrowserWindow> {
 
   // Open DevTools in development
   if (process.env.NODE_ENV === 'development' || MAIN_WINDOW_VITE_DEV_SERVER_URL) {
+    debugLog('Opening DevTools (development mode)');
     mainWindow.webContents.openDevTools();
   }
 
   // Handle window close
   mainWindow.on('closed', () => {
+    debugLog('Window closed event');
     mainWindow = null;
     logger.info('Main window closed');
   });
 
+  debugLog('createWindow() returning');
   return mainWindow;
 }
 
