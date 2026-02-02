@@ -142,20 +142,29 @@ export class AuthService {
       spawnArgs = ['setup-token'];
     }
 
-    logger.info(`Starting OAuth flow: ${spawnFile} ${spawnArgs.join(' ')}`);
+    logger.info(`Starting OAuth flow on ${process.platform}`);
+    logger.info(`Spawn file: ${spawnFile}`);
+    logger.info(`Spawn args: ${JSON.stringify(spawnArgs)}`);
+    logger.info(`CLI path: ${claudeCli}`);
     logger.info(`CLI path exists: ${fs.existsSync(claudeCli)}`);
     logger.info(`Spawn file exists: ${fs.existsSync(spawnFile)}`);
+    logger.info(`Extra env: ${JSON.stringify(extraEnv)}`);
 
     // Environment without browser auto-open (like mautrix-claude sidecar)
     const env: Record<string, string> = {
       ...process.env as Record<string, string>,
       ...extraEnv,
-      BROWSER: process.platform === 'win32' ? 'echo' : '/bin/false',
+      // Prevent browser auto-open: use a command that does nothing
+      // On Windows, 'echo' doesn't work as BROWSER - use empty string or cmd /c echo
+      BROWSER: process.platform === 'win32' ? 'cmd /c echo' : '/bin/false',
       CLAUDE_CONFIG_DIR: configDir,
       TERM: 'xterm-256color',
       NO_COLOR: '1',
     };
-    delete env.DISPLAY; // Prevent X11 browser launch on Linux
+    // Prevent X11 browser launch on Linux
+    if (process.platform !== 'win32') {
+      delete env.DISPLAY;
+    }
 
     return new Promise((resolve) => {
       try {
@@ -170,6 +179,13 @@ export class AuthService {
           env,
         });
         logger.info(`PTY process created, pid: ${ptyProcess.pid}`);
+
+        // Handle PTY errors
+        ptyProcess.onExit(({ exitCode, signal }) => {
+          if (exitCode !== 0 && exitCode !== null) {
+            logger.warn(`PTY process ended abnormally: exitCode=${exitCode}, signal=${signal}`);
+          }
+        });
 
         let output = '';
         let authUrl = '';
