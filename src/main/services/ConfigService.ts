@@ -173,9 +173,10 @@ export class ConfigService {
 
     try {
       const decrypted = safeStorage.decryptString(Buffer.from(encryptedValue, 'base64'));
-      // Log token details for debugging (prefix + length only, never full token)
-      logger.debug(`${key} retrieved`, {
-        prefix: decrypted.slice(0, 15) + '...',
+      // Log token details for debugging (prefix + suffix + length)
+      logger.info(`${key} retrieved from secure storage`, {
+        prefix: decrypted.slice(0, 20) + '...',
+        suffix: '...' + decrypted.slice(-15),
         length: decrypted.length,
       });
       return decrypted;

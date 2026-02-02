@@ -344,12 +344,25 @@ export class AuthService {
           const clean = this.stripAnsi(output);
 
           // Look for OAuth token in output (sk-ant-oat01-...)
+          // Match format from mautrix-claude: r'(sk-ant-oat01-[A-Za-z0-9_\-]+)'
           const tokenMatch = clean.match(/(sk-ant-oat01-[A-Za-z0-9_-]+)/);
           if (tokenMatch) {
+            const token = tokenMatch[1];
+            // Validate token length (mautrix-claude requires > 80 chars)
+            if (token.length <= 80) {
+              logger.warn('OAuth token too short, may be truncated', {
+                length: token.length,
+                token: token, // Log full token for debugging (will be in server logs only)
+              });
+            }
             resolved = true;
             dataHandler.dispose();
-            const token = tokenMatch[1];
-            logger.info(`OAuth token extracted (length=${token.length})`);
+            // Log full details for debugging
+            logger.info('OAuth token extracted from CLI output', {
+              length: token.length,
+              prefix: token.slice(0, 20) + '...',
+              suffix: '...' + token.slice(-15),
+            });
             this.cleanupOAuthFlow();
             resolve({ success: true, token });
             return true;

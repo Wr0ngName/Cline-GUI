@@ -133,8 +133,10 @@ export class ClaudeCodeService {
         throw new Error(`Invalid OAuth token: ${validation.error}. Please log out and log in again.`);
       }
       env['CLAUDE_CODE_OAUTH_TOKEN'] = oauthToken;
-      logger.debug('Using OAuth token for authentication', {
-        tokenPrefix: oauthToken.substring(0, 12) + '...',
+      // Log at INFO level to ensure it appears in logs for debugging
+      logger.info('Using OAuth token for authentication', {
+        tokenPrefix: oauthToken.substring(0, 20) + '...',
+        tokenSuffix: '...' + oauthToken.slice(-15),
         tokenLength: oauthToken.length,
       });
       return env;
@@ -479,22 +481,32 @@ export class ClaudeCodeService {
               }
             }
 
-            // Log full spawn details for debugging
+            // Log full spawn details for debugging - include token details from SDK
+            const sdkToken = options.env?.CLAUDE_CODE_OAUTH_TOKEN;
             logger.info('Spawning SDK process', {
               spawnFile,
               args: spawnArgs.slice(0, 3).map(a => a.length > 50 ? a.slice(0, 50) + '...' : a), // First 3 args, truncated
               argsCount: spawnArgs.length,
               cwd: options.cwd,
               platform: process.platform,
-              hasOAuthToken: !!options.env?.CLAUDE_CODE_OAUTH_TOKEN,
+              // Token details from what SDK passes to our callback
+              sdkEnvKeys: Object.keys(options.env || {}).length,
+              hasOAuthToken: !!sdkToken,
+              sdkTokenPrefix: sdkToken ? sdkToken.slice(0, 20) + '...' : undefined,
+              sdkTokenSuffix: sdkToken ? '...' + sdkToken.slice(-15) : undefined,
+              sdkTokenLength: sdkToken?.length,
               hasApiKey: !!options.env?.ANTHROPIC_API_KEY,
             });
 
+            // CRITICAL: Inherit process.env so child has PATH, HOME, certs, etc.
+            // Then overlay SDK-provided env (includes CLAUDE_CODE_OAUTH_TOKEN)
+            // Then our additions (ELECTRON_RUN_AS_NODE on non-Windows)
             const childProcess: ChildProcess = spawn(spawnFile, spawnArgs, {
               cwd: options.cwd,
               env: {
-                ...options.env,
-                ...extraEnv,
+                ...process.env,  // Inherit parent environment (mautrix-claude does this)
+                ...options.env,  // SDK-provided env vars
+                ...extraEnv,     // Our additions
               },
               stdio: ['pipe', 'pipe', 'pipe'],
               signal: options.signal,
