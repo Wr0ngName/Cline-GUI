@@ -455,6 +455,23 @@ export class ClaudeCodeService {
                 logger.info('Windows: using bundled Node.js for SDK spawn', { bundledNodeExe });
                 spawnFile = bundledNodeExe;
                 extraEnv = {}; // No ELECTRON_RUN_AS_NODE needed with real Node.js
+
+                // CRITICAL: Vanilla Node.js cannot read from .asar archives.
+                // Files are unpacked to app.asar.unpacked/ via forge's asar.unpack config.
+                // We must rewrite paths from app.asar to app.asar.unpacked for the SDK's cli.js
+                spawnArgs = spawnArgs.map(arg => {
+                  if (typeof arg === 'string' && arg.includes('app.asar') && !arg.includes('app.asar.unpacked')) {
+                    const rewrittenArg = arg.replace(/app\.asar([\/\\])/g, 'app.asar.unpacked$1');
+                    if (rewrittenArg !== arg) {
+                      logger.debug('Windows: rewrote asar path to unpacked', {
+                        original: arg.slice(0, 100),
+                        rewritten: rewrittenArg.slice(0, 100),
+                      });
+                    }
+                    return rewrittenArg;
+                  }
+                  return arg;
+                });
               } else {
                 logger.warn('Windows: bundled Node.js not found, falling back to ELECTRON_RUN_AS_NODE', {
                   expectedPath: bundledNodeExe,
