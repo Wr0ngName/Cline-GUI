@@ -3,23 +3,66 @@ import { MakerSquirrel } from '@electron-forge/maker-squirrel';
 import { MakerZIP } from '@electron-forge/maker-zip';
 import { MakerDeb } from '@electron-forge/maker-deb';
 import { MakerRpm } from '@electron-forge/maker-rpm';
+import { AutoUnpackNativesPlugin } from '@electron-forge/plugin-auto-unpack-natives';
 import { VitePlugin } from '@electron-forge/plugin-vite';
 import { FusesPlugin } from '@electron-forge/plugin-fuses';
 import { FuseV1Options, FuseVersion } from '@electron/fuses';
+import { spawn } from 'node:child_process';
 
 const config: ForgeConfig = {
+  hooks: {
+    // Workaround for Electron Forge Vite bug #3738:
+    // External modules are not included in the package. Reinstall them after pruning.
+    // https://github.com/electron/forge/issues/3738#issuecomment-3199157664
+    packageAfterPrune: async (_config, buildPath) => {
+      // Dynamically import vite config to get external modules list
+      const viteConfig = await import('./vite.main.config');
+      const external = viteConfig?.default?.build?.rollupOptions?.external || [];
+
+      if (external.length === 0) {
+        console.log('No external modules to install');
+        return;
+      }
+
+      // Filter out 'electron' as it's provided by the runtime
+      const modulesToInstall = external.filter((m: string) => m !== 'electron');
+
+      console.log('Installing external modules:', modulesToInstall);
+
+      return new Promise<void>((resolve, reject) => {
+        const npm = spawn('npm', ['install', '--no-package-lock', '--no-save', ...modulesToInstall], {
+          cwd: buildPath,
+          stdio: 'inherit',
+          shell: true,
+        });
+
+        npm.on('close', (code) => {
+          if (code === 0) {
+            resolve();
+          } else {
+            reject(new Error(`npm install exited with code: ${code}`));
+          }
+        });
+
+        npm.on('error', reject);
+      });
+    },
+  },
   packagerConfig: {
     name: 'Cline GUI',
     executableName: 'cline-gui',
     asar: {
-      // Unpack native modules so they can be loaded at runtime
       unpack: '**/node_modules/{node-pty,@anthropic-ai,@img}/**/*',
     },
     icon: './resources/icons/icon',
     appBundleId: 'com.cline.gui',
     appCategoryType: 'public.app-category.developer-tools',
   },
-  rebuildConfig: {},
+  rebuildConfig: {
+    // Rebuild native modules for the target platform
+    onlyModules: ['node-pty'],
+    force: true,
+  },
   makers: [
     new MakerSquirrel({
       name: 'cline-gui',
@@ -48,6 +91,8 @@ const config: ForgeConfig = {
     }),
   ],
   plugins: [
+    // Auto-unpack native modules for runtime access
+    new AutoUnpackNativesPlugin({}),
     new VitePlugin({
       build: [
         {
