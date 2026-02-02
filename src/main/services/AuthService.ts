@@ -133,13 +133,14 @@ export class AuthService {
     } else if (isBundledCli) {
       if (process.platform === 'win32') {
         // On Windows, node-pty doesn't pass env vars correctly to Electron
-        // Use cmd.exe to set ELECTRON_RUN_AS_NODE before running
-        logger.info('Windows: using cmd.exe to set ELECTRON_RUN_AS_NODE');
-        spawnFile = 'cmd.exe';
-        // /c runs command then terminates; entire command is one string
-        const cmdLine = `set ELECTRON_RUN_AS_NODE=1 && "${process.execPath}" "${claudeCli}" setup-token`;
-        spawnArgs = ['/c', cmdLine];
-        logger.info(`Windows cmd line: ${cmdLine}`);
+        // Use PowerShell to set env var and run command (more reliable than cmd.exe)
+        logger.info('Windows: using PowerShell to set ELECTRON_RUN_AS_NODE');
+        spawnFile = 'powershell.exe';
+        // -NoProfile for faster startup, -Command to run inline script
+        // Set env var then call the executable with & operator
+        const psCommand = `$env:ELECTRON_RUN_AS_NODE='1'; & '${process.execPath}' '${claudeCli}' 'setup-token'`;
+        spawnArgs = ['-NoProfile', '-Command', psCommand];
+        logger.info(`Windows PowerShell command: ${psCommand}`);
       } else {
         // On Linux/macOS, spawn Electron directly with env var
         spawnFile = process.execPath;
