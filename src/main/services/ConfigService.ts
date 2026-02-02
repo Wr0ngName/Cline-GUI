@@ -171,7 +171,13 @@ export class ConfigService {
       return decrypted;
     } catch (error) {
       logger.error(`Failed to decrypt ${key}`, error);
-      return '';
+      // Clear the corrupted value to prevent repeated failures
+      this.store.delete(key);
+      throw new ConfigurationError(
+        `Failed to decrypt ${key}. Your credentials may have been corrupted. Please log in again.`,
+        ERROR_CODES.AUTH_ENCRYPTION_UNAVAILABLE,
+        error
+      );
     }
   }
 

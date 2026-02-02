@@ -49,6 +49,9 @@ export class ClaudeCodeService {
   private pendingPermissions: Map<string, PendingPermission> = new Map();
   private mainWindow: BrowserWindow | null = null;
   private actionCounter = 0;
+  // Track if we received a successful result from the SDK
+  // Used to handle process exit errors that occur after successful completion
+  private querySucceeded = false;
 
   constructor(configService: ConfigService) {
     this.configService = configService;
@@ -403,6 +406,9 @@ export class ClaudeCodeService {
    * Send a message to Claude using the Claude Code SDK
    */
   async sendMessage(message: string, workingDirectory: string): Promise<void> {
+    // Reset query state
+    this.querySucceeded = false;
+
     // Check if auth is configured
     if (!(await this.hasAuthInternal())) {
       this.emitError('Not authenticated. Please login with your Claude account or add an API key in Settings.');
@@ -512,15 +518,29 @@ export class ClaudeCodeService {
         return;
       }
 
+      const errorMessage = (error as Error).message || '';
+
+      // Handle process exit errors that occur after successful query completion
+      // The SDK throws when the underlying process exits with non-zero code,
+      // even if the query completed successfully. This is a known issue.
+      if (this.querySucceeded && errorMessage.includes('process exited')) {
+        logger.warn('Process exit error after successful query (ignoring)', {
+          error: errorMessage,
+        });
+        // Query succeeded, so emit done instead of error
+        this.emitDone();
+        return;
+      }
+
       logger.error('Failed to send message', error);
 
       // Provide user-friendly error messages based on error type
-      const errorMessage = (error as Error).message || '';
       const userMessage = this.getHumanReadableError(errorMessage);
       this.emitError(userMessage);
     } finally {
       this.abortController = null;
       this.currentQuery = null;
+      this.querySucceeded = false; // Reset for next query
       // Clear any pending permissions
       this.pendingPermissions.clear();
     }
@@ -538,6 +558,8 @@ export class ClaudeCodeService {
       case 'result': {
         const resultMsg = message as SDKResultMessage;
         if (resultMsg.subtype === 'success') {
+          // Mark query as succeeded - used to handle process exit errors gracefully
+          this.querySucceeded = true;
           logger.info('Query completed successfully', {
             numTurns: resultMsg.num_turns,
             duration: resultMsg.duration_ms,
