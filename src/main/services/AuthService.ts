@@ -98,30 +98,6 @@ export class AuthService {
   }
 
   /**
-   * Test if the bundled CLI can run with Electron as Node.js
-   */
-  private async testBundledCli(cliPath: string): Promise<boolean> {
-    return new Promise((resolve) => {
-      try {
-        const result = execSync(
-          `"${process.execPath}" "${cliPath}" --version`,
-          {
-            encoding: 'utf8',
-            timeout: 10000,
-            env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' },
-            windowsHide: true,
-          }
-        );
-        logger.info(`CLI test result: ${result.trim()}`);
-        resolve(result.includes('Claude Code'));
-      } catch (error) {
-        logger.error('CLI test failed:', error);
-        resolve(false);
-      }
-    });
-  }
-
-  /**
    * Start the OAuth login flow using node-pty.
    * Returns the authorization URL that the user should visit.
    *
@@ -155,22 +131,15 @@ export class AuthService {
         ? ['/c', 'npx @anthropic-ai/claude-code setup-token']
         : ['-c', 'npx @anthropic-ai/claude-code setup-token'];
     } else if (isBundledCli) {
-      // Test if CLI works with Electron as Node.js
-      const cliWorks = await this.testBundledCli(claudeCli);
-      if (!cliWorks) {
-        logger.error('Bundled CLI test failed - ELECTRON_RUN_AS_NODE may not work');
-        // On Windows, try running through cmd.exe instead
-        if (process.platform === 'win32') {
-          logger.info('Trying Windows cmd.exe workaround...');
-          spawnFile = 'cmd.exe';
-          spawnArgs = ['/c', `set ELECTRON_RUN_AS_NODE=1 && "${process.execPath}" "${claudeCli}" setup-token`];
-        } else {
-          spawnFile = process.execPath;
-          spawnArgs = [claudeCli, 'setup-token'];
-          extraEnv = { ELECTRON_RUN_AS_NODE: '1' };
-        }
+      if (process.platform === 'win32') {
+        // On Windows, node-pty doesn't pass env vars correctly to Electron
+        // Use cmd.exe to set ELECTRON_RUN_AS_NODE before running
+        logger.info('Windows: using cmd.exe to set ELECTRON_RUN_AS_NODE');
+        spawnFile = 'cmd.exe';
+        // Use /s /c to handle quotes properly, set env var then run command
+        spawnArgs = ['/s', '/c', `"set ELECTRON_RUN_AS_NODE=1 && "${process.execPath}" "${claudeCli}" setup-token"`];
       } else {
-        // Bundled CLI: spawn Electron as Node.js directly with CLI script
+        // On Linux/macOS, spawn Electron directly with env var
         spawnFile = process.execPath;
         spawnArgs = [claudeCli, 'setup-token'];
         extraEnv = { ELECTRON_RUN_AS_NODE: '1' };
