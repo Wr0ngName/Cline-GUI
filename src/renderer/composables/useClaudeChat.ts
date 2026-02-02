@@ -29,8 +29,8 @@ export function useClaudeChat() {
     }
 
     // Check prerequisites
-    if (!settingsStore.hasApiKey) {
-      chatStore.setError('Please configure your API key in Settings');
+    if (!settingsStore.hasAuth) {
+      chatStore.setError('Please log in or configure your API key in Settings');
       return;
     }
 
