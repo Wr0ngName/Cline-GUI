@@ -8,6 +8,7 @@ import { ref, computed, reactive } from 'vue';
 
 import { CONSTANTS } from '../constants/app';
 import { logger } from '../utils/logger';
+
 import { useSettingsStore } from './settings';
 
 export const useFilesStore = defineStore('files', () => {

@@ -7,6 +7,7 @@
 import { ref, onErrorCaptured } from 'vue';
 import { logger } from '../../utils/logger';
 import Button from './Button.vue';
+import Icon from './Icon.vue';
 
 const error = ref<Error | null>(null);
 const errorInfo = ref<string>('');
@@ -40,19 +41,12 @@ function reload() {
   <div v-if="error" class="error-boundary">
     <div class="error-container">
       <div class="error-icon">
-        <svg
-          class="w-16 h-16 text-red-500"
-          fill="none"
-          stroke="currentColor"
-          viewBox="0 0 24 24"
-        >
-          <path
-            stroke-linecap="round"
-            stroke-linejoin="round"
-            stroke-width="2"
-            d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"
-          />
-        </svg>
+        <Icon
+          name="warning"
+          size="xl"
+          class="text-red-500"
+          style="width: 4rem; height: 4rem;"
+        />
       </div>
 
       <h2 class="error-title">Something went wrong</h2>

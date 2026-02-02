@@ -5,8 +5,11 @@
 import { ipcMain, BrowserWindow } from 'electron';
 
 import { IPC_CHANNELS, AuthStatus } from '../../shared/types';
+import { MAIN_CONSTANTS } from '../constants/app';
+import { AuthenticationError, ERROR_CODES } from '../errors';
 import AuthService from '../services/AuthService';
 import ConfigService from '../services/ConfigService';
+import { validateString, sendToRenderer } from '../utils/ipc-helpers';
 import logger from '../utils/logger';
 
 export function setupAuthHandlers(
@@ -21,13 +24,13 @@ export function setupAuthHandlers(
 
       // Validate services
       if (!authService || !configService) {
-        throw new Error('Auth or Config service not initialized');
+        throw new AuthenticationError('Auth or Config service not initialized', ERROR_CODES.AUTH_NOT_CONFIGURED);
       }
 
       const config = await configService.getConfig();
 
       if (!config) {
-        throw new Error('Failed to load configuration');
+        throw new AuthenticationError('Failed to load configuration', ERROR_CODES.AUTH_NOT_CONFIGURED);
       }
 
       if (config.oauthToken) {
@@ -52,7 +55,7 @@ export function setupAuthHandlers(
       };
     } catch (error) {
       logger.error('Failed to get auth status', { error });
-      throw new Error(`Failed to get authentication status: ${error instanceof Error ? error.message : String(error)}`);
+      throw new AuthenticationError(`Failed to get authentication status: ${error instanceof Error ? error.message : String(error)}`, ERROR_CODES.AUTH_NOT_CONFIGURED, error);
     }
   });
 
@@ -65,13 +68,13 @@ export function setupAuthHandlers(
 
         // Validate service
         if (!authService) {
-          throw new Error('Auth service not initialized');
+          throw new AuthenticationError('Auth service not initialized', ERROR_CODES.AUTH_NOT_CONFIGURED);
         }
 
         const result = await authService.startOAuthFlow();
 
         if (!result) {
-          throw new Error('OAuth flow initialization returned no result');
+          throw new AuthenticationError('OAuth flow initialization returned no result', ERROR_CODES.AUTH_OAUTH_FAILED);
         }
 
         if (result.authUrl) {
@@ -100,15 +103,13 @@ export function setupAuthHandlers(
 
         // Validate services
         if (!authService || !configService) {
-          throw new Error('Auth or Config service not initialized');
+          throw new AuthenticationError('Auth or Config service not initialized', ERROR_CODES.AUTH_NOT_CONFIGURED);
         }
 
         // Validate input
-        if (typeof code !== 'string') {
-          return { success: false, error: 'Invalid code type: must be a string' };
-        }
-
-        if (!code || !code.trim()) {
+        try {
+          validateString(code, 'OAuth code');
+        } catch {
           return { success: false, error: 'Please enter the code from your browser' };
         }
 
@@ -116,7 +117,7 @@ export function setupAuthHandlers(
 
         // Basic length validation only - let the CLI validate the actual format
         // OAuth codes can contain various characters depending on the provider
-        if (trimmedCode.length < 10 || trimmedCode.length > 500) {
+        if (trimmedCode.length < MAIN_CONSTANTS.AUTH.OAUTH_CODE_MIN_LENGTH || trimmedCode.length > MAIN_CONSTANTS.AUTH.OAUTH_CODE_MAX_LENGTH) {
           logger.warn('OAuth code length out of range', { codeLength: trimmedCode.length });
           return { success: false, error: 'Invalid code length. Please copy the complete code from your browser.' };
         }
@@ -124,7 +125,7 @@ export function setupAuthHandlers(
         const result = await authService.completeOAuthFlow(trimmedCode);
 
         if (!result) {
-          throw new Error('OAuth completion returned no result');
+          throw new AuthenticationError('OAuth completion returned no result', ERROR_CODES.AUTH_OAUTH_FAILED);
         }
 
         if (result.success && result.token) {
@@ -136,10 +137,7 @@ export function setupAuthHandlers(
           await configService.setConfig(configUpdate);
 
           // Notify renderer of config change so UI updates
-          const mainWindow = getMainWindow();
-          if (mainWindow && !mainWindow.isDestroyed()) {
-            mainWindow.webContents.send(IPC_CHANNELS.CONFIG_CHANGED, configUpdate);
-          }
+          sendToRenderer(getMainWindow, IPC_CHANNELS.CONFIG_CHANGED, configUpdate);
 
           logger.info('OAuth token saved successfully');
           return { success: true };
@@ -163,7 +161,7 @@ export function setupAuthHandlers(
 
       // Validate services
       if (!authService || !configService) {
-        throw new Error('Auth or Config service not initialized');
+        throw new AuthenticationError('Auth or Config service not initialized', ERROR_CODES.AUTH_NOT_CONFIGURED);
       }
 
       // Clear both OAuth token and API key
@@ -175,10 +173,7 @@ export function setupAuthHandlers(
       await configService.setConfig(configUpdate);
 
       // Notify renderer of config change so UI updates
-      const mainWindow = getMainWindow();
-      if (mainWindow && !mainWindow.isDestroyed()) {
-        mainWindow.webContents.send(IPC_CHANNELS.CONFIG_CHANGED, configUpdate);
-      }
+      sendToRenderer(getMainWindow, IPC_CHANNELS.CONFIG_CHANGED, configUpdate);
 
       // Clean up any pending OAuth flows
       authService.cleanupOAuthFlow();
@@ -186,7 +181,7 @@ export function setupAuthHandlers(
       logger.info('Logged out successfully');
     } catch (error) {
       logger.error('Failed to logout', { error });
-      throw new Error(`Failed to logout: ${error instanceof Error ? error.message : String(error)}`);
+      throw new AuthenticationError(`Failed to logout: ${error instanceof Error ? error.message : String(error)}`, ERROR_CODES.AUTH_NOT_CONFIGURED, error);
     }
   });
 

@@ -10,7 +10,7 @@ interface Props {
   /** Icon size preset */
   size?: 'xs' | 'sm' | 'md' | 'lg' | 'xl';
   /** Additional CSS classes */
-  class?: string;
+  class?: string | string[];
 }
 
 const props = withDefaults(defineProps<Props>(), {
@@ -33,6 +33,7 @@ export type IconName =
   | 'file'
   | 'chevron-right'
   | 'chevron-down'
+  | 'chevron-left'
   | 'close'
   | 'check'
   | 'check-circle'
@@ -65,7 +66,9 @@ export type IconName =
   | 'document'
   | 'copy'
   | 'download'
-  | 'upload';
+  | 'upload'
+  | 'eye'
+  | 'eye-off';
 
 /** SVG path data for each icon */
 const iconPaths: Record<IconName, string> = {
@@ -75,6 +78,7 @@ const iconPaths: Record<IconName, string> = {
   file: 'M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z',
   'chevron-right': 'M9 5l7 7-7 7',
   'chevron-down': 'M19 9l-7 7-7-7',
+  'chevron-left': 'M15 19l-7-7 7-7',
   close: 'M6 18L18 6M6 6l12 12',
   check: 'M5 13l4 4L19 7',
   'check-circle': 'M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z',
@@ -109,6 +113,8 @@ const iconPaths: Record<IconName, string> = {
   copy: 'M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z',
   download: 'M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4',
   upload: 'M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12',
+  eye: 'M15 12a3 3 0 11-6 0 3 3 0 016 0z M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z',
+  'eye-off': 'M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21',
 };
 </script>
 

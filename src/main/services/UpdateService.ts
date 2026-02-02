@@ -37,10 +37,30 @@ export class UpdateService {
       url: `${GITLAB_HOST}/api/v4/projects/${GITLAB_PROJECT_ID}/packages/generic/releases`,
     });
 
+    // Configure authentication for private package registry (if needed)
+    // For public registries, this is optional but doesn't hurt
+    // GitLab accepts both Personal Access Tokens and Deploy Tokens
+    // Format: 'Private-Token: <token>' or 'Deploy-Token: <token>'
+    //
+    // For development: Set GITLAB_UPDATE_TOKEN environment variable
+    // For production: This should be configured during app distribution
+    // or the package registry should be made public
+    const updateToken = process.env.GITLAB_UPDATE_TOKEN;
+    if (updateToken) {
+      autoUpdater.requestHeaders = {
+        'Private-Token': updateToken,
+      };
+      logger.info('Auto-updater configured with authentication');
+    } else {
+      // No token - will only work with public package registry
+      logger.info('Auto-updater configured without authentication (public access only)');
+    }
+
     // Log the configured URL for debugging
     logger.info('Auto-updater configured', {
       currentVersion,
       feedUrl: `${GITLAB_HOST}/api/v4/projects/${GITLAB_PROJECT_ID}/packages/generic/releases`,
+      hasAuth: !!updateToken,
     });
 
     // Auto download updates

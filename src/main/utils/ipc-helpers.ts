@@ -4,6 +4,8 @@
 
 import type { BrowserWindow } from 'electron';
 
+import { ValidationError, ERROR_CODES } from '../errors';
+
 import logger from './logger';
 
 /**
@@ -63,10 +65,10 @@ export function createSender(
  */
 export function validateString(value: unknown, fieldName: string): asserts value is string {
   if (typeof value !== 'string') {
-    throw new Error(`${fieldName} must be a string`);
+    throw new ValidationError(`${fieldName} must be a string`, fieldName, ERROR_CODES.VALIDATION_TYPE_MISMATCH);
   }
   if (value.trim().length === 0) {
-    throw new Error(`${fieldName} must not be empty`);
+    throw new ValidationError(`${fieldName} must not be empty`, fieldName, ERROR_CODES.VALIDATION_REQUIRED);
   }
 }
 
@@ -82,7 +84,7 @@ export function validateObject(
   fieldName: string
 ): asserts value is Record<string, unknown> {
   if (typeof value !== 'object' || value === null) {
-    throw new Error(`${fieldName} must be an object`);
+    throw new ValidationError(`${fieldName} must be an object`, fieldName, ERROR_CODES.VALIDATION_TYPE_MISMATCH);
   }
 }
 
@@ -96,11 +98,11 @@ export function validatePath(filePath: string): void {
   const normalized = filePath.replace(/\\/g, '/');
 
   if (normalized.includes('../') || normalized.includes('..\\')) {
-    throw new Error('Invalid path: path traversal not allowed');
+    throw new ValidationError('Invalid path: path traversal not allowed', 'filePath', ERROR_CODES.FS_PATH_TRAVERSAL);
   }
 
   // Check for null bytes (path injection)
   if (filePath.includes('\0')) {
-    throw new Error('Invalid path: null bytes not allowed');
+    throw new ValidationError('Invalid path: null bytes not allowed', 'filePath', ERROR_CODES.VALIDATION_INVALID_PATH);
   }
 }

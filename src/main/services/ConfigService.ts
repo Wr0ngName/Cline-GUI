@@ -6,6 +6,7 @@
 import { safeStorage } from 'electron';
 
 import { AppConfig, AuthMethod, DEFAULT_CONFIG } from '../../shared/types';
+import { ConfigurationError, ERROR_CODES } from '../errors';
 import logger from '../utils/logger';
 
 interface StoredConfig {
@@ -77,7 +78,7 @@ export class ConfigService {
    */
   async getConfig(): Promise<AppConfig> {
     await this.ensureInitialized();
-    if (!this.store) throw new Error('Store not initialized');
+    if (!this.store) throw new ConfigurationError('Store not initialized', ERROR_CODES.CONFIG_LOAD_FAILED);
 
     const storedConfig = this.store.store;
     const apiKey = await this.getApiKey();
@@ -96,7 +97,7 @@ export class ConfigService {
    */
   async setConfig(config: Partial<AppConfig>): Promise<void> {
     await this.ensureInitialized();
-    if (!this.store) throw new Error('Store not initialized');
+    if (!this.store) throw new ConfigurationError('Store not initialized', ERROR_CODES.CONFIG_SAVE_FAILED);
 
     const { apiKey, oauthToken, ...rest } = config;
 
@@ -126,7 +127,7 @@ export class ConfigService {
    */
   private async setEncryptedValue(key: keyof StoredConfig, value: string): Promise<void> {
     await this.ensureInitialized();
-    if (!this.store) throw new Error('Store not initialized');
+    if (!this.store) throw new ConfigurationError('Store not initialized', ERROR_CODES.CONFIG_SAVE_FAILED);
 
     if (!value) {
       this.store.delete(key);
@@ -134,7 +135,7 @@ export class ConfigService {
     }
 
     if (!safeStorage.isEncryptionAvailable()) {
-      throw new Error('SafeStorage encryption is not available. Cannot store credentials securely.');
+      throw new ConfigurationError('SafeStorage encryption is not available. Cannot store credentials securely.', ERROR_CODES.AUTH_ENCRYPTION_UNAVAILABLE);
     }
 
     try {
@@ -143,7 +144,7 @@ export class ConfigService {
       logger.info(`${key} stored securely`);
     } catch (error) {
       logger.error(`Failed to encrypt ${key}`, error);
-      throw new Error(`Failed to encrypt ${key}: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      throw new ConfigurationError(`Failed to encrypt ${key}: ${error instanceof Error ? error.message : 'Unknown error'}`, ERROR_CODES.CONFIG_SAVE_FAILED, error);
     }
   }
 
@@ -153,7 +154,7 @@ export class ConfigService {
    */
   private async getEncryptedValue(key: keyof StoredConfig): Promise<string> {
     await this.ensureInitialized();
-    if (!this.store) throw new Error('Store not initialized');
+    if (!this.store) throw new ConfigurationError('Store not initialized', ERROR_CODES.CONFIG_LOAD_FAILED);
 
     const encryptedValue = this.store.get(key);
     if (!encryptedValue) {
@@ -162,7 +163,7 @@ export class ConfigService {
 
     if (!safeStorage.isEncryptionAvailable()) {
       logger.error(`SafeStorage encryption not available, cannot decrypt ${key}`);
-      throw new Error('SafeStorage encryption is not available. Cannot decrypt credentials.');
+      throw new ConfigurationError('SafeStorage encryption is not available. Cannot decrypt credentials.', ERROR_CODES.AUTH_ENCRYPTION_UNAVAILABLE);
     }
 
     try {
@@ -241,7 +242,7 @@ export class ConfigService {
    */
   async setWorkingDirectory(directory: string): Promise<void> {
     await this.ensureInitialized();
-    if (!this.store) throw new Error('Store not initialized');
+    if (!this.store) throw new ConfigurationError('Store not initialized', ERROR_CODES.CONFIG_SAVE_FAILED);
 
     this.store.set('workingDirectory', directory);
 

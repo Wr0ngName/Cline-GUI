@@ -5,7 +5,9 @@
 import { ipcMain, BrowserWindow } from 'electron';
 
 import { AppConfig, IPC_CHANNELS } from '../../shared/types';
+import { ConfigurationError, ERROR_CODES } from '../errors';
 import ConfigService from '../services/ConfigService';
+import { validateObject, sendToRenderer } from '../utils/ipc-helpers';
 import logger from '../utils/logger';
 
 export function setupConfigIPC(
@@ -19,19 +21,19 @@ export function setupConfigIPC(
 
       // Validate service
       if (!configService) {
-        throw new Error('Config service not initialized');
+        throw new ConfigurationError('Config service not initialized', ERROR_CODES.CONFIG_LOAD_FAILED);
       }
 
       const config = await configService.getConfig();
 
       if (!config) {
-        throw new Error('Failed to load configuration');
+        throw new ConfigurationError('Failed to load configuration', ERROR_CODES.CONFIG_LOAD_FAILED);
       }
 
       return config;
     } catch (error) {
       logger.error('Failed to get config', { error });
-      throw new Error(`Failed to get configuration: ${error instanceof Error ? error.message : String(error)}`);
+      throw new ConfigurationError(`Failed to get configuration: ${error instanceof Error ? error.message : String(error)}`, ERROR_CODES.CONFIG_LOAD_FAILED, error);
     }
   });
 
@@ -42,28 +44,23 @@ export function setupConfigIPC(
 
       // Validate service
       if (!configService) {
-        throw new Error('Config service not initialized');
+        throw new ConfigurationError('Config service not initialized', ERROR_CODES.CONFIG_SAVE_FAILED);
       }
 
       // Validate input
-      if (!config || typeof config !== 'object' || Array.isArray(config)) {
-        throw new Error('Invalid config: must be an object');
-      }
+      validateObject(config, 'Config');
 
       if (Object.keys(config).length === 0) {
-        throw new Error('Config object cannot be empty');
+        throw new ConfigurationError('Config object cannot be empty', ERROR_CODES.CONFIG_INVALID);
       }
 
       await configService.setConfig(config);
 
       // Notify renderer of config change
-      const mainWindow = getMainWindow();
-      if (mainWindow && !mainWindow.isDestroyed()) {
-        mainWindow.webContents.send(IPC_CHANNELS.CONFIG_CHANGED, config);
-      }
+      sendToRenderer(getMainWindow, IPC_CHANNELS.CONFIG_CHANGED, config);
     } catch (error) {
       logger.error('Failed to set config', { error, configKeys: config ? Object.keys(config) : [] });
-      throw new Error(`Failed to set configuration: ${error instanceof Error ? error.message : String(error)}`);
+      throw new ConfigurationError(`Failed to set configuration: ${error instanceof Error ? error.message : String(error)}`, ERROR_CODES.CONFIG_SAVE_FAILED, error);
     }
   });
 

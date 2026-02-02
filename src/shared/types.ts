@@ -385,8 +385,6 @@ export const IPC_CHANNELS = {
   CLAUDE_DONE: 'claude:done',
   /** Abort current Claude request */
   CLAUDE_ABORT: 'claude:abort',
-  /** Check if prerequisites (Node.js, Claude Code CLI) are available */
-  CLAUDE_CHECK_PREREQUISITES: 'claude:check-prerequisites',
   /** Send tool execution result back to Claude */
   CLAUDE_TOOL_RESULT: 'claude:tool-result',
   /** Send action approval/rejection response */

@@ -4,6 +4,7 @@
 
 import { BrowserWindow, ipcMain } from 'electron';
 
+import { ValidationError, ERROR_CODES } from '../errors';
 import AuthService from '../services/AuthService';
 import ClaudeCodeService from '../services/ClaudeCodeService';
 import ConfigService from '../services/ConfigService';
@@ -40,7 +41,7 @@ export function setupIPC(
   try {
     // Validate services
     if (!services) {
-      throw new Error('Services object is required');
+      throw new ValidationError('Services object is required', 'services', ERROR_CODES.VALIDATION_REQUIRED);
     }
 
     const {
@@ -53,25 +54,25 @@ export function setupIPC(
     } = services;
 
     if (!authService) {
-      throw new Error('AuthService is required');
+      throw new ValidationError('AuthService is required', 'authService', ERROR_CODES.VALIDATION_REQUIRED);
     }
     if (!configService) {
-      throw new Error('ConfigService is required');
+      throw new ValidationError('ConfigService is required', 'configService', ERROR_CODES.VALIDATION_REQUIRED);
     }
     if (!claudeService) {
-      throw new Error('ClaudeCodeService is required');
+      throw new ValidationError('ClaudeCodeService is required', 'claudeService', ERROR_CODES.VALIDATION_REQUIRED);
     }
     if (!fileWatcher) {
-      throw new Error('FileWatcherService is required');
+      throw new ValidationError('FileWatcherService is required', 'fileWatcher', ERROR_CODES.VALIDATION_REQUIRED);
     }
     if (!conversationService) {
-      throw new Error('ConversationService is required');
+      throw new ValidationError('ConversationService is required', 'conversationService', ERROR_CODES.VALIDATION_REQUIRED);
     }
     if (!updateService) {
-      throw new Error('UpdateService is required');
+      throw new ValidationError('UpdateService is required', 'updateService', ERROR_CODES.VALIDATION_REQUIRED);
     }
     if (typeof getMainWindow !== 'function') {
-      throw new Error('getMainWindow must be a function');
+      throw new ValidationError('getMainWindow must be a function', 'getMainWindow', ERROR_CODES.VALIDATION_TYPE_MISMATCH);
     }
 
     setupAuthHandlers(authService, configService, getMainWindow);
@@ -96,6 +97,6 @@ export function setupIPC(
     };
   } catch (error) {
     logger.error('Failed to setup IPC handlers', { error });
-    throw new Error(`Failed to setup IPC handlers: ${error instanceof Error ? error.message : String(error)}`);
+    throw new ValidationError(`Failed to setup IPC handlers: ${error instanceof Error ? error.message : String(error)}`, undefined, ERROR_CODES.IPC_HANDLER_FAILED, error);
   }
 }

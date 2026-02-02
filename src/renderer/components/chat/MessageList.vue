@@ -8,6 +8,7 @@ import { storeToRefs } from 'pinia';
 
 import { useChatStore } from '../../stores/chat';
 import MessageItem from './MessageItem.vue';
+import Icon from '../shared/Icon.vue';
 
 const chatStore = useChatStore();
 const { messages, hasMessages } = storeToRefs(chatStore);
@@ -38,19 +39,11 @@ watch(
       class="flex flex-col items-center justify-center h-full text-center"
     >
       <div class="w-16 h-16 mb-4 rounded-full bg-primary-100 dark:bg-primary-900/30 flex items-center justify-center">
-        <svg
-          class="w-8 h-8 text-primary-500"
-          fill="none"
-          stroke="currentColor"
-          viewBox="0 0 24 24"
-        >
-          <path
-            stroke-linecap="round"
-            stroke-linejoin="round"
-            stroke-width="2"
-            d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"
-          />
-        </svg>
+        <Icon
+          name="chat"
+          size="lg"
+          class="text-primary-500"
+        />
       </div>
       <h3 class="text-lg font-medium text-surface-700 dark:text-surface-300 mb-2">
         Start a conversation

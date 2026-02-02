@@ -7,8 +7,8 @@ import { defineStore } from 'pinia';
 import { ref, computed, watch } from 'vue';
 
 import { CONSTANTS } from '../constants/app';
-import { logger } from '../utils/logger';
 import { generateId } from '../utils/id';
+import { logger } from '../utils/logger';
 
 import { useChatStore } from './chat';
 import { useSettingsStore } from './settings';

@@ -6,10 +6,12 @@
 import { ref, computed } from 'vue';
 import { storeToRefs } from 'pinia';
 
+import { CONSTANTS } from '../../constants/app';
 import { useChatStore } from '../../stores/chat';
 import { useFilesStore } from '../../stores/files';
 import { useSettingsStore } from '../../stores/settings';
 import Button from '../shared/Button.vue';
+import Icon from '../shared/Icon.vue';
 
 const emit = defineEmits<{
   (e: 'send', message: string): void;
@@ -67,7 +69,7 @@ function handleAbort() {
 function handleInput(event: Event) {
   const textarea = event.target as HTMLTextAreaElement;
   textarea.style.height = 'auto';
-  textarea.style.height = Math.min(textarea.scrollHeight, 200) + 'px';
+  textarea.style.height = Math.min(textarea.scrollHeight, CONSTANTS.UI.TEXTAREA_MAX_HEIGHT) + 'px';
 }
 </script>
 
@@ -94,19 +96,11 @@ function handleInput(event: Event) {
           size="md"
           @click="handleAbort"
         >
-          <svg
-            class="w-4 h-4 mr-1"
-            fill="none"
-            stroke="currentColor"
-            viewBox="0 0 24 24"
-          >
-            <path
-              stroke-linecap="round"
-              stroke-linejoin="round"
-              stroke-width="2"
-              d="M6 18L18 6M6 6l12 12"
-            />
-          </svg>
+          <Icon
+            name="close"
+            size="sm"
+            class="mr-1"
+          />
           Stop
         </Button>
 
@@ -117,19 +111,11 @@ function handleInput(event: Event) {
           :disabled="!canSend"
           @click="handleSubmit"
         >
-          <svg
-            class="w-4 h-4 mr-1"
-            fill="none"
-            stroke="currentColor"
-            viewBox="0 0 24 24"
-          >
-            <path
-              stroke-linecap="round"
-              stroke-linejoin="round"
-              stroke-width="2"
-              d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"
-            />
-          </svg>
+          <Icon
+            name="send"
+            size="sm"
+            class="mr-1"
+          />
           Send
         </Button>
       </div>

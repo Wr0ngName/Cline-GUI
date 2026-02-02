@@ -5,7 +5,9 @@
 import { ipcMain } from 'electron';
 
 import { Conversation, IPC_CHANNELS } from '../../shared/types';
+import { ConfigurationError, ValidationError, ERROR_CODES } from '../errors';
 import ConversationService from '../services/ConversationService';
+import { validateString, validateObject } from '../utils/ipc-helpers';
 import logger from '../utils/logger';
 
 export function setupConversationIPC(conversationService: ConversationService): void {
@@ -16,19 +18,19 @@ export function setupConversationIPC(conversationService: ConversationService): 
 
       // Validate service
       if (!conversationService) {
-        throw new Error('Conversation service not initialized');
+        throw new ConfigurationError('Conversation service not initialized', ERROR_CODES.CONFIG_LOAD_FAILED);
       }
 
       const conversations = await conversationService.list();
 
       if (!Array.isArray(conversations)) {
-        throw new Error('Invalid conversation list returned');
+        throw new ConfigurationError('Invalid conversation list returned', ERROR_CODES.CONVERSATION_LOAD_FAILED);
       }
 
       return conversations;
     } catch (error) {
       logger.error('Failed to list conversations', { error });
-      throw new Error(`Failed to list conversations: ${error instanceof Error ? error.message : String(error)}`);
+      throw new ConfigurationError(`Failed to list conversations: ${error instanceof Error ? error.message : String(error)}`, ERROR_CODES.CONVERSATION_LOAD_FAILED, error);
     }
   });
 
@@ -39,28 +41,22 @@ export function setupConversationIPC(conversationService: ConversationService): 
 
       // Validate service
       if (!conversationService) {
-        throw new Error('Conversation service not initialized');
+        throw new ConfigurationError('Conversation service not initialized', ERROR_CODES.CONFIG_LOAD_FAILED);
       }
 
       // Validate input
-      if (typeof id !== 'string') {
-        throw new Error('Invalid conversation ID type: must be a string');
-      }
-
-      if (!id || !id.trim()) {
-        throw new Error('Conversation ID cannot be empty');
-      }
+      validateString(id, 'Conversation ID');
 
       const conversation = await conversationService.get(id);
 
       if (!conversation) {
-        throw new Error(`Conversation not found: ${id}`);
+        throw new ConfigurationError(`Conversation not found: ${id}`, ERROR_CODES.CONVERSATION_NOT_FOUND);
       }
 
       return conversation;
     } catch (error) {
       logger.error('Failed to get conversation', { error, id });
-      throw new Error(`Failed to get conversation: ${error instanceof Error ? error.message : String(error)}`);
+      throw new ConfigurationError(`Failed to get conversation: ${error instanceof Error ? error.message : String(error)}`, ERROR_CODES.CONVERSATION_LOAD_FAILED, error);
     }
   });
 
@@ -71,34 +67,32 @@ export function setupConversationIPC(conversationService: ConversationService): 
 
       // Validate service
       if (!conversationService) {
-        throw new Error('Conversation service not initialized');
+        throw new ConfigurationError('Conversation service not initialized', ERROR_CODES.CONFIG_SAVE_FAILED);
       }
 
       // Validate input
-      if (!conversation || typeof conversation !== 'object') {
-        throw new Error('Invalid conversation: must be an object');
-      }
+      validateObject(conversation, 'Conversation');
 
       if (typeof conversation.id !== 'string' || !conversation.id.trim()) {
-        throw new Error('Invalid conversation ID');
+        throw new ValidationError('Invalid conversation ID', 'id', ERROR_CODES.VALIDATION_REQUIRED);
       }
 
       if (!Array.isArray(conversation.messages)) {
-        throw new Error('Invalid conversation messages: must be an array');
+        throw new ValidationError('Invalid conversation messages: must be an array', 'messages', ERROR_CODES.VALIDATION_TYPE_MISMATCH);
       }
 
       if (typeof conversation.createdAt !== 'number' || conversation.createdAt <= 0) {
-        throw new Error('Invalid conversation createdAt timestamp');
+        throw new ValidationError('Invalid conversation createdAt timestamp', 'createdAt', ERROR_CODES.VALIDATION_TYPE_MISMATCH);
       }
 
       if (typeof conversation.updatedAt !== 'number' || conversation.updatedAt <= 0) {
-        throw new Error('Invalid conversation updatedAt timestamp');
+        throw new ValidationError('Invalid conversation updatedAt timestamp', 'updatedAt', ERROR_CODES.VALIDATION_TYPE_MISMATCH);
       }
 
       await conversationService.save(conversation);
     } catch (error) {
       logger.error('Failed to save conversation', { error, id: conversation?.id });
-      throw new Error(`Failed to save conversation: ${error instanceof Error ? error.message : String(error)}`);
+      throw new ConfigurationError(`Failed to save conversation: ${error instanceof Error ? error.message : String(error)}`, ERROR_CODES.CONVERSATION_SAVE_FAILED, error);
     }
   });
 
@@ -109,22 +103,16 @@ export function setupConversationIPC(conversationService: ConversationService): 
 
       // Validate service
       if (!conversationService) {
-        throw new Error('Conversation service not initialized');
+        throw new ConfigurationError('Conversation service not initialized', ERROR_CODES.CONFIG_SAVE_FAILED);
       }
 
       // Validate input
-      if (typeof id !== 'string') {
-        throw new Error('Invalid conversation ID type: must be a string');
-      }
-
-      if (!id || !id.trim()) {
-        throw new Error('Conversation ID cannot be empty');
-      }
+      validateString(id, 'Conversation ID');
 
       await conversationService.delete(id);
     } catch (error) {
       logger.error('Failed to delete conversation', { error, id });
-      throw new Error(`Failed to delete conversation: ${error instanceof Error ? error.message : String(error)}`);
+      throw new ConfigurationError(`Failed to delete conversation: ${error instanceof Error ? error.message : String(error)}`, ERROR_CODES.CONVERSATION_SAVE_FAILED, error);
     }
   });
 

@@ -16,6 +16,7 @@ import { app, shell } from 'electron';
 import * as pty from 'node-pty';
 import type { IPty } from 'node-pty';
 
+import { MAIN_CONSTANTS } from '../constants/app';
 import logger from '../utils/logger';
 
 export interface OAuthFlowState {
@@ -27,7 +28,6 @@ export interface OAuthFlowState {
 
 export class AuthService {
   private pendingOAuthFlow: OAuthFlowState | null = null;
-  private readonly OAUTH_TIMEOUT = 600000; // 10 minutes
 
   constructor() {
     logger.info('AuthService initialized');
@@ -103,7 +103,7 @@ export class AuthService {
    *
    * Based on mautrix-claude sidecar pattern:
    * - Spawns CLI process directly (not through shell)
-   * - Uses wide terminal (500 cols) to prevent URL line-wrapping
+   * - Uses wide terminal to prevent URL line-wrapping
    * - Captures OAuth URL from output
    * - Keeps PTY alive for code input
    */
@@ -193,12 +193,12 @@ export class AuthService {
     return new Promise((resolve) => {
       try {
         logger.info('Creating PTY process...');
-        // Create PTY - use wide terminal (500 cols) to prevent URL line-wrapping
+        // Create PTY - use wide terminal to prevent URL line-wrapping
         // This is the pattern from mautrix-claude sidecar
         const ptyProcess = pty.spawn(spawnFile, spawnArgs, {
           name: 'xterm-256color',
-          cols: 500, // Wide terminal to prevent URL wrapping
-          rows: 30,
+          cols: MAIN_CONSTANTS.AUTH.OAUTH_TERMINAL_COLS,
+          rows: MAIN_CONSTANTS.AUTH.OAUTH_TERMINAL_ROWS,
           cwd: os.homedir(),
           env,
         });
@@ -228,7 +228,7 @@ export class AuthService {
           }
 
           // Check if we have URL and prompt (or enough time has passed after finding URL)
-          if (authUrl && !resolved && (clean.includes('Paste') || clean.includes('code') || Date.now() - startTime > 3000)) {
+          if (authUrl && !resolved && (clean.includes('Paste') || clean.includes('code') || Date.now() - startTime > MAIN_CONSTANTS.AUTH.OAUTH_URL_DETECTION_DELAY_MS)) {
             resolved = true;
             logger.info('OAuth flow ready for code input');
             this.pendingOAuthFlow = {
@@ -248,16 +248,16 @@ export class AuthService {
           checkForUrl();
         });
 
-        // Timeout after 30 seconds
+        // Timeout after configured duration
         const timeoutId = setTimeout(() => {
           if (!resolved) {
-            logger.error('Timeout waiting for OAuth URL after 30s');
+            logger.error(`Timeout waiting for OAuth URL after ${MAIN_CONSTANTS.AUTH.OAUTH_URL_DETECTION_TIMEOUT_MS / 1000}s`);
             logger.error(`Total output received: ${output.length} bytes`);
             logger.error(`Cleaned output (last 1000 chars): ${this.stripAnsi(output).slice(-1000)}`);
             this.cleanupOAuthFlow();
             resolve({ authUrl: '', error: 'Timeout waiting for authentication URL. Is Claude CLI installed?' });
           }
-        }, 30000);
+        }, MAIN_CONSTANTS.AUTH.OAUTH_URL_DETECTION_TIMEOUT_MS);
 
         ptyProcess.onExit(({ exitCode, signal }) => {
           clearTimeout(timeoutId);
@@ -272,7 +272,7 @@ export class AuthService {
               this.cleanupOAuthFlow();
               resolve({ authUrl: '', error: `Authentication process exited (code ${exitCode}). Check logs for details.` });
             }
-          }, 500);
+          }, MAIN_CONSTANTS.AUTH.OAUTH_PROCESS_EXIT_DELAY_MS);
         });
       } catch (error) {
         const err = error as Error;
@@ -300,7 +300,7 @@ export class AuthService {
     const { pty: ptyProcess, configDir, createdAt } = this.pendingOAuthFlow;
 
     // Check expiration
-    if (Date.now() - createdAt > this.OAUTH_TIMEOUT) {
+    if (Date.now() - createdAt > MAIN_CONSTANTS.AUTH.OAUTH_TIMEOUT_MS) {
       this.cleanupOAuthFlow();
       return { success: false, error: 'Authentication flow expired. Please start again.' };
     }
@@ -335,8 +335,8 @@ export class AuthService {
           setTimeout(() => {
             ptyProcess.write('\n');
             logger.info('Finished typing code, sent CR+LF');
-          }, 100);
-        }, 50);
+          }, MAIN_CONSTANTS.AUTH.OAUTH_POLL_INTERVAL_MS / 5);
+        }, MAIN_CONSTANTS.AUTH.OAUTH_POLL_INTERVAL_MS / 10);
 
         const checkResult = (): boolean => {
           if (resolved) return true;
@@ -395,7 +395,7 @@ export class AuthService {
               } catch (err) {
                 logger.debug('Credentials file not ready after success message', err);
               }
-            }, 500);
+            }, MAIN_CONSTANTS.AUTH.OAUTH_CREDENTIALS_CHECK_DELAY_MS);
           }
 
           // Check for error indicators
@@ -417,14 +417,13 @@ export class AuthService {
 
         // Poll for result
         let attempts = 0;
-        const maxAttempts = 90; // 45 seconds
         const pollInterval = setInterval(() => {
           attempts++;
           if (checkResult()) {
             clearInterval(pollInterval);
             return;
           }
-          if (attempts >= maxAttempts) {
+          if (attempts >= MAIN_CONSTANTS.AUTH.OAUTH_POLL_MAX_ATTEMPTS) {
             clearInterval(pollInterval);
             if (!resolved) {
               resolved = true;
@@ -435,7 +434,7 @@ export class AuthService {
               resolve({ success: false, error: 'Timeout waiting for authentication to complete' });
             }
           }
-        }, 500);
+        }, MAIN_CONSTANTS.AUTH.OAUTH_POLL_INTERVAL_MS);
 
         // Handle PTY exit
         ptyProcess.onExit(({ exitCode }) => {
@@ -452,7 +451,7 @@ export class AuthService {
                 resolve({ success: false, error: 'Authentication failed. Please try again.' });
               }
             }
-          }, 1000);
+          }, MAIN_CONSTANTS.CLAUDE.INTERRUPT_DELAY_MS);
         });
       } catch (error) {
         logger.error('Error completing OAuth flow:', error);
@@ -510,7 +509,7 @@ export class AuthService {
         } catch (err) {
           logger.debug('Temp config directory already removed or inaccessible', err);
         }
-      }, 1000);
+      }, MAIN_CONSTANTS.AUTH.PTY_CLEANUP_DELAY_MS);
     }
 
     logger.info('OAuth flow cleaned up');

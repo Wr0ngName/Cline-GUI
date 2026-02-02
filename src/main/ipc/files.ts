@@ -5,8 +5,10 @@
 import { dialog, ipcMain, BrowserWindow } from 'electron';
 
 import { IPC_CHANNELS } from '../../shared/types';
+import { ValidationError, FileSystemError, ERROR_CODES } from '../errors';
 import ConfigService from '../services/ConfigService';
 import FileWatcherService from '../services/FileWatcherService';
+import { validateString, validatePath, sendToRenderer } from '../utils/ipc-helpers';
 import logger from '../utils/logger';
 
 export function setupFilesIPC(
@@ -19,7 +21,7 @@ export function setupFilesIPC(
     try {
       // Validate services
       if (!fileWatcher || !configService) {
-        throw new Error('File watcher or Config service not initialized');
+        throw new ValidationError('File watcher or Config service not initialized', 'services', ERROR_CODES.VALIDATION_REQUIRED);
       }
 
       const mainWindow = getMainWindow();
@@ -41,9 +43,7 @@ export function setupFilesIPC(
 
       const selectedDir = result.filePaths[0];
 
-      if (!selectedDir || !selectedDir.trim()) {
-        throw new Error('Selected directory path is empty');
-      }
+      validateString(selectedDir, 'Selected directory path');
 
       // Save to config and start watching
       await configService.setWorkingDirectory(selectedDir);
@@ -53,7 +53,7 @@ export function setupFilesIPC(
       return selectedDir;
     } catch (error) {
       logger.error('Failed to select directory', { error });
-      throw new Error(`Failed to select directory: ${error instanceof Error ? error.message : String(error)}`);
+      throw new FileSystemError(`Failed to select directory: ${error instanceof Error ? error.message : String(error)}`, undefined, ERROR_CODES.FS_READ_FAILED, error);
     }
   });
 
@@ -64,28 +64,23 @@ export function setupFilesIPC(
 
       // Validate service
       if (!fileWatcher) {
-        throw new Error('File watcher service not initialized');
+        throw new ValidationError('File watcher service not initialized', 'fileWatcher', ERROR_CODES.VALIDATION_REQUIRED);
       }
 
       // Validate input
-      if (typeof directory !== 'string') {
-        throw new Error('Invalid directory type: must be a string');
-      }
-
-      if (!directory || !directory.trim()) {
-        throw new Error('Directory path cannot be empty');
-      }
+      validateString(directory, 'Directory path');
+      validatePath(directory);
 
       const fileTree = await fileWatcher.getFileTree(directory);
 
       if (!fileTree) {
-        throw new Error('Failed to get file tree');
+        throw new FileSystemError('Failed to get file tree', directory, ERROR_CODES.FS_READ_FAILED);
       }
 
       return fileTree;
     } catch (error) {
       logger.error('Failed to get file tree', { error, directory });
-      throw new Error(`Failed to get file tree: ${error instanceof Error ? error.message : String(error)}`);
+      throw new FileSystemError(`Failed to get file tree: ${error instanceof Error ? error.message : String(error)}`, directory, ERROR_CODES.FS_READ_FAILED, error);
     }
   });
 
@@ -96,40 +91,35 @@ export function setupFilesIPC(
 
       // Validate services
       if (!fileWatcher || !configService) {
-        throw new Error('File watcher or Config service not initialized');
+        throw new ValidationError('File watcher or Config service not initialized', 'services', ERROR_CODES.VALIDATION_REQUIRED);
       }
 
       // Validate input
-      if (typeof filePath !== 'string') {
-        throw new Error('Invalid file path type: must be a string');
-      }
-
-      if (!filePath || !filePath.trim()) {
-        throw new Error('File path cannot be empty');
-      }
+      validateString(filePath, 'File path');
+      validatePath(filePath);
 
       const workingDir = await configService.getWorkingDirectory();
       if (!workingDir) {
-        throw new Error('No working directory set');
+        throw new FileSystemError('No working directory set', undefined, ERROR_CODES.FS_PATH_TRAVERSAL);
       }
 
       const content = await fileWatcher.readFile(filePath, workingDir);
 
       if (content === undefined || content === null) {
-        throw new Error('Failed to read file content');
+        throw new FileSystemError('Failed to read file content', filePath, ERROR_CODES.FS_READ_FAILED);
       }
 
       return content;
     } catch (error) {
       logger.error('Failed to read file', { error, filePath });
-      throw new Error(`Failed to read file: ${error instanceof Error ? error.message : String(error)}`);
+      throw new FileSystemError(`Failed to read file: ${error instanceof Error ? error.message : String(error)}`, filePath, ERROR_CODES.FS_READ_FAILED, error);
     }
   });
 
   // Set up file change notifications
   try {
     if (!fileWatcher) {
-      throw new Error('File watcher service not initialized');
+      throw new ValidationError('File watcher service not initialized', 'fileWatcher', ERROR_CODES.VALIDATION_REQUIRED);
     }
 
     fileWatcher.onChange((changes) => {
@@ -139,10 +129,7 @@ export function setupFilesIPC(
           return;
         }
 
-        const mainWindow = getMainWindow();
-        if (mainWindow && !mainWindow.isDestroyed()) {
-          mainWindow.webContents.send(IPC_CHANNELS.FILES_CHANGED, changes);
-        }
+        sendToRenderer(getMainWindow, IPC_CHANNELS.FILES_CHANGED, changes);
       } catch (error) {
         logger.error('Failed to send file change notification', { error });
       }

@@ -5,7 +5,7 @@
  * Supports both OAuth tokens (Pro/Max) and API keys
  */
 
-import { execSync } from 'node:child_process';
+import { spawn, type ChildProcess } from 'node:child_process';
 
 import { query } from '@anthropic-ai/claude-agent-sdk';
 import type {
@@ -16,6 +16,8 @@ import type {
   CanUseTool,
   PermissionResult,
   PermissionUpdate,
+  SpawnOptions,
+  SpawnedProcess,
 } from '@anthropic-ai/claude-agent-sdk';
 import { BrowserWindow } from 'electron';
 
@@ -24,6 +26,7 @@ import {
   PendingAction,
   ActionResponse,
 } from '../../shared/types';
+import { MAIN_CONSTANTS } from '../constants/app';
 import logger from '../utils/logger';
 
 import ConfigService from './ConfigService';
@@ -55,49 +58,6 @@ export class ClaudeCodeService {
    */
   setMainWindow(window: BrowserWindow): void {
     this.mainWindow = window;
-  }
-
-  /**
-   * Check if Node.js is available in the system PATH.
-   * Required for running the Claude Code CLI.
-   */
-  static isNodeAvailable(): boolean {
-    try {
-      execSync('node --version', { stdio: 'ignore' });
-      return true;
-    } catch {
-      return false;
-    }
-  }
-
-  /**
-   * Check if Claude Code CLI is installed globally.
-   * Returns the version if installed, null otherwise.
-   */
-  static getClaudeCodeVersion(): string | null {
-    try {
-      const version = execSync('claude --version', { encoding: 'utf-8' }).trim();
-      return version;
-    } catch {
-      return null;
-    }
-  }
-
-  /**
-   * Check all prerequisites for running Claude Code.
-   * Returns an object with status and any missing requirements.
-   */
-  static checkPrerequisites(): { ready: boolean; nodeAvailable: boolean; claudeCodeInstalled: boolean; claudeCodeVersion: string | null } {
-    const nodeAvailable = ClaudeCodeService.isNodeAvailable();
-    const claudeCodeVersion = ClaudeCodeService.getClaudeCodeVersion();
-    const claudeCodeInstalled = claudeCodeVersion !== null;
-
-    return {
-      ready: nodeAvailable && claudeCodeInstalled,
-      nodeAvailable,
-      claudeCodeInstalled,
-      claudeCodeVersion,
-    };
   }
 
   /**
@@ -207,7 +167,7 @@ export class ClaudeCodeService {
           }
         });
 
-        // Timeout after 60 seconds (SDK requirement)
+        // Timeout after configured duration (SDK requirement)
         setTimeout(() => {
           const pending = this.pendingPermissions.get(actionId);
           if (pending) {
@@ -219,7 +179,7 @@ export class ClaudeCodeService {
               interrupt: false,
             });
           }
-        }, 60000);
+        }, MAIN_CONSTANTS.CLAUDE.PERMISSION_TIMEOUT_MS);
       });
     };
   }
@@ -407,6 +367,21 @@ export class ClaudeCodeService {
           canUseTool: this.createCanUseToolCallback(),
           // Stream partial messages for real-time updates
           includePartialMessages: true,
+          // Use Electron as Node.js runtime
+          spawnClaudeCodeProcess: (options: SpawnOptions): SpawnedProcess => {
+            const childProcess: ChildProcess = spawn(process.execPath, options.args, {
+              cwd: options.cwd,
+              env: {
+                ...options.env,
+                ELECTRON_RUN_AS_NODE: '1',
+              },
+              stdio: ['pipe', 'pipe', 'pipe'],
+              signal: options.signal,
+            });
+
+            // ChildProcess satisfies SpawnedProcess interface
+            return childProcess as SpawnedProcess;
+          },
         },
       });
 
@@ -428,15 +403,8 @@ export class ClaudeCodeService {
 
       logger.error('Failed to send message', error);
 
-      // Detect missing Node.js (ENOENT when spawning node)
       const errorMessage = (error as Error).message || '';
-      if (errorMessage.includes('spawn node ENOENT') || errorMessage.includes('spawn') && errorMessage.includes('ENOENT')) {
-        this.emitError(
-          'Node.js is required but not found. Please install Node.js (https://nodejs.org) and the Claude Code CLI (npm install -g @anthropic-ai/claude-code), then restart the application.'
-        );
-      } else {
-        this.emitError(errorMessage || 'Failed to communicate with Claude');
-      }
+      this.emitError(errorMessage || 'Failed to communicate with Claude');
     } finally {
       this.abortController = null;
       this.currentQuery = null;

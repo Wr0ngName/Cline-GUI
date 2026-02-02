@@ -7,6 +7,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 import { FileChange, FileNode } from '../../shared/types';
+import { MAIN_CONSTANTS } from '../constants/app';
+import { FileSystemError, ERROR_CODES } from '../errors';
 import logger from '../utils/logger';
 import { isPathWithin, normalizePath } from '../utils/paths';
 
@@ -39,7 +41,6 @@ export class FileWatcherService {
   private changeCallbacks: Set<(changes: FileChange[]) => void> = new Set();
   private pendingChanges: Map<string, FileChange> = new Map();
   private debounceTimer: NodeJS.Timeout | null = null;
-  private readonly debounceMs = 300;
 
   constructor() {
     logger.info('FileWatcherService initialized');
@@ -121,7 +122,7 @@ export class FileWatcherService {
 
     this.debounceTimer = setTimeout(() => {
       this.flushChanges();
-    }, this.debounceMs);
+    }, MAIN_CONSTANTS.FILES.WATCHER_DEBOUNCE_MS);
   }
 
   /**
@@ -174,7 +175,7 @@ export class FileWatcherService {
   /**
    * Get file tree for a directory
    */
-  async getFileTree(directory: string, maxDepth = 5): Promise<FileNode[]> {
+  async getFileTree(directory: string, maxDepth = MAIN_CONSTANTS.FILES.MAX_TREE_DEPTH): Promise<FileNode[]> {
     const normalizedDir = normalizePath(directory);
 
     try {
@@ -259,7 +260,7 @@ export class FileWatcherService {
 
     // Security: ensure the file is within the working directory
     if (!isPathWithin(normalizedPath, normalizedWorkDir)) {
-      throw new Error('Access denied: file is outside working directory');
+      throw new FileSystemError('Access denied: file is outside working directory', normalizedPath, ERROR_CODES.FS_PATH_TRAVERSAL);
     }
 
     try {
@@ -267,7 +268,7 @@ export class FileWatcherService {
       return content;
     } catch (error) {
       logger.error('Failed to read file', { filePath, error });
-      throw error;
+      throw new FileSystemError(`Failed to read file: ${error instanceof Error ? error.message : 'Unknown error'}`, normalizedPath, ERROR_CODES.FS_READ_FAILED, error);
     }
   }
 

@@ -5,7 +5,9 @@
 import { ipcMain } from 'electron';
 
 import { IPC_CHANNELS, ActionResponse } from '../../shared/types';
+import { IpcError, ValidationError, AppError, ERROR_CODES } from '../errors';
 import ClaudeCodeService from '../services/ClaudeCodeService';
+import { validateString, validateObject } from '../utils/ipc-helpers';
 import logger from '../utils/logger';
 
 export function setupClaudeIPC(claudeService: ClaudeCodeService): void {
@@ -16,30 +18,17 @@ export function setupClaudeIPC(claudeService: ClaudeCodeService): void {
 
       // Validate service
       if (!claudeService) {
-        throw new Error('Claude service not initialized');
+        throw new IpcError('Claude service not initialized', IPC_CHANNELS.CLAUDE_SEND, ERROR_CODES.IPC_HANDLER_FAILED);
       }
 
       // Validate inputs
-      if (typeof message !== 'string') {
-        throw new Error('Invalid message type: must be a string');
-      }
-
-      if (!message || !message.trim()) {
-        throw new Error('Message cannot be empty');
-      }
-
-      if (typeof workingDir !== 'string') {
-        throw new Error('Invalid working directory type: must be a string');
-      }
-
-      if (!workingDir || !workingDir.trim()) {
-        throw new Error('Working directory cannot be empty');
-      }
+      validateString(message, 'Message');
+      validateString(workingDir, 'Working directory');
 
       await claudeService.sendMessage(message, workingDir);
     } catch (error) {
       logger.error('Failed to send message to Claude', { error, messageLength: message?.length });
-      throw new Error(`Failed to send message: ${error instanceof Error ? error.message : String(error)}`);
+      throw new IpcError(`Failed to send message: ${error instanceof Error ? error.message : String(error)}`, IPC_CHANNELS.CLAUDE_SEND, ERROR_CODES.CLAUDE_SEND_FAILED, error);
     }
   });
 
@@ -57,30 +46,24 @@ export function setupClaudeIPC(claudeService: ClaudeCodeService): void {
 
         // Validate service
         if (!claudeService) {
-          throw new Error('Claude service not initialized');
+          throw new IpcError('Claude service not initialized', IPC_CHANNELS.CLAUDE_APPROVE, ERROR_CODES.IPC_HANDLER_FAILED);
         }
 
         // Validate inputs
-        if (typeof actionId !== 'string') {
-          throw new Error('Invalid action ID type: must be a string');
-        }
+        validateString(actionId, 'Action ID');
 
-        if (!actionId || !actionId.trim()) {
-          throw new Error('Action ID cannot be empty');
-        }
-
-        if (updatedInput !== undefined && (typeof updatedInput !== 'object' || updatedInput === null || Array.isArray(updatedInput))) {
-          throw new Error('Invalid updated input: must be an object');
+        if (updatedInput !== undefined) {
+          validateObject(updatedInput, 'Updated input');
         }
 
         if (alwaysAllow !== undefined && typeof alwaysAllow !== 'boolean') {
-          throw new Error('Invalid alwaysAllow type: must be a boolean');
+          throw new ValidationError('Invalid alwaysAllow type: must be a boolean', 'alwaysAllow', ERROR_CODES.VALIDATION_TYPE_MISMATCH);
         }
 
         await claudeService.approveAction(actionId, updatedInput, alwaysAllow);
       } catch (error) {
         logger.error('Failed to approve action', { error, actionId });
-        throw new Error(`Failed to approve action: ${error instanceof Error ? error.message : String(error)}`);
+        throw new IpcError(`Failed to approve action: ${error instanceof Error ? error.message : String(error)}`, IPC_CHANNELS.CLAUDE_APPROVE, ERROR_CODES.IPC_HANDLER_FAILED, error);
       }
     }
   );
@@ -94,26 +77,20 @@ export function setupClaudeIPC(claudeService: ClaudeCodeService): void {
 
         // Validate service
         if (!claudeService) {
-          throw new Error('Claude service not initialized');
+          throw new IpcError('Claude service not initialized', IPC_CHANNELS.CLAUDE_REJECT, ERROR_CODES.IPC_HANDLER_FAILED);
         }
 
         // Validate inputs
-        if (typeof actionId !== 'string') {
-          throw new Error('Invalid action ID type: must be a string');
-        }
-
-        if (!actionId || !actionId.trim()) {
-          throw new Error('Action ID cannot be empty');
-        }
+        validateString(actionId, 'Action ID');
 
         if (message !== undefined && typeof message !== 'string') {
-          throw new Error('Invalid message type: must be a string');
+          throw new ValidationError('Invalid message type: must be a string', 'message', ERROR_CODES.VALIDATION_TYPE_MISMATCH);
         }
 
         await claudeService.rejectAction(actionId, message);
       } catch (error) {
         logger.error('Failed to reject action', { error, actionId });
-        throw new Error(`Failed to reject action: ${error instanceof Error ? error.message : String(error)}`);
+        throw new IpcError(`Failed to reject action: ${error instanceof Error ? error.message : String(error)}`, IPC_CHANNELS.CLAUDE_REJECT, ERROR_CODES.IPC_HANDLER_FAILED, error);
       }
     }
   );
@@ -130,26 +107,24 @@ export function setupClaudeIPC(claudeService: ClaudeCodeService): void {
 
         // Validate service
         if (!claudeService) {
-          throw new Error('Claude service not initialized');
+          throw new IpcError('Claude service not initialized', IPC_CHANNELS.CLAUDE_ACTION_RESPONSE, ERROR_CODES.IPC_HANDLER_FAILED);
         }
 
         // Validate input
-        if (!response || typeof response !== 'object') {
-          throw new Error('Invalid response: must be an object');
-        }
+        validateObject(response, 'Response');
 
         if (typeof response.actionId !== 'string' || !response.actionId.trim()) {
-          throw new Error('Invalid action ID in response');
+          throw new ValidationError('Invalid action ID in response', 'actionId', ERROR_CODES.VALIDATION_REQUIRED);
         }
 
         if (typeof response.approved !== 'boolean') {
-          throw new Error('Invalid approved status: must be a boolean');
+          throw new ValidationError('Invalid approved status: must be a boolean', 'approved', ERROR_CODES.VALIDATION_TYPE_MISMATCH);
         }
 
         claudeService.handleActionResponse(response);
       } catch (error) {
         logger.error('Failed to handle action response', { error, response });
-        throw new Error(`Failed to handle action response: ${error instanceof Error ? error.message : String(error)}`);
+        throw new IpcError(`Failed to handle action response: ${error instanceof Error ? error.message : String(error)}`, IPC_CHANNELS.CLAUDE_ACTION_RESPONSE, ERROR_CODES.IPC_HANDLER_FAILED, error);
       }
     }
   );
@@ -161,25 +136,13 @@ export function setupClaudeIPC(claudeService: ClaudeCodeService): void {
 
       // Validate service
       if (!claudeService) {
-        throw new Error('Claude service not initialized');
+        throw new IpcError('Claude service not initialized', IPC_CHANNELS.CLAUDE_ABORT, ERROR_CODES.IPC_HANDLER_FAILED);
       }
 
       await claudeService.abort();
     } catch (error) {
       logger.error('Failed to abort Claude request', { error });
-      throw new Error(`Failed to abort request: ${error instanceof Error ? error.message : String(error)}`);
-    }
-  });
-
-  // Check prerequisites (Node.js and Claude Code CLI)
-  ipcMain.handle(IPC_CHANNELS.CLAUDE_CHECK_PREREQUISITES, async () => {
-    try {
-      logger.debug('IPC: claude:check-prerequisites');
-      const { ClaudeCodeService: ClaudeService } = await import('../services/ClaudeCodeService');
-      return ClaudeService.checkPrerequisites();
-    } catch (error) {
-      logger.error('Failed to check prerequisites', { error });
-      throw new Error(`Failed to check prerequisites: ${error instanceof Error ? error.message : String(error)}`);
+      throw new AppError(`Failed to abort request: ${error instanceof Error ? error.message : String(error)}`, ERROR_CODES.CLAUDE_ABORT_FAILED, error);
     }
   });
 

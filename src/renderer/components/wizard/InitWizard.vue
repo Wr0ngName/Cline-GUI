@@ -8,6 +8,7 @@ import { ref, computed, onMounted } from 'vue';
 
 import Button from '../shared/Button.vue';
 import AuthForm from '../shared/AuthForm.vue';
+import Icon from '../shared/Icon.vue';
 import { useAuthentication } from '../../composables/useAuthentication';
 import { logger } from '../../utils/logger';
 
@@ -150,20 +151,11 @@ onMounted(() => {
                     : 'bg-surface-200 dark:bg-surface-700 text-surface-500',
               ]"
             >
-              <svg
+              <Icon
                 v-if="step < currentStep"
-                class="w-4 h-4"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-              >
-                <path
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                  stroke-width="2"
-                  d="M5 13l4 4L19 7"
-                />
-              </svg>
+                name="check"
+                size="sm"
+              />
               <span v-else>{{ step }}</span>
             </div>
             <div
@@ -190,34 +182,20 @@ onMounted(() => {
           class="text-center"
         >
           <div class="w-24 h-24 mx-auto mb-6 rounded-2xl bg-primary-500 flex items-center justify-center">
-            <svg
-              class="w-12 h-12 text-white"
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
-            >
-              <path
-                stroke-linecap="round"
-                stroke-linejoin="round"
-                stroke-width="2"
-                d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"
-              />
-            </svg>
+            <Icon
+              name="terminal"
+              size="xl"
+              class="text-white"
+            />
           </div>
           <div class="space-y-4 text-left max-w-md mx-auto">
             <div class="flex items-start gap-3">
               <div class="w-6 h-6 rounded-full bg-primary-100 dark:bg-primary-900 flex items-center justify-center flex-shrink-0 mt-0.5">
-                <svg
-                  class="w-3 h-3 text-primary-600 dark:text-primary-400"
-                  fill="currentColor"
-                  viewBox="0 0 20 20"
-                >
-                  <path
-                    fill-rule="evenodd"
-                    d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z"
-                    clip-rule="evenodd"
-                  />
-                </svg>
+                <Icon
+                  name="check"
+                  size="xs"
+                  class="text-primary-600 dark:text-primary-400"
+                />
               </div>
               <p class="text-surface-700 dark:text-surface-300">
                 <strong>Write & edit code</strong> with AI assistance
@@ -225,17 +203,11 @@ onMounted(() => {
             </div>
             <div class="flex items-start gap-3">
               <div class="w-6 h-6 rounded-full bg-primary-100 dark:bg-primary-900 flex items-center justify-center flex-shrink-0 mt-0.5">
-                <svg
-                  class="w-3 h-3 text-primary-600 dark:text-primary-400"
-                  fill="currentColor"
-                  viewBox="0 0 20 20"
-                >
-                  <path
-                    fill-rule="evenodd"
-                    d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z"
-                    clip-rule="evenodd"
-                  />
-                </svg>
+                <Icon
+                  name="check"
+                  size="xs"
+                  class="text-primary-600 dark:text-primary-400"
+                />
               </div>
               <p class="text-surface-700 dark:text-surface-300">
                 <strong>Run commands</strong> directly from the chat
@@ -243,17 +215,11 @@ onMounted(() => {
             </div>
             <div class="flex items-start gap-3">
               <div class="w-6 h-6 rounded-full bg-primary-100 dark:bg-primary-900 flex items-center justify-center flex-shrink-0 mt-0.5">
-                <svg
-                  class="w-3 h-3 text-primary-600 dark:text-primary-400"
-                  fill="currentColor"
-                  viewBox="0 0 20 20"
-                >
-                  <path
-                    fill-rule="evenodd"
-                    d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z"
-                    clip-rule="evenodd"
-                  />
-                </svg>
+                <Icon
+                  name="check"
+                  size="xs"
+                  class="text-primary-600 dark:text-primary-400"
+                />
               </div>
               <p class="text-surface-700 dark:text-surface-300">
                 <strong>Review changes</strong> before they're applied
@@ -272,19 +238,11 @@ onMounted(() => {
             class="p-4 rounded-lg bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 mb-6"
           >
             <div class="flex items-center justify-center gap-3">
-              <svg
-                class="w-6 h-6 text-green-500"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-              >
-                <path
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                  stroke-width="2"
-                  d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"
-                />
-              </svg>
+              <Icon
+                name="folder"
+                size="md"
+                class="text-green-500"
+              />
               <span class="font-mono text-sm text-green-800 dark:text-green-200 truncate max-w-md">
                 {{ selectedFolder }}
               </span>
@@ -298,19 +256,11 @@ onMounted(() => {
             class="mx-auto"
             @click="selectFolder"
           >
-            <svg
-              class="w-5 h-5 mr-2"
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
-            >
-              <path
-                stroke-linecap="round"
-                stroke-linejoin="round"
-                stroke-width="2"
-                d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"
-              />
-            </svg>
+            <Icon
+              name="folder"
+              size="md"
+              class="mr-2"
+            />
             {{ selectedFolder ? 'Change Folder' : 'Select Folder' }}
           </Button>
 
@@ -338,19 +288,11 @@ onMounted(() => {
           variant="ghost"
           @click="prevStep"
         >
-          <svg
-            class="w-4 h-4 mr-1"
-            fill="none"
-            stroke="currentColor"
-            viewBox="0 0 24 24"
-          >
-            <path
-              stroke-linecap="round"
-              stroke-linejoin="round"
-              stroke-width="2"
-              d="M15 19l-7-7 7-7"
-            />
-          </svg>
+          <Icon
+            name="chevron-left"
+            size="sm"
+            class="mr-1"
+          />
           Back
         </Button>
         <div
@@ -374,19 +316,11 @@ onMounted(() => {
             @click="nextStep"
           >
             Continue
-            <svg
-              class="w-4 h-4 ml-1"
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
-            >
-              <path
-                stroke-linecap="round"
-                stroke-linejoin="round"
-                stroke-width="2"
-                d="M9 5l7 7-7 7"
-              />
-            </svg>
+            <Icon
+              name="chevron-right"
+              size="sm"
+              class="ml-1"
+            />
           </Button>
 
           <Button
@@ -396,19 +330,11 @@ onMounted(() => {
             @click="finishWizard"
           >
             Get Started
-            <svg
-              class="w-4 h-4 ml-1"
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
-            >
-              <path
-                stroke-linecap="round"
-                stroke-linejoin="round"
-                stroke-width="2"
-                d="M13 7l5 5m0 0l-5 5m5-5H6"
-              />
-            </svg>
+            <Icon
+              name="arrow-right"
+              size="sm"
+              class="ml-1"
+            />
           </Button>
         </div>
       </div>
