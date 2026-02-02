@@ -5,7 +5,7 @@
  * Supports both OAuth tokens (Pro/Max) and API keys
  */
 
-import { query } from '@anthropic-ai/claude-code';
+import { query } from '@anthropic-ai/claude-agent-sdk';
 import type {
   SDKMessage,
   SDKAssistantMessage,
@@ -14,7 +14,7 @@ import type {
   CanUseTool,
   PermissionResult,
   PermissionUpdate,
-} from '@anthropic-ai/claude-code';
+} from '@anthropic-ai/claude-agent-sdk';
 import { BrowserWindow } from 'electron';
 
 import {

@@ -15,7 +15,8 @@ export default defineConfig({
         'electron',
         // Native modules - MUST be external
         'node-pty',
-        '@anthropic-ai/claude-code', // has native ripgrep.node
+        '@anthropic-ai/claude-code', // CLI with native ripgrep.node (for OAuth)
+        '@anthropic-ai/claude-agent-sdk', // SDK with native ripgrep.node (for query())
       ],
     },
   },
