@@ -6,6 +6,8 @@
  */
 
 import { spawn, type ChildProcess } from 'node:child_process';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
 
 import { query } from '@anthropic-ai/claude-agent-sdk';
 import type {
@@ -19,7 +21,7 @@ import type {
   SpawnOptions,
   SpawnedProcess,
 } from '@anthropic-ai/claude-agent-sdk';
-import { BrowserWindow } from 'electron';
+import { app, BrowserWindow } from 'electron';
 
 import {
   IPC_CHANNELS,
@@ -68,6 +70,52 @@ export class ClaudeCodeService {
   }
 
   /**
+   * Validate OAuth token format
+   * Valid OAuth tokens from Claude setup-token have format: sk-ant-oat01-...
+   */
+  private validateOAuthToken(token: string): { valid: boolean; error?: string } {
+    if (!token || token.trim().length === 0) {
+      return { valid: false, error: 'Token is empty' };
+    }
+
+    // OAuth tokens from setup-token should start with sk-ant-oat01-
+    if (!token.startsWith('sk-ant-oat01-')) {
+      // Could be a different token format, log warning but allow
+      logger.warn('OAuth token does not have expected sk-ant-oat01- prefix', {
+        prefix: token.substring(0, 12),
+        length: token.length,
+      });
+    }
+
+    // OAuth tokens are typically 80+ characters
+    if (token.length < 50) {
+      return { valid: false, error: `Token too short (${token.length} chars, expected 80+)` };
+    }
+
+    return { valid: true };
+  }
+
+  /**
+   * Validate API key format
+   * Valid API keys have format: sk-ant-api03-... or sk-...
+   */
+  private validateApiKey(key: string): { valid: boolean; error?: string } {
+    if (!key || key.trim().length === 0) {
+      return { valid: false, error: 'API key is empty' };
+    }
+
+    if (!key.startsWith('sk-')) {
+      return { valid: false, error: 'API key must start with sk-' };
+    }
+
+    if (key.length < 40) {
+      return { valid: false, error: `API key too short (${key.length} chars)` };
+    }
+
+    return { valid: true };
+  }
+
+  /**
    * Set up environment variables for Claude Code SDK authentication
    */
   private async setupAuthEnv(): Promise<Record<string, string>> {
@@ -76,19 +124,36 @@ export class ClaudeCodeService {
     // Check for OAuth token first (from Claude Pro/Max login)
     const oauthToken = await this.configService.getOAuthToken();
     if (oauthToken) {
+      const validation = this.validateOAuthToken(oauthToken);
+      if (!validation.valid) {
+        logger.error('Invalid OAuth token', { error: validation.error });
+        throw new Error(`Invalid OAuth token: ${validation.error}. Please log out and log in again.`);
+      }
       env['CLAUDE_CODE_OAUTH_TOKEN'] = oauthToken;
-      logger.debug('Using OAuth token for authentication');
+      logger.debug('Using OAuth token for authentication', {
+        tokenPrefix: oauthToken.substring(0, 12) + '...',
+        tokenLength: oauthToken.length,
+      });
       return env;
     }
 
     // Fall back to API key
     const apiKey = await this.configService.getApiKey();
     if (apiKey) {
+      const validation = this.validateApiKey(apiKey);
+      if (!validation.valid) {
+        logger.error('Invalid API key', { error: validation.error });
+        throw new Error(`Invalid API key: ${validation.error}. Please check your API key.`);
+      }
       env['ANTHROPIC_API_KEY'] = apiKey;
-      logger.debug('Using API key for authentication');
+      logger.debug('Using API key for authentication', {
+        keyPrefix: apiKey.substring(0, 10) + '...',
+        keyLength: apiKey.length,
+      });
       return env;
     }
 
+    logger.warn('No authentication credentials configured');
     return env;
   }
 
@@ -367,16 +432,62 @@ export class ClaudeCodeService {
           canUseTool: this.createCanUseToolCallback(),
           // Stream partial messages for real-time updates
           includePartialMessages: true,
-          // Use Electron as Node.js runtime
+          // Use Electron as Node.js runtime (with Windows bundled Node.js support)
           spawnClaudeCodeProcess: (options: SpawnOptions): SpawnedProcess => {
-            const childProcess: ChildProcess = spawn(process.execPath, options.args, {
+            let spawnFile: string = process.execPath;
+            let spawnArgs: string[] = options.args;
+            let extraEnv: Record<string, string> = { ELECTRON_RUN_AS_NODE: '1' };
+
+            // On Windows, use bundled Node.js executable instead of ELECTRON_RUN_AS_NODE
+            // Windows GUI apps (like Electron) have known stdout capture issues
+            // See: https://github.com/electron/electron/issues/4552
+            if (process.platform === 'win32') {
+              const resourcesPath = process.resourcesPath || path.dirname(app.getAppPath());
+              const bundledNodeExe = path.join(resourcesPath, 'node.exe');
+
+              if (fs.existsSync(bundledNodeExe)) {
+                logger.info('Windows: using bundled Node.js for SDK spawn', { bundledNodeExe });
+                spawnFile = bundledNodeExe;
+                extraEnv = {}; // No ELECTRON_RUN_AS_NODE needed with real Node.js
+              } else {
+                logger.warn('Windows: bundled Node.js not found, falling back to ELECTRON_RUN_AS_NODE', {
+                  expectedPath: bundledNodeExe,
+                });
+              }
+            }
+
+            logger.debug('Spawning SDK process', {
+              spawnFile,
+              argsCount: spawnArgs.length,
+              cwd: options.cwd,
+              platform: process.platform,
+            });
+
+            const childProcess: ChildProcess = spawn(spawnFile, spawnArgs, {
               cwd: options.cwd,
               env: {
                 ...options.env,
-                ELECTRON_RUN_AS_NODE: '1',
+                ...extraEnv,
               },
               stdio: ['pipe', 'pipe', 'pipe'],
               signal: options.signal,
+            });
+
+            // Add process lifecycle event handlers for better error handling
+            childProcess.on('spawn', () => {
+              logger.debug('SDK process spawned successfully', { pid: childProcess.pid });
+            });
+
+            childProcess.on('error', (error) => {
+              logger.error('SDK process spawn error', { error: error.message, code: (error as NodeJS.ErrnoException).code });
+            });
+
+            childProcess.on('exit', (code, signal) => {
+              if (code !== 0 && code !== null && signal !== 'SIGTERM' && signal !== 'SIGINT') {
+                logger.warn('SDK process exited unexpectedly', { code, signal, pid: childProcess.pid });
+              } else {
+                logger.debug('SDK process exited', { code, signal });
+              }
             });
 
             // ChildProcess satisfies SpawnedProcess interface
@@ -403,8 +514,10 @@ export class ClaudeCodeService {
 
       logger.error('Failed to send message', error);
 
+      // Provide user-friendly error messages based on error type
       const errorMessage = (error as Error).message || '';
-      this.emitError(errorMessage || 'Failed to communicate with Claude');
+      const userMessage = this.getHumanReadableError(errorMessage);
+      this.emitError(userMessage);
     } finally {
       this.abortController = null;
       this.currentQuery = null;
@@ -545,6 +658,45 @@ export class ClaudeCodeService {
     if (this.mainWindow && !this.mainWindow.isDestroyed()) {
       this.mainWindow.webContents.send(IPC_CHANNELS.CLAUDE_TOOL_USE, action);
     }
+  }
+
+  /**
+   * Convert technical error messages to user-friendly messages
+   */
+  private getHumanReadableError(errorMessage: string): string {
+    const lowerError = errorMessage.toLowerCase();
+
+    // Authentication errors
+    if (lowerError.includes('401') || lowerError.includes('unauthorized') ||
+        lowerError.includes('invalid bearer') || lowerError.includes('invalid token')) {
+      return 'Authentication failed. Your login session may have expired. Please log out and log in again.';
+    }
+
+    // Rate limiting
+    if (lowerError.includes('429') || lowerError.includes('rate limit') ||
+        lowerError.includes('too many requests')) {
+      return 'Rate limit exceeded. Please wait a moment before sending another message.';
+    }
+
+    // Network errors
+    if (lowerError.includes('network') || lowerError.includes('econnrefused') ||
+        lowerError.includes('enotfound') || lowerError.includes('etimedout')) {
+      return 'Network error. Please check your internet connection and try again.';
+    }
+
+    // Process exit errors
+    if (lowerError.includes('process exited') || lowerError.includes('exit code')) {
+      return 'The Claude process ended unexpectedly. Please try again. If the problem persists, restart the application.';
+    }
+
+    // API errors
+    if (lowerError.includes('500') || lowerError.includes('502') ||
+        lowerError.includes('503') || lowerError.includes('504')) {
+      return 'Claude service is temporarily unavailable. Please try again in a few moments.';
+    }
+
+    // Fallback to original message or generic error
+    return errorMessage || 'Failed to communicate with Claude. Please try again.';
   }
 
   /**

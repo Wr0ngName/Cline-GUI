@@ -1,9 +1,14 @@
 /**
  * Auto-update service using electron-updater
- * Configured for GitLab Package Registry
+ * Configured for GitLab using Job Artifacts API
+ *
+ * Industry standard approach for GitLab:
+ * 1. Query GitLab Releases API to find latest release tag
+ * 2. Use Job Artifacts API to fetch latest.yml from that tag
+ * 3. Configure electron-updater dynamically
  */
 
-import { BrowserWindow, app } from 'electron';
+import { BrowserWindow, app, net } from 'electron';
 import { autoUpdater, UpdateInfo as ElectronUpdateInfo } from 'electron-updater';
 
 import { IPC_CHANNELS, UpdateInfo, UpdateProgress } from '../../shared/types';
@@ -12,6 +17,11 @@ import logger from '../utils/logger';
 // GitLab server configuration
 const GITLAB_HOST = 'https://dev.web.wr0ng.name';
 const GITLAB_PROJECT_ID = 'wrongname%2Fcline-gui'; // URL-encoded project path
+// Note: Numeric project ID for some API calls is 200
+
+// API endpoints
+const RELEASES_API = `${GITLAB_HOST}/api/v4/projects/${GITLAB_PROJECT_ID}/releases`;
+const PACKAGES_API = `${GITLAB_HOST}/api/v4/projects/${GITLAB_PROJECT_ID}/packages/generic/releases`;
 
 export class UpdateService {
   private mainWindow: BrowserWindow | null = null;
@@ -23,28 +33,19 @@ export class UpdateService {
   }
 
   /**
-   * Configure the auto-updater for GitLab Package Registry
+   * Configure the auto-updater base settings
    */
   private configureUpdater(): void {
-    // Get current version for update feed URL
     const currentVersion = app.getVersion();
 
-    // Configure for GitLab Generic Package Registry
-    // The CI/CD pipeline uploads packages to:
-    // ${GITLAB_HOST}/api/v4/projects/${PROJECT_ID}/packages/generic/releases/${VERSION}/
+    // Initial configuration - will be updated dynamically when checking for updates
+    // Start with current version's package directory as fallback
     autoUpdater.setFeedURL({
       provider: 'generic',
-      url: `${GITLAB_HOST}/api/v4/projects/${GITLAB_PROJECT_ID}/packages/generic/releases`,
+      url: `${PACKAGES_API}/${currentVersion}`,
     });
 
     // Configure authentication for private package registry (if needed)
-    // For public registries, this is optional but doesn't hurt
-    // GitLab accepts both Personal Access Tokens and Deploy Tokens
-    // Format: 'Private-Token: <token>' or 'Deploy-Token: <token>'
-    //
-    // For development: Set GITLAB_UPDATE_TOKEN environment variable
-    // For production: This should be configured during app distribution
-    // or the package registry should be made public
     const updateToken = process.env.GITLAB_UPDATE_TOKEN;
     if (updateToken) {
       autoUpdater.requestHeaders = {
@@ -52,14 +53,11 @@ export class UpdateService {
       };
       logger.info('Auto-updater configured with authentication');
     } else {
-      // No token - will only work with public package registry
       logger.info('Auto-updater configured without authentication (public access only)');
     }
 
-    // Log the configured URL for debugging
     logger.info('Auto-updater configured', {
       currentVersion,
-      feedUrl: `${GITLAB_HOST}/api/v4/projects/${GITLAB_PROJECT_ID}/packages/generic/releases`,
       hasAuth: !!updateToken,
     });
 
@@ -101,7 +99,13 @@ export class UpdateService {
     });
 
     autoUpdater.on('error', (error) => {
-      logger.error('Update error', error);
+      const errorMessage = error?.message || '';
+      if (errorMessage.includes('404') || errorMessage.includes('Cannot find channel')) {
+        // This is expected when no releases have been published yet
+        logger.info('No updates available (404 - no releases published yet)');
+      } else {
+        logger.error('Update error', error);
+      }
     });
   }
 
@@ -113,7 +117,65 @@ export class UpdateService {
   }
 
   /**
+   * Fetch the latest release tag from GitLab Releases API
+   */
+  private async fetchLatestReleaseTag(): Promise<string | null> {
+    return new Promise((resolve) => {
+      const request = net.request({
+        method: 'GET',
+        url: RELEASES_API,
+      });
+
+      const updateToken = process.env.GITLAB_UPDATE_TOKEN;
+      if (updateToken) {
+        request.setHeader('Private-Token', updateToken);
+      }
+
+      let responseData = '';
+
+      request.on('response', (response) => {
+        if (response.statusCode !== 200) {
+          logger.warn('Failed to fetch releases', { statusCode: response.statusCode });
+          resolve(null);
+          return;
+        }
+
+        response.on('data', (chunk) => {
+          responseData += chunk.toString();
+        });
+
+        response.on('end', () => {
+          try {
+            const releases = JSON.parse(responseData);
+            if (Array.isArray(releases) && releases.length > 0) {
+              // Releases are sorted by released_at descending by default
+              const latestRelease = releases[0];
+              const tagName = latestRelease.tag_name;
+              logger.info('Found latest release', { tagName, name: latestRelease.name });
+              resolve(tagName);
+            } else {
+              logger.info('No releases found');
+              resolve(null);
+            }
+          } catch (error) {
+            logger.error('Failed to parse releases response', error);
+            resolve(null);
+          }
+        });
+      });
+
+      request.on('error', (error) => {
+        logger.error('Failed to fetch releases', error);
+        resolve(null);
+      });
+
+      request.end();
+    });
+  }
+
+  /**
    * Check for updates
+   * First queries GitLab for the latest release, then checks via electron-updater
    */
   async checkForUpdates(): Promise<UpdateInfo | null> {
     if (this.isCheckingForUpdates) {
@@ -124,6 +186,34 @@ export class UpdateService {
     this.isCheckingForUpdates = true;
 
     try {
+      // Step 1: Fetch the latest release tag from GitLab
+      const latestTag = await this.fetchLatestReleaseTag();
+
+      if (!latestTag) {
+        logger.info('No releases found on GitLab');
+        return null;
+      }
+
+      // Extract version from tag (remove 'v' prefix if present)
+      const latestVersion = latestTag.startsWith('v') ? latestTag.slice(1) : latestTag;
+      const currentVersion = app.getVersion();
+
+      // Quick version comparison before making more API calls
+      if (this.compareVersions(currentVersion, latestVersion) >= 0) {
+        logger.info('Already on latest version', { currentVersion, latestVersion });
+        return null;
+      }
+
+      // Step 2: Update the feed URL to point to the latest version's packages
+      const feedUrl = `${PACKAGES_API}/${latestVersion}`;
+      logger.info('Setting feed URL for update check', { feedUrl, latestTag });
+
+      autoUpdater.setFeedURL({
+        provider: 'generic',
+        url: feedUrl,
+      });
+
+      // Step 3: Check for updates using electron-updater
       const result = await autoUpdater.checkForUpdates();
 
       if (result && result.updateInfo) {
@@ -139,11 +229,33 @@ export class UpdateService {
 
       return null;
     } catch (error) {
+      const errorMessage = (error as Error)?.message || '';
+      if (errorMessage.includes('404') || errorMessage.includes('Cannot find channel')) {
+        logger.info('No releases published to package registry yet');
+        return null;
+      }
       logger.error('Failed to check for updates', error);
       return null;
     } finally {
       this.isCheckingForUpdates = false;
     }
+  }
+
+  /**
+   * Compare two semantic versions
+   * Returns: -1 if v1 < v2, 0 if v1 == v2, 1 if v1 > v2
+   */
+  private compareVersions(v1: string, v2: string): number {
+    const parts1 = v1.split('.').map(Number);
+    const parts2 = v2.split('.').map(Number);
+
+    for (let i = 0; i < Math.max(parts1.length, parts2.length); i++) {
+      const p1 = parts1[i] || 0;
+      const p2 = parts2[i] || 0;
+      if (p1 < p2) return -1;
+      if (p1 > p2) return 1;
+    }
+    return 0;
   }
 
   /**
