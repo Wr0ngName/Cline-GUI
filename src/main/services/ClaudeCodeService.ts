@@ -462,11 +462,15 @@ export class ClaudeCodeService {
               }
             }
 
-            logger.debug('Spawning SDK process', {
+            // Log full spawn details for debugging
+            logger.info('Spawning SDK process', {
               spawnFile,
+              args: spawnArgs.slice(0, 3).map(a => a.length > 50 ? a.slice(0, 50) + '...' : a), // First 3 args, truncated
               argsCount: spawnArgs.length,
               cwd: options.cwd,
               platform: process.platform,
+              hasOAuthToken: !!options.env?.CLAUDE_CODE_OAUTH_TOKEN,
+              hasApiKey: !!options.env?.ANTHROPIC_API_KEY,
             });
 
             const childProcess: ChildProcess = spawn(spawnFile, spawnArgs, {
@@ -479,6 +483,16 @@ export class ClaudeCodeService {
               signal: options.signal,
             });
 
+            // Capture stderr for debugging failed spawns
+            let stderrData = '';
+            if (childProcess.stderr) {
+              childProcess.stderr.on('data', (data) => {
+                stderrData += data.toString();
+                // Log stderr in real-time for debugging
+                logger.debug('SDK process stderr', { data: data.toString().slice(0, 500) });
+              });
+            }
+
             // Add process lifecycle event handlers for better error handling
             childProcess.on('spawn', () => {
               logger.debug('SDK process spawned successfully', { pid: childProcess.pid });
@@ -490,7 +504,12 @@ export class ClaudeCodeService {
 
             childProcess.on('exit', (code, signal) => {
               if (code !== 0 && code !== null && signal !== 'SIGTERM' && signal !== 'SIGINT') {
-                logger.warn('SDK process exited unexpectedly', { code, signal, pid: childProcess.pid });
+                logger.warn('SDK process exited unexpectedly', {
+                  code,
+                  signal,
+                  pid: childProcess.pid,
+                  stderr: stderrData.slice(0, 1000), // Include stderr for debugging
+                });
               } else {
                 logger.debug('SDK process exited', { code, signal });
               }
