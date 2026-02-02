@@ -12,7 +12,7 @@ export default defineConfig({
     rollupOptions: {
       external: [
         'electron',
-        'electron-log',
+        // electron-store has native dependencies via conf
         'electron-store',
         'electron-updater',
         '@anthropic-ai/claude-code',
