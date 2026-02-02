@@ -461,7 +461,7 @@ export class ClaudeCodeService {
                 // We must rewrite paths from app.asar to app.asar.unpacked for the SDK's cli.js
                 spawnArgs = spawnArgs.map(arg => {
                   if (typeof arg === 'string' && arg.includes('app.asar') && !arg.includes('app.asar.unpacked')) {
-                    const rewrittenArg = arg.replace(/app\.asar([\/\\])/g, 'app.asar.unpacked$1');
+                    const rewrittenArg = arg.replace(/app\.asar([/\\])/g, 'app.asar.unpacked$1');
                     if (rewrittenArg !== arg) {
                       logger.debug('Windows: rewrote asar path to unpacked', {
                         original: arg.slice(0, 100),
