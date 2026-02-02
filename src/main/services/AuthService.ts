@@ -136,9 +136,16 @@ export class AuthService {
         // Use PowerShell to set env var and run command (more reliable than cmd.exe)
         logger.info('Windows: using PowerShell to set ELECTRON_RUN_AS_NODE');
         spawnFile = 'powershell.exe';
+        // Escape single quotes in paths (double them for PowerShell single-quoted strings)
+        // In single-quoted strings, only ' needs escaping ($ and backticks are literal)
+        const escapeForPowerShell = (s: string): string => {
+          return s.replace(/'/g, "''");
+        };
+        const escapedExePath = escapeForPowerShell(process.execPath);
+        const escapedCliPath = escapeForPowerShell(claudeCli);
         // -NoProfile for faster startup, -Command to run inline script
         // Set env var then call the executable with & operator
-        const psCommand = `$env:ELECTRON_RUN_AS_NODE='1'; & '${process.execPath}' '${claudeCli}' 'setup-token'`;
+        const psCommand = `$env:ELECTRON_RUN_AS_NODE='1'; & '${escapedExePath}' '${escapedCliPath}' 'setup-token'`;
         spawnArgs = ['-NoProfile', '-Command', psCommand];
         logger.info(`Windows PowerShell command: ${psCommand}`);
       } else {
