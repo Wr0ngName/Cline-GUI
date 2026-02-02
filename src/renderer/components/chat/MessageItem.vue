@@ -3,6 +3,7 @@
  * Single message display component
  */
 
+import DOMPurify from 'dompurify';
 import { computed } from 'vue';
 
 import type { ChatMessage } from '@shared/types';
@@ -37,7 +38,11 @@ const renderedContent = computed(() => {
   // Replace newlines with br tags (outside of pre blocks)
   content = content.replace(/\n/g, '<br>');
 
-  return content;
+  // Sanitize HTML to prevent XSS attacks
+  return DOMPurify.sanitize(content, {
+    ALLOWED_TAGS: ['pre', 'code', 'br', 'span'],
+    ALLOWED_ATTR: ['class'],
+  });
 });
 
 function escapeHtml(text: string): string {

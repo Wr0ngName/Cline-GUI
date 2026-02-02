@@ -6,7 +6,9 @@ import type { ChatMessage, Conversation } from '@shared/types';
 import { defineStore } from 'pinia';
 import { ref, computed, watch } from 'vue';
 
+import { CONSTANTS } from '../constants/app';
 import { logger } from '../utils/logger';
+import { generateId } from '../utils/id';
 
 import { useChatStore } from './chat';
 import { useSettingsStore } from './settings';
@@ -21,7 +23,6 @@ export const useConversationsStore = defineStore('conversations', () => {
 
   // Auto-save debounce timer
   let autoSaveTimer: ReturnType<typeof setTimeout> | null = null;
-  const AUTO_SAVE_DELAY = 2000; // 2 seconds debounce
 
   // Watch stop function for cleanup
   let stopMessagesWatcher: (() => void) | null = null;
@@ -161,9 +162,7 @@ export const useConversationsStore = defineStore('conversations', () => {
     chatStore.clearMessages();
 
     // Generate new conversation ID
-    const timestamp = Date.now().toString(36);
-    const random = Math.random().toString(36).slice(2, 8);
-    const id = `conv_${timestamp}_${random}`;
+    const id = generateId('conv');
 
     currentConversationId.value = id;
 
@@ -207,7 +206,7 @@ export const useConversationsStore = defineStore('conversations', () => {
     autoSaveTimer = setTimeout(() => {
       saveCurrentConversation();
       autoSaveTimer = null;
-    }, AUTO_SAVE_DELAY);
+    }, CONSTANTS.AUTO_SAVE.DELAY_MS);
   }
 
   /**
@@ -227,10 +226,10 @@ export const useConversationsStore = defineStore('conversations', () => {
     const firstUserMessage = messages.find((m) => m.role === 'user');
     if (firstUserMessage) {
       const content = firstUserMessage.content.trim();
-      if (content.length <= 50) {
+      if (content.length <= CONSTANTS.CONVERSATION.TITLE_MAX_LENGTH) {
         return content;
       }
-      return content.slice(0, 47) + '...';
+      return content.slice(0, CONSTANTS.CONVERSATION.TITLE_TRUNCATE_LENGTH) + '...';
     }
     return 'New Conversation';
   }
@@ -256,13 +255,12 @@ export const useConversationsStore = defineStore('conversations', () => {
     // Watch chat messages for auto-save
     const chatStore = useChatStore();
     stopMessagesWatcher = watch(
-      () => chatStore.messages,
+      () => chatStore.messages.length,
       () => {
         if (currentConversationId.value && chatStore.messages.length > 0) {
           scheduleAutoSave();
         }
-      },
-      { deep: true }
+      }
     );
   }
 

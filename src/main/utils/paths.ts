@@ -2,6 +2,7 @@
  * Path utilities for cross-platform path handling
  */
 
+import fs from 'node:fs';
 import path from 'node:path';
 
 import { app } from 'electron';
@@ -42,12 +43,33 @@ export function normalizePath(inputPath: string): string {
 }
 
 /**
- * Check if a path is within a directory (security check)
+ * Check if a path is within a directory (security check).
+ * Resolves symlinks to prevent path traversal attacks.
+ *
+ * @param filePath - The file path to check
+ * @param directory - The directory that should contain the file
+ * @returns true if the file is within the directory
  */
 export function isPathWithin(filePath: string, directory: string): boolean {
-  const normalizedFile = path.resolve(filePath);
-  const normalizedDir = path.resolve(directory);
-  return normalizedFile.startsWith(normalizedDir + path.sep) || normalizedFile === normalizedDir;
+  try {
+    // Resolve real paths including symlinks for security
+    const realFile = fs.realpathSync(filePath);
+    const realDir = fs.realpathSync(directory);
+
+    // Use relative path to check containment
+    const relative = path.relative(realDir, realFile);
+
+    // If relative path starts with '..' or is absolute, file is outside directory
+    return !relative.startsWith('..') && !path.isAbsolute(relative);
+  } catch {
+    // If paths don't exist yet, fall back to string comparison
+    // This is less secure but allows checking non-existent paths
+    const normalizedFile = path.resolve(filePath);
+    const normalizedDir = path.resolve(directory);
+    return (
+      normalizedFile.startsWith(normalizedDir + path.sep) || normalizedFile === normalizedDir
+    );
+  }
 }
 
 /**

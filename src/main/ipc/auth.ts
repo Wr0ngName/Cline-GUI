@@ -16,47 +16,78 @@ export function setupAuthHandlers(
 ): void {
   // Get current authentication status
   ipcMain.handle(IPC_CHANNELS.AUTH_GET_STATUS, async (): Promise<AuthStatus> => {
-    logger.debug('IPC: auth:get-status');
+    try {
+      logger.debug('IPC: auth:get-status');
 
-    const config = await configService.getConfig();
+      // Validate services
+      if (!authService || !configService) {
+        throw new Error('Auth or Config service not initialized');
+      }
 
-    if (config.oauthToken) {
+      const config = await configService.getConfig();
+
+      if (!config) {
+        throw new Error('Failed to load configuration');
+      }
+
+      if (config.oauthToken) {
+        return {
+          isAuthenticated: true,
+          method: 'oauth',
+          displayName: 'Claude Pro/Max Account',
+        };
+      }
+
+      if (config.apiKey) {
+        return {
+          isAuthenticated: true,
+          method: 'api-key',
+          displayName: 'API Key',
+        };
+      }
+
       return {
-        isAuthenticated: true,
-        method: 'oauth',
-        displayName: 'Claude Pro/Max Account',
+        isAuthenticated: false,
+        method: 'none',
       };
+    } catch (error) {
+      logger.error('Failed to get auth status', { error });
+      throw new Error(`Failed to get authentication status: ${error instanceof Error ? error.message : String(error)}`);
     }
-
-    if (config.apiKey) {
-      return {
-        isAuthenticated: true,
-        method: 'api-key',
-        displayName: 'API Key',
-      };
-    }
-
-    return {
-      isAuthenticated: false,
-      method: 'none',
-    };
   });
 
   // Start OAuth login flow - returns URL for user to click
   ipcMain.handle(
     IPC_CHANNELS.AUTH_START_OAUTH,
     async (): Promise<{ authUrl: string; error?: string }> => {
-      logger.info('IPC: auth:start-oauth');
+      try {
+        logger.info('IPC: auth:start-oauth');
 
-      const result = await authService.startOAuthFlow();
+        // Validate service
+        if (!authService) {
+          throw new Error('Auth service not initialized');
+        }
 
-      if (result.authUrl) {
-        // Open the URL in the user's browser
-        authService.openAuthUrl(result.authUrl);
-        logger.info('OAuth URL opened in browser');
+        const result = await authService.startOAuthFlow();
+
+        if (!result) {
+          throw new Error('OAuth flow initialization returned no result');
+        }
+
+        if (result.authUrl) {
+          // Open the URL in the user's browser
+          authService.openAuthUrl(result.authUrl);
+          logger.info('OAuth URL opened in browser');
+        }
+
+        return result;
+      } catch (error) {
+        logger.error('Failed to start OAuth flow', { error });
+        return {
+          authUrl: '',
+          error: `Failed to start OAuth flow: ${error instanceof Error ? error.message : String(error)}`,
+        };
       }
-
-      return result;
     }
   );
 
@@ -64,67 +95,99 @@ export function setupAuthHandlers(
   ipcMain.handle(
     IPC_CHANNELS.AUTH_COMPLETE_OAUTH,
     async (_event, code: string): Promise<{ success: boolean; error?: string }> => {
-      logger.info('IPC: auth:complete-oauth');
+      try {
+        logger.info('IPC: auth:complete-oauth');
 
-      if (!code || !code.trim()) {
-        return { success: false, error: 'Please enter the code from your browser' };
-      }
-
-      const trimmedCode = code.trim();
-
-      // Basic length validation only - let the CLI validate the actual format
-      // OAuth codes can contain various characters depending on the provider
-      if (trimmedCode.length < 10 || trimmedCode.length > 500) {
-        logger.warn('OAuth code length out of range', { codeLength: trimmedCode.length });
-        return { success: false, error: 'Invalid code length. Please copy the complete code from your browser.' };
-      }
-
-      const result = await authService.completeOAuthFlow(trimmedCode);
-
-      if (result.success && result.token) {
-        // Save the OAuth token
-        const configUpdate = {
-          oauthToken: result.token,
-          authMethod: 'oauth' as const,
-        };
-        await configService.setConfig(configUpdate);
-
-        // Notify renderer of config change so UI updates
-        const mainWindow = getMainWindow();
-        if (mainWindow && !mainWindow.isDestroyed()) {
-          mainWindow.webContents.send(IPC_CHANNELS.CONFIG_CHANGED, configUpdate);
+        // Validate services
+        if (!authService || !configService) {
+          throw new Error('Auth or Config service not initialized');
         }
 
-        logger.info('OAuth token saved successfully');
-        return { success: true };
-      }
+        // Validate input
+        if (typeof code !== 'string') {
+          return { success: false, error: 'Invalid code type: must be a string' };
+        }
 
-      return { success: false, error: result.error };
+        if (!code || !code.trim()) {
+          return { success: false, error: 'Please enter the code from your browser' };
+        }
+
+        const trimmedCode = code.trim();
+
+        // Basic length validation only - let the CLI validate the actual format
+        // OAuth codes can contain various characters depending on the provider
+        if (trimmedCode.length < 10 || trimmedCode.length > 500) {
+          logger.warn('OAuth code length out of range', { codeLength: trimmedCode.length });
+          return { success: false, error: 'Invalid code length. Please copy the complete code from your browser.' };
+        }
+
+        const result = await authService.completeOAuthFlow(trimmedCode);
+
+        if (!result) {
+          throw new Error('OAuth completion returned no result');
+        }
+
+        if (result.success && result.token) {
+          // Save the OAuth token
+          const configUpdate = {
+            oauthToken: result.token,
+            authMethod: 'oauth' as const,
+          };
+          await configService.setConfig(configUpdate);
+
+          // Notify renderer of config change so UI updates
+          const mainWindow = getMainWindow();
+          if (mainWindow && !mainWindow.isDestroyed()) {
+            mainWindow.webContents.send(IPC_CHANNELS.CONFIG_CHANGED, configUpdate);
+          }
+
+          logger.info('OAuth token saved successfully');
+          return { success: true };
+        }
+
+        return { success: false, error: result.error || 'OAuth completion failed' };
+      } catch (error) {
+        logger.error('Failed to complete OAuth flow', { error });
+        return {
+          success: false,
+          error: `Failed to complete OAuth flow: ${error instanceof Error ? error.message : String(error)}`,
+        };
+      }
     }
   );
 
   // Logout - clear all auth credentials
   ipcMain.handle(IPC_CHANNELS.AUTH_LOGOUT, async (): Promise<void> => {
-    logger.info('IPC: auth:logout');
+    try {
+      logger.info('IPC: auth:logout');
 
-    // Clear both OAuth token and API key
-    const configUpdate = {
-      oauthToken: '',
-      apiKey: '',
-      authMethod: 'none' as const,
-    };
-    await configService.setConfig(configUpdate);
+      // Validate services
+      if (!authService || !configService) {
+        throw new Error('Auth or Config service not initialized');
+      }
 
-    // Notify renderer of config change so UI updates
-    const mainWindow = getMainWindow();
-    if (mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.webContents.send(IPC_CHANNELS.CONFIG_CHANGED, configUpdate);
+      // Clear both OAuth token and API key
+      const configUpdate = {
+        oauthToken: '',
+        apiKey: '',
+        authMethod: 'none' as const,
+      };
+      await configService.setConfig(configUpdate);
+
+      // Notify renderer of config change so UI updates
+      const mainWindow = getMainWindow();
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send(IPC_CHANNELS.CONFIG_CHANGED, configUpdate);
+      }
+
+      // Clean up any pending OAuth flows
+      authService.cleanupOAuthFlow();
+
+      logger.info('Logged out successfully');
+    } catch (error) {
+      logger.error('Failed to logout', { error });
+      throw new Error(`Failed to logout: ${error instanceof Error ? error.message : String(error)}`);
     }
-
-    // Clean up any pending OAuth flows
-    authService.cleanupOAuthFlow();
-
-    logger.info('Logged out successfully');
   });
 
   logger.info('Auth IPC handlers registered');

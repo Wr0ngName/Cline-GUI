@@ -26,12 +26,17 @@ type StoreInstance = any;
 export class ConfigService {
   private store: StoreInstance = null;
   private initPromise: Promise<void> | null = null;
+  private isInitialized: boolean = false;
 
   constructor() {
     this.initPromise = this.initialize();
   }
 
   private async initialize(): Promise<void> {
+    if (this.isInitialized) {
+      return;
+    }
+
     try {
       // Dynamic import for ESM-only electron-store v10
       const { default: Store } = await import('electron-store');
@@ -46,6 +51,8 @@ export class ConfigService {
           autoApproveReads: true,
         },
       });
+      this.isInitialized = true;
+      this.initPromise = null; // Clear promise after initialization
       logger.info('ConfigService initialized');
     } catch (error) {
       logger.error('Failed to initialize ConfigService', error);
@@ -57,6 +64,9 @@ export class ConfigService {
    * Ensure store is initialized before use
    */
   async ensureInitialized(): Promise<void> {
+    if (this.isInitialized) {
+      return;
+    }
     if (this.initPromise) {
       await this.initPromise;
     }
@@ -111,56 +121,71 @@ export class ConfigService {
   }
 
   /**
-   * Get API key (decrypted)
+   * Set an encrypted value in the store
+   * @throws Error if encryption is not available
    */
-  async getApiKey(): Promise<string> {
+  private async setEncryptedValue(key: keyof StoredConfig, value: string): Promise<void> {
     await this.ensureInitialized();
     if (!this.store) throw new Error('Store not initialized');
 
-    const encryptedKey = this.store.get('encryptedApiKey');
-    if (!encryptedKey) {
-      return '';
+    if (!value) {
+      this.store.delete(key);
+      return;
+    }
+
+    if (!safeStorage.isEncryptionAvailable()) {
+      throw new Error('SafeStorage encryption is not available. Cannot store credentials securely.');
     }
 
     try {
-      if (safeStorage.isEncryptionAvailable()) {
-        const decrypted = safeStorage.decryptString(Buffer.from(encryptedKey, 'base64'));
-        return decrypted;
-      }
-      // Fallback for systems without encryption (should be rare)
-      logger.warn('SafeStorage encryption not available');
-      return encryptedKey;
+      const encrypted = safeStorage.encryptString(value);
+      this.store.set(key, encrypted.toString('base64'));
+      logger.info(`${key} stored securely`);
     } catch (error) {
-      logger.error('Failed to decrypt API key', error);
+      logger.error(`Failed to encrypt ${key}`, error);
+      throw new Error(`Failed to encrypt ${key}: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  }
+
+  /**
+   * Get an encrypted value from the store
+   * @returns Decrypted value or empty string if not found
+   */
+  private async getEncryptedValue(key: keyof StoredConfig): Promise<string> {
+    await this.ensureInitialized();
+    if (!this.store) throw new Error('Store not initialized');
+
+    const encryptedValue = this.store.get(key);
+    if (!encryptedValue) {
       return '';
     }
+
+    if (!safeStorage.isEncryptionAvailable()) {
+      logger.error(`SafeStorage encryption not available, cannot decrypt ${key}`);
+      throw new Error('SafeStorage encryption is not available. Cannot decrypt credentials.');
+    }
+
+    try {
+      const decrypted = safeStorage.decryptString(Buffer.from(encryptedValue, 'base64'));
+      return decrypted;
+    } catch (error) {
+      logger.error(`Failed to decrypt ${key}`, error);
+      return '';
+    }
+  }
+
+  /**
+   * Get API key (decrypted)
+   */
+  async getApiKey(): Promise<string> {
+    return this.getEncryptedValue('encryptedApiKey');
   }
 
   /**
    * Set API key (encrypted)
    */
   async setApiKey(apiKey: string): Promise<void> {
-    await this.ensureInitialized();
-    if (!this.store) throw new Error('Store not initialized');
-
-    if (!apiKey) {
-      this.store.delete('encryptedApiKey');
-      return;
-    }
-
-    try {
-      if (safeStorage.isEncryptionAvailable()) {
-        const encrypted = safeStorage.encryptString(apiKey);
-        this.store.set('encryptedApiKey', encrypted.toString('base64'));
-        logger.info('API key stored securely');
-      } else {
-        // Fallback - store as-is (not recommended, but better than failing)
-        logger.warn('SafeStorage not available, storing API key without encryption');
-        this.store.set('encryptedApiKey', apiKey);
-      }
-    } catch (error) {
-      logger.error('Failed to encrypt API key', error);
-    }
+    return this.setEncryptedValue('encryptedApiKey', apiKey);
   }
 
   /**
@@ -176,53 +201,14 @@ export class ConfigService {
    * Get OAuth token (decrypted)
    */
   async getOAuthToken(): Promise<string> {
-    await this.ensureInitialized();
-    if (!this.store) throw new Error('Store not initialized');
-
-    const encryptedToken = this.store.get('encryptedOAuthToken');
-    if (!encryptedToken) {
-      return '';
-    }
-
-    try {
-      if (safeStorage.isEncryptionAvailable()) {
-        const decrypted = safeStorage.decryptString(Buffer.from(encryptedToken, 'base64'));
-        return decrypted;
-      }
-      // Fallback for systems without encryption
-      logger.warn('SafeStorage encryption not available for OAuth token');
-      return encryptedToken;
-    } catch (error) {
-      logger.error('Failed to decrypt OAuth token', error);
-      return '';
-    }
+    return this.getEncryptedValue('encryptedOAuthToken');
   }
 
   /**
    * Set OAuth token (encrypted)
    */
   async setOAuthToken(token: string): Promise<void> {
-    await this.ensureInitialized();
-    if (!this.store) throw new Error('Store not initialized');
-
-    if (!token) {
-      this.store.delete('encryptedOAuthToken');
-      return;
-    }
-
-    try {
-      if (safeStorage.isEncryptionAvailable()) {
-        const encrypted = safeStorage.encryptString(token);
-        this.store.set('encryptedOAuthToken', encrypted.toString('base64'));
-        logger.info('OAuth token stored securely');
-      } else {
-        // Fallback - store as-is (not recommended, but better than failing)
-        logger.warn('SafeStorage not available, storing OAuth token without encryption');
-        this.store.set('encryptedOAuthToken', token);
-      }
-    } catch (error) {
-      logger.error('Failed to encrypt OAuth token', error);
-    }
+    return this.setEncryptedValue('encryptedOAuthToken', token);
   }
 
   /**

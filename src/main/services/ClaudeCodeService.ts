@@ -18,12 +18,8 @@ import type {
 import { BrowserWindow } from 'electron';
 
 import {
-  ActionType,
-  BashCommandDetails,
-  FileEditDetails,
   IPC_CHANNELS,
   PendingAction,
-  ReadFileDetails,
   ActionResponse,
 } from '../../shared/types';
 import logger from '../utils/logger';
@@ -199,85 +195,93 @@ export class ClaudeCodeService {
     toolName: string,
     input: Record<string, unknown>
   ): PendingAction | null {
-    let actionType: ActionType;
-    let description: string;
-    let details: FileEditDetails | BashCommandDetails | ReadFileDetails;
+    const baseFields = {
+      id: actionId,
+      toolName,
+      input,
+      status: 'pending' as const,
+      timestamp: Date.now(),
+    };
 
     switch (toolName) {
       case 'Edit':
-        actionType = 'file-edit';
-        description = `Edit file: ${input.file_path}`;
-        details = {
-          filePath: input.file_path as string,
-          originalContent: input.old_string as string | undefined,
-          newContent: input.new_string as string,
-        } as FileEditDetails;
-        break;
+        return {
+          ...baseFields,
+          type: 'file-edit' as const,
+          description: `Edit file: ${input.file_path}`,
+          details: {
+            filePath: input.file_path as string,
+            originalContent: input.old_string as string | undefined,
+            newContent: input.new_string as string,
+          },
+        };
 
       case 'Write':
-        actionType = 'file-create';
-        description = `Write file: ${input.file_path}`;
-        details = {
-          filePath: input.file_path as string,
-          newContent: input.content as string,
-        } as FileEditDetails;
-        break;
+        return {
+          ...baseFields,
+          type: 'file-create' as const,
+          description: `Write file: ${input.file_path}`,
+          details: {
+            filePath: input.file_path as string,
+            content: input.content as string,
+          },
+        };
 
       case 'Bash': {
-        actionType = 'bash-command';
         const cmd = input.command as string;
-        description = `Run command: ${cmd.length > 50 ? cmd.slice(0, 50) + '...' : cmd}`;
-        details = {
-          command: cmd,
-          workingDirectory: (input.cwd as string) || '',
-        } as BashCommandDetails;
-        break;
+        return {
+          ...baseFields,
+          type: 'bash-command' as const,
+          description: `Run command: ${cmd.length > 50 ? cmd.slice(0, 50) + '...' : cmd}`,
+          details: {
+            command: cmd,
+            workingDirectory: (input.cwd as string) || '',
+          },
+        };
       }
 
       case 'Read':
-        actionType = 'read-file';
-        description = `Read file: ${input.file_path}`;
-        details = {
-          filePath: input.file_path as string,
-        } as ReadFileDetails;
-        break;
+        return {
+          ...baseFields,
+          type: 'read-file' as const,
+          description: `Read file: ${input.file_path}`,
+          details: {
+            filePath: input.file_path as string,
+          },
+        };
 
       case 'Glob':
-        actionType = 'read-file';
-        description = `Search files: ${input.pattern}`;
-        details = {
-          filePath: (input.path as string) || '.',
-        } as ReadFileDetails;
-        break;
+        return {
+          ...baseFields,
+          type: 'read-file' as const,
+          description: `Search files: ${input.pattern}`,
+          details: {
+            filePath: (input.path as string) || '.',
+          },
+        };
 
       case 'Grep':
-        actionType = 'read-file';
-        description = `Search content: ${input.pattern}`;
-        details = {
-          filePath: (input.path as string) || '.',
-        } as ReadFileDetails;
-        break;
+        return {
+          ...baseFields,
+          type: 'read-file' as const,
+          description: `Search content: ${input.pattern}`,
+          details: {
+            filePath: (input.path as string) || '.',
+          },
+        };
 
       default:
         // Handle unknown tools generically
-        actionType = 'bash-command';
-        description = `Tool: ${toolName}`;
-        details = {
-          command: JSON.stringify(input),
-          workingDirectory: '',
-        } as BashCommandDetails;
+        return {
+          ...baseFields,
+          type: 'bash-command' as const,
+          description: `Tool: ${toolName}`,
+          details: {
+            command: JSON.stringify(input),
+            workingDirectory: '',
+          },
+        };
     }
-
-    return {
-      id: actionId,
-      type: actionType,
-      toolName,
-      description,
-      details,
-      input,
-      status: 'pending',
-      timestamp: Date.now(),
-    };
   }
 
   /**

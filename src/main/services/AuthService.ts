@@ -478,34 +478,42 @@ export class AuthService {
 
   /**
    * Clean up any pending OAuth flow.
+   * Properly handles PTY termination and temp directory cleanup.
    */
   cleanupOAuthFlow(): void {
-    if (this.pendingOAuthFlow) {
-      const configDir = this.pendingOAuthFlow.configDir;
+    if (!this.pendingOAuthFlow) {
+      return;
+    }
 
+    const { pty: ptyProcess, configDir } = this.pendingOAuthFlow;
+
+    // Kill PTY process first
+    if (ptyProcess) {
       try {
-        if (this.pendingOAuthFlow.pty) {
-          this.pendingOAuthFlow.pty.kill();
-        }
+        ptyProcess.kill();
       } catch (err) {
         logger.debug('PTY already terminated during cleanup', err);
       }
+    }
 
-      this.pendingOAuthFlow = null;
+    // Clear state immediately to prevent duplicate cleanup
+    this.pendingOAuthFlow = null;
 
-      // Small delay before cleaning up files
+    // Clean up temp directory after a delay to ensure PTY has released files
+    if (configDir) {
       setTimeout(() => {
         try {
-          if (configDir && fs.existsSync(configDir)) {
+          if (fs.existsSync(configDir)) {
             fs.rmSync(configDir, { recursive: true, force: true });
+            logger.debug('Temp config directory cleaned up', { configDir });
           }
         } catch (err) {
           logger.debug('Temp config directory already removed or inaccessible', err);
         }
       }, 1000);
-
-      logger.info('OAuth flow cleaned up');
     }
+
+    logger.info('OAuth flow cleaned up');
   }
 
   /**

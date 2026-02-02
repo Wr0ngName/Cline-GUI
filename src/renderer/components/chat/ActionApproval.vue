@@ -3,7 +3,7 @@
  * Action approval component - shows pending actions for user approval
  */
 
-import { computed } from 'vue';
+import { computed, onMounted, onUnmounted, ref } from 'vue';
 
 import type { PendingAction, FileEditDetails, BashCommandDetails } from '@shared/types';
 
@@ -19,6 +19,38 @@ const emit = defineEmits<{
   (e: 'approve', actionId: string): void;
   (e: 'reject', actionId: string): void;
 }>();
+
+// For focus management
+const cardRef = ref<HTMLElement | null>(null);
+
+/**
+ * Handle keyboard shortcuts for quick action approval/rejection.
+ * Enter or 'a' = approve, Escape or 'r' = reject
+ */
+function handleKeydown(event: KeyboardEvent) {
+  // Only handle if this action card is focused or contains focus
+  if (!cardRef.value?.contains(document.activeElement) && document.activeElement !== cardRef.value) {
+    return;
+  }
+
+  if (event.key === 'Enter' || event.key.toLowerCase() === 'a') {
+    event.preventDefault();
+    emit('approve', props.action.id);
+  } else if (event.key === 'Escape' || event.key.toLowerCase() === 'r') {
+    event.preventDefault();
+    emit('reject', props.action.id);
+  }
+}
+
+onMounted(() => {
+  document.addEventListener('keydown', handleKeydown);
+  // Focus the card when it appears for keyboard accessibility
+  cardRef.value?.focus();
+});
+
+onUnmounted(() => {
+  document.removeEventListener('keydown', handleKeydown);
+});
 
 const isFileAction = computed(() =>
   ['file-edit', 'file-create', 'file-delete'].includes(props.action.type)
@@ -68,15 +100,26 @@ const actionColor = computed(() => {
 </script>
 
 <template>
-  <div class="action-card animate-slide-up">
+  <div
+    ref="cardRef"
+    class="action-card animate-slide-up outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2 dark:focus:ring-offset-surface-800"
+    role="alertdialog"
+    :aria-labelledby="`action-title-${action.id}`"
+    :aria-describedby="`action-desc-${action.id}`"
+    tabindex="0"
+  >
     <!-- Header -->
     <div class="flex items-start gap-3 mb-3">
-      <div :class="['flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center bg-yellow-100 dark:bg-yellow-900/30', actionColor]">
+      <div
+        :class="['flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center bg-yellow-100 dark:bg-yellow-900/30', actionColor]"
+        aria-hidden="true"
+      >
         <svg
           class="w-4 h-4"
           fill="none"
           stroke="currentColor"
           viewBox="0 0 24 24"
+          aria-hidden="true"
         >
           <path
             stroke-linecap="round"
@@ -87,11 +130,17 @@ const actionColor = computed(() => {
         </svg>
       </div>
       <div class="flex-1">
-        <h4 class="font-medium text-surface-900 dark:text-surface-100">
+        <h4
+          :id="`action-title-${action.id}`"
+          class="font-medium text-surface-900 dark:text-surface-100"
+        >
           {{ action.description }}
         </h4>
-        <p class="text-xs text-surface-500 dark:text-surface-400 mt-0.5">
-          Action requires your approval
+        <p
+          :id="`action-desc-${action.id}`"
+          class="text-xs text-surface-500 dark:text-surface-400 mt-0.5"
+        >
+          Action requires your approval. Press Enter or 'A' to approve, Escape or 'R' to reject.
         </p>
       </div>
     </div>

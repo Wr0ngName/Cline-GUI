@@ -4,16 +4,17 @@
 
 import type { FileNode, FileChange } from '@shared/types';
 import { defineStore } from 'pinia';
-import { ref, computed } from 'vue';
+import { ref, computed, reactive } from 'vue';
 
+import { CONSTANTS } from '../constants/app';
 import { logger } from '../utils/logger';
+import { useSettingsStore } from './settings';
 
 export const useFilesStore = defineStore('files', () => {
   // State
   const fileTree = ref<FileNode[]>([]);
-  const workingDirectory = ref('');
   const selectedFile = ref<string | null>(null);
-  const expandedDirs = ref<Set<string>>(new Set());
+  const expandedDirs = reactive(new Set<string>());
   const isLoading = ref(false);
   const error = ref<string | null>(null);
 
@@ -22,6 +23,7 @@ export const useFilesStore = defineStore('files', () => {
 
   // Getters
   const hasFiles = computed(() => fileTree.value.length > 0);
+  const workingDirectory = computed(() => useSettingsStore().workingDirectory);
   const hasWorkingDirectory = computed(() => !!workingDirectory.value);
 
   // Actions
@@ -29,7 +31,8 @@ export const useFilesStore = defineStore('files', () => {
     try {
       const directory = await window.electron.files.selectDirectory();
       if (directory) {
-        workingDirectory.value = directory;
+        const settingsStore = useSettingsStore();
+        await settingsStore.setWorkingDirectory(directory);
         await loadFileTree();
         setupFileWatcher();
       }
@@ -75,31 +78,28 @@ export const useFilesStore = defineStore('files', () => {
   }
 
   function toggleDirectory(dirPath: string) {
-    if (expandedDirs.value.has(dirPath)) {
-      expandedDirs.value.delete(dirPath);
+    if (expandedDirs.has(dirPath)) {
+      expandedDirs.delete(dirPath);
     } else {
-      expandedDirs.value.add(dirPath);
+      expandedDirs.add(dirPath);
     }
-    // Force reactivity
-    expandedDirs.value = new Set(expandedDirs.value);
   }
 
   function expandDirectory(dirPath: string) {
-    expandedDirs.value.add(dirPath);
-    expandedDirs.value = new Set(expandedDirs.value);
+    expandedDirs.add(dirPath);
   }
 
   function collapseDirectory(dirPath: string) {
-    expandedDirs.value.delete(dirPath);
-    expandedDirs.value = new Set(expandedDirs.value);
+    expandedDirs.delete(dirPath);
   }
 
   function isDirectoryExpanded(dirPath: string): boolean {
-    return expandedDirs.value.has(dirPath);
+    return expandedDirs.has(dirPath);
   }
 
-  function setWorkingDirectory(directory: string) {
-    workingDirectory.value = directory;
+  async function setWorkingDirectory(directory: string) {
+    const settingsStore = useSettingsStore();
+    await settingsStore.setWorkingDirectory(directory);
   }
 
   /**
@@ -256,7 +256,7 @@ export const useFilesStore = defineStore('files', () => {
 
       // Use incremental updates for better performance
       // Only reload full tree if there are many changes (likely a major operation)
-      if (changes.length > 10) {
+      if (changes.length > CONSTANTS.FILES.BATCH_CHANGE_THRESHOLD) {
         loadFileTree();
       } else {
         applyFileChanges(changes);
@@ -270,9 +270,8 @@ export const useFilesStore = defineStore('files', () => {
 
   function reset() {
     fileTree.value = [];
-    workingDirectory.value = '';
     selectedFile.value = null;
-    expandedDirs.value = new Set();
+    expandedDirs.clear();
     error.value = null;
 
     if (unsubscribe) {
@@ -284,9 +283,8 @@ export const useFilesStore = defineStore('files', () => {
   // Initialize with existing working directory if available
   async function initialize() {
     try {
-      const config = await window.electron.config.get();
-      if (config.workingDirectory) {
-        workingDirectory.value = config.workingDirectory;
+      const settingsStore = useSettingsStore();
+      if (settingsStore.workingDirectory) {
         await loadFileTree();
         setupFileWatcher();
       }
@@ -305,7 +303,6 @@ export const useFilesStore = defineStore('files', () => {
   return {
     // State
     fileTree,
-    workingDirectory,
     selectedFile,
     expandedDirs,
     isLoading,
@@ -313,6 +310,7 @@ export const useFilesStore = defineStore('files', () => {
 
     // Getters
     hasFiles,
+    workingDirectory,
     hasWorkingDirectory,
 
     // Actions

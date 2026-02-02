@@ -6,6 +6,8 @@ import type { ChatMessage, PendingAction } from '@shared/types';
 import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
 
+import { CONSTANTS } from '../constants/app';
+import { generateId } from '../utils/id';
 
 export const useChatStore = defineStore('chat', () => {
   // State
@@ -25,11 +27,17 @@ export const useChatStore = defineStore('chat', () => {
   // Actions
   function addMessage(message: ChatMessage) {
     messages.value.push(message);
+
+    // Enforce message limit
+    if (messages.value.length > CONSTANTS.MESSAGES.MAX_COUNT) {
+      const removeCount = messages.value.length - CONSTANTS.MESSAGES.MAX_COUNT;
+      messages.value.splice(0, removeCount);
+    }
   }
 
   function addUserMessage(content: string) {
     const message: ChatMessage = {
-      id: generateId(),
+      id: generateId('msg'),
       role: 'user',
       content,
       timestamp: Date.now(),
@@ -40,7 +48,7 @@ export const useChatStore = defineStore('chat', () => {
 
   function startAssistantMessage() {
     const message: ChatMessage = {
-      id: generateId(),
+      id: generateId('msg'),
       role: 'assistant',
       content: '',
       timestamp: Date.now(),
@@ -106,11 +114,6 @@ export const useChatStore = defineStore('chat', () => {
 
   function loadMessages(loadedMessages: ChatMessage[]) {
     messages.value = loadedMessages;
-  }
-
-  // Helper
-  function generateId(): string {
-    return `msg_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
   }
 
   return {

@@ -16,15 +16,14 @@ const listRef = ref<HTMLDivElement | null>(null);
 
 // Auto-scroll to bottom when new messages arrive
 watch(
-  messages,
+  () => messages.value.length,
   () => {
     nextTick(() => {
       if (listRef.value) {
         listRef.value.scrollTop = listRef.value.scrollHeight;
       }
     });
-  },
-  { deep: true }
+  }
 );
 </script>
 
