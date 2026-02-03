@@ -16,6 +16,7 @@ import ConversationHistory from './components/conversations/ConversationHistory.
 import SettingsPanel from './components/settings/SettingsPanel.vue';
 import InitWizard from './components/wizard/InitWizard.vue';
 import ErrorBoundary from './components/shared/ErrorBoundary.vue';
+import UpdateBanner from './components/shared/UpdateBanner.vue';
 
 const settingsStore = useSettingsStore();
 const filesStore = useFilesStore();
@@ -237,6 +238,9 @@ const isMac = window.electron?.platform === 'darwin';
         </button>
       </div>
     </header>
+
+    <!-- Update notification banner -->
+    <UpdateBanner />
 
     <!-- Main content -->
     <main class="flex-1 flex overflow-hidden">
