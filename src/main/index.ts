@@ -3,34 +3,20 @@
  *
  * CRITICAL: JavaScript hoists ALL static imports - they execute before any code.
  * We MUST use dynamic imports to truly defer loading after Squirrel check.
- * Only electron-squirrel-startup is safe to import statically (uses only Node built-ins).
+ * Only electron-squirrel-startup and debugLog are safe to import statically
+ * (they use only Node built-ins).
  */
 
-// DEBUG: File-based logging using ONLY Node built-ins - works during Squirrel events
-import * as fs from 'node:fs';
-import * as os from 'node:os';
-import * as path from 'node:path';
+// These imports are safe - they only use Node built-ins
+import started from 'electron-squirrel-startup';
 
-const debugLogPath = path.join(os.tmpdir(), 'cline-gui-debug.log');
-function debugLog(message: string): void {
-  const timestamp = new Date().toISOString();
-  const line = `[${timestamp}] ${message}\n`;
-  try {
-    fs.appendFileSync(debugLogPath, line);
-  } catch {
-    // Ignore write errors
-  }
-}
+import { debugLog } from './utils/debugLog';
 
 debugLog('=== App starting ===');
 debugLog(`process.execPath: ${process.execPath}`);
 debugLog(`process.argv: ${JSON.stringify(process.argv)}`);
 debugLog(`process.cwd(): ${process.cwd()}`);
 debugLog(`__dirname: ${__dirname}`);
-
-// This is safe - electron-squirrel-startup only uses Node built-ins
-import started from 'electron-squirrel-startup';
-
 debugLog(`electron-squirrel-startup returned: ${started}`);
 
 if (started) {
@@ -38,8 +24,6 @@ if (started) {
   debugLog('Squirrel event handled, exiting');
   process.exit(0);
 }
-
-debugLog('Not a Squirrel event, continuing to main()');
 
 // Only NOW dynamically import everything else - this runs at runtime, not module load time
 async function main(): Promise<void> {

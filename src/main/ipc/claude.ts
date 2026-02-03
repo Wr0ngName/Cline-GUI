@@ -1,5 +1,14 @@
 /**
- * IPC handlers for Claude Code integration
+ * IPC handlers for Claude Code SDK integration.
+ *
+ * This module handles all communication between the renderer process
+ * and the Claude Code Agent SDK, including:
+ * - Sending user messages to Claude
+ * - Tool use approval/rejection
+ * - Aborting ongoing requests
+ * - Retrieving available slash commands
+ *
+ * @module ipc/claude
  */
 
 import { ipcMain } from 'electron';
@@ -10,6 +19,11 @@ import ClaudeCodeService from '../services/ClaudeCodeService';
 import { validateString, validateObject } from '../utils/ipc-helpers';
 import logger from '../utils/logger';
 
+/**
+ * Register IPC handlers for Claude Code operations.
+ *
+ * @param claudeService - The ClaudeCodeService instance to use for SDK operations
+ */
 export function setupClaudeIPC(claudeService: ClaudeCodeService): void {
   // Send message to Claude
   ipcMain.handle(IPC_CHANNELS.CLAUDE_SEND, async (_event, message: string, workingDir: string) => {

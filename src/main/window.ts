@@ -3,23 +3,16 @@
  */
 
 import * as fs from 'node:fs';
-import * as os from 'node:os';
 import path from 'node:path';
 
 import { BrowserWindow, shell } from 'electron';
 
+import { debugLog as debugLogBase } from './utils/debugLog';
 import logger from './utils/logger';
 
-// Debug logging to same file as index.ts
-const debugLogPath = path.join(os.tmpdir(), 'cline-gui-debug.log');
+/** Debug log with 'window' context */
 function debugLog(message: string): void {
-  const timestamp = new Date().toISOString();
-  const line = `[${timestamp}] [window] ${message}\n`;
-  try {
-    fs.appendFileSync(debugLogPath, line);
-  } catch {
-    // Ignore write errors
-  }
+  debugLogBase(message, 'window');
 }
 
 let mainWindow: BrowserWindow | null = null;

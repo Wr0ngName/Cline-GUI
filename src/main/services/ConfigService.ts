@@ -9,6 +9,10 @@ import { AppConfig, AuthMethod, DEFAULT_CONFIG } from '../../shared/types';
 import { ConfigurationError, ERROR_CODES } from '../errors';
 import logger from '../utils/logger';
 
+/**
+ * Configuration values stored by electron-store.
+ * Sensitive values (API keys, tokens) are stored encrypted.
+ */
 interface StoredConfig {
   encryptedApiKey?: string;
   encryptedOAuthToken?: string;
@@ -20,9 +24,21 @@ interface StoredConfig {
   autoApproveReads: boolean;
 }
 
-// Use any for the dynamically imported Store to avoid type conflicts
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type StoreInstance = any;
+/**
+ * Interface matching electron-store API for type safety.
+ * electron-store extends Conf which provides these methods.
+ * We use [key: string]: unknown to satisfy Record<string, unknown> constraint.
+ */
+interface TypedStore {
+  get<K extends keyof StoredConfig>(key: K): StoredConfig[K] | undefined;
+  get<K extends keyof StoredConfig>(key: K, defaultValue: StoredConfig[K]): StoredConfig[K];
+  set<K extends keyof StoredConfig>(key: K, value: StoredConfig[K]): void;
+  delete<K extends keyof StoredConfig>(key: K): void;
+  clear(): void;
+  readonly store: StoredConfig;
+}
+
+type StoreInstance = TypedStore | null;
 
 export class ConfigService {
   private store: StoreInstance = null;
@@ -41,7 +57,9 @@ export class ConfigService {
     try {
       // Dynamic import for ESM-only electron-store v10
       const { default: Store } = await import('electron-store');
-      this.store = new Store<StoredConfig>({
+      // Cast to our TypedStore interface for type safety while maintaining
+      // compatibility with electron-store's complex generic types
+      this.store = new Store({
         name: 'config',
         defaults: {
           authMethod: 'none',
@@ -51,7 +69,7 @@ export class ConfigService {
           fontSize: 14,
           autoApproveReads: true,
         },
-      });
+      }) as unknown as TypedStore;
       this.isInitialized = true;
       this.initPromise = null; // Clear promise after initialization
       logger.info('ConfigService initialized');
@@ -123,9 +141,11 @@ export class ConfigService {
 
   /**
    * Set an encrypted value in the store
+   * @param key - Must be 'encryptedApiKey' or 'encryptedOAuthToken'
+   * @param value - The value to encrypt and store
    * @throws Error if encryption is not available
    */
-  private async setEncryptedValue(key: keyof StoredConfig, value: string): Promise<void> {
+  private async setEncryptedValue(key: 'encryptedApiKey' | 'encryptedOAuthToken', value: string): Promise<void> {
     await this.ensureInitialized();
     if (!this.store) throw new ConfigurationError('Store not initialized', ERROR_CODES.CONFIG_SAVE_FAILED);
 
@@ -155,13 +175,14 @@ export class ConfigService {
 
   /**
    * Get an encrypted value from the store
+   * @param key - Must be 'encryptedApiKey' or 'encryptedOAuthToken'
    * @returns Decrypted value or empty string if not found
    */
-  private async getEncryptedValue(key: keyof StoredConfig): Promise<string> {
+  private async getEncryptedValue(key: 'encryptedApiKey' | 'encryptedOAuthToken'): Promise<string> {
     await this.ensureInitialized();
     if (!this.store) throw new ConfigurationError('Store not initialized', ERROR_CODES.CONFIG_LOAD_FAILED);
 
-    const encryptedValue = this.store.get(key);
+    const encryptedValue = this.store.get(key) as string | undefined;
     if (!encryptedValue) {
       return '';
     }

@@ -1,5 +1,19 @@
 /**
- * IPC setup - registers all IPC handlers
+ * IPC (Inter-Process Communication) setup module.
+ *
+ * This module is the central registration point for all IPC handlers
+ * that enable communication between the main process and renderer process.
+ *
+ * @module ipc
+ *
+ * IPC channels are organized by domain:
+ * - auth: Authentication (OAuth, API keys)
+ * - claude: Claude Code SDK integration
+ * - config: Application configuration
+ * - conversations: Chat history persistence
+ * - files: File system operations and watching
+ * - update: Auto-update functionality
+ * - window: Window management (minimize, maximize, close)
  */
 
 import { BrowserWindow, ipcMain } from 'electron';
@@ -21,18 +35,41 @@ import { setupFilesIPC } from './files';
 import { setupUpdateIPC } from './update';
 import { setupWindowIPC } from './window';
 
+/**
+ * Service instances required for IPC handlers.
+ * All services must be initialized before calling setupIPC.
+ */
 interface Services {
+  /** OAuth and API key authentication */
   authService: AuthService;
+  /** Application configuration persistence */
   configService: ConfigService;
+  /** Claude Code SDK integration */
   claudeService: ClaudeCodeService;
+  /** File system watching for the working directory */
   fileWatcher: FileWatcherService;
+  /** Conversation history storage */
   conversationService: ConversationService;
+  /** Auto-update functionality */
   updateService: UpdateService;
 }
 
 /**
- * Setup all IPC handlers
- * @returns Cleanup function to remove all IPC handlers
+ * Register all IPC handlers for main-renderer communication.
+ *
+ * This function must be called once during app initialization, after all
+ * services are created but before the renderer process starts sending messages.
+ *
+ * @param services - All service instances required by the IPC handlers
+ * @param getMainWindow - Function to get the current main BrowserWindow instance
+ * @returns Cleanup function that removes all IPC handlers (call on app quit)
+ * @throws {ValidationError} If any required service is missing
+ *
+ * @example
+ * ```typescript
+ * const cleanup = setupIPC(services, getMainWindow);
+ * app.on('before-quit', cleanup);
+ * ```
  */
 export function setupIPC(
   services: Services,

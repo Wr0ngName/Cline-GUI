@@ -239,22 +239,6 @@ export const useConversationsStore = defineStore('conversations', () => {
   }
 
   /**
-   * Schedule auto-save - now just saves immediately
-   * @deprecated Use saveCurrentConversation directly
-   */
-  function scheduleAutoSave(): void {
-    saveCurrentConversation();
-  }
-
-  /**
-   * Cancel pending auto-save - no longer needed but kept for API compatibility
-   * @deprecated No longer uses timers
-   */
-  function cancelAutoSave(): void {
-    // No-op - we no longer use timers
-  }
-
-  /**
    * Generate a title from the first user message
    */
   function generateTitle(messages: ChatMessage[]): string {
@@ -327,8 +311,6 @@ export const useConversationsStore = defineStore('conversations', () => {
     saveCurrentConversation,
     createNewConversation,
     deleteConversation,
-    scheduleAutoSave,
-    cancelAutoSave,
     clearError,
     initialize,
     cleanup,

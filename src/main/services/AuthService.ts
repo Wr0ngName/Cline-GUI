@@ -285,6 +285,26 @@ export class AuthService {
   }
 
   /**
+   * Validate OAuth code format.
+   * Claude OAuth codes are alphanumeric strings, typically 40+ characters.
+   *
+   * @param code - The OAuth code to validate
+   * @returns true if valid, false otherwise
+   */
+  private isValidOAuthCode(code: string): boolean {
+    // OAuth codes should be non-empty alphanumeric strings
+    // Typical length is 40-60 characters, but we're lenient
+    if (!code || typeof code !== 'string') {
+      return false;
+    }
+    const trimmed = code.trim();
+    // Allow alphanumeric, hyphens, and underscores (common in OAuth codes)
+    const isValidFormat = /^[a-zA-Z0-9_-]+$/.test(trimmed);
+    const isValidLength = trimmed.length >= 10 && trimmed.length <= 200;
+    return isValidFormat && isValidLength;
+  }
+
+  /**
    * Complete the OAuth flow by sending the code to the PTY.
    *
    * Based on mautrix-claude sidecar pattern:
@@ -295,6 +315,15 @@ export class AuthService {
   async completeOAuthFlow(code: string): Promise<{ success: boolean; token?: string; error?: string }> {
     if (!this.pendingOAuthFlow) {
       return { success: false, error: 'No pending authentication flow. Please start login again.' };
+    }
+
+    // Validate code format before sending
+    if (!this.isValidOAuthCode(code)) {
+      logger.warn('Invalid OAuth code format', {
+        codeLength: code?.length ?? 0,
+        codeType: typeof code,
+      });
+      return { success: false, error: 'Invalid authorization code format. Please copy the full code from the browser.' };
     }
 
     const { pty: ptyProcess, configDir, createdAt } = this.pendingOAuthFlow;
