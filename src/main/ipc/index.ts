@@ -18,6 +18,7 @@
 
 import { BrowserWindow, ipcMain } from 'electron';
 
+import { IPC_CHANNELS } from '../../shared/types';
 import { ValidationError, ERROR_CODES } from '../errors';
 import AuthService from '../services/AuthService';
 import ClaudeCodeService from '../services/ClaudeCodeService';
@@ -34,6 +35,44 @@ import { setupConversationIPC } from './conversations';
 import { setupFilesIPC } from './files';
 import { setupUpdateIPC } from './update';
 import { setupWindowIPC } from './window';
+
+/**
+ * All IPC channels registered by this module.
+ * Used for targeted cleanup instead of removeAllListeners().
+ */
+const REGISTERED_CHANNELS = {
+  // Handlers (ipcMain.handle) - use removeHandler
+  handlers: [
+    IPC_CHANNELS.AUTH_GET_STATUS,
+    IPC_CHANNELS.AUTH_START_OAUTH,
+    IPC_CHANNELS.AUTH_COMPLETE_OAUTH,
+    IPC_CHANNELS.AUTH_LOGOUT,
+    IPC_CHANNELS.CLAUDE_SEND,
+    IPC_CHANNELS.CLAUDE_APPROVE,
+    IPC_CHANNELS.CLAUDE_REJECT,
+    IPC_CHANNELS.CLAUDE_ACTION_RESPONSE,
+    IPC_CHANNELS.CLAUDE_ABORT,
+    IPC_CHANNELS.CLAUDE_GET_COMMANDS,
+    IPC_CHANNELS.CONFIG_GET,
+    IPC_CHANNELS.CONFIG_SET,
+    IPC_CHANNELS.CONVERSATION_LIST,
+    IPC_CHANNELS.CONVERSATION_GET,
+    IPC_CHANNELS.CONVERSATION_SAVE,
+    IPC_CHANNELS.CONVERSATION_DELETE,
+    IPC_CHANNELS.FILES_SELECT_DIR,
+    IPC_CHANNELS.FILES_GET_TREE,
+    IPC_CHANNELS.FILES_READ,
+    IPC_CHANNELS.UPDATE_CHECK,
+    IPC_CHANNELS.UPDATE_DOWNLOAD,
+    IPC_CHANNELS.UPDATE_INSTALL,
+  ] as const,
+  // Listeners (ipcMain.on) - use removeAllListeners on specific channel
+  listeners: [
+    IPC_CHANNELS.WINDOW_MINIMIZE,
+    IPC_CHANNELS.WINDOW_MAXIMIZE,
+    IPC_CHANNELS.WINDOW_CLOSE,
+  ] as const,
+};
 
 /**
  * Service instances required for IPC handlers.
@@ -122,12 +161,33 @@ export function setupIPC(
 
     logger.info('All IPC handlers registered');
 
-    // Return cleanup function
+    // Return cleanup function that only removes handlers we registered
     return () => {
       try {
         logger.info('Cleaning up IPC handlers');
-        ipcMain.removeAllListeners();
-        logger.info('IPC handlers cleaned up');
+
+        // Remove handlers (registered with ipcMain.handle)
+        for (const channel of REGISTERED_CHANNELS.handlers) {
+          try {
+            ipcMain.removeHandler(channel);
+          } catch (err) {
+            logger.debug(`Handler ${channel} already removed or not registered`, err);
+          }
+        }
+
+        // Remove listeners (registered with ipcMain.on)
+        for (const channel of REGISTERED_CHANNELS.listeners) {
+          try {
+            ipcMain.removeAllListeners(channel);
+          } catch (err) {
+            logger.debug(`Listener ${channel} already removed or not registered`, err);
+          }
+        }
+
+        logger.info('IPC handlers cleaned up', {
+          handlersRemoved: REGISTERED_CHANNELS.handlers.length,
+          listenersRemoved: REGISTERED_CHANNELS.listeners.length,
+        });
       } catch (error) {
         logger.error('Failed to cleanup IPC handlers', { error });
       }

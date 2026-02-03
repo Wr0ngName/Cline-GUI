@@ -21,6 +21,8 @@ export const useFilesStore = defineStore('files', () => {
 
   // Cleanup function for file change listener
   let unsubscribe: (() => void) | null = null;
+  // Cleanup function for settings watcher
+  let stopSettingsWatcher: (() => void) | null = null;
 
   // Getters
   const hasFiles = computed(() => fileTree.value.length > 0);
@@ -290,20 +292,25 @@ export const useFilesStore = defineStore('files', () => {
 
       // Watch for settings loading to complete AND working directory changes
       // This handles the race condition where settings load after this store initializes
-      watch(
+      // Store the stop function so we can clean it up later
+      stopSettingsWatcher = watch(
         [() => settingsStore.isLoading, () => settingsStore.workingDirectory],
         async ([loading, newDir], [wasLoading, oldDir]) => {
-          // When settings finish loading and we have a working directory
-          if (!loading && wasLoading && newDir) {
-            logger.debug('Settings loaded, initializing files', { workingDirectory: newDir });
-            await loadFileTree();
-            setupFileWatcher();
-          }
-          // When working directory changes after initial load
-          else if (!loading && newDir && newDir !== oldDir) {
-            logger.debug('Working directory changed', { newDir, oldDir });
-            await loadFileTree();
-            setupFileWatcher();
+          try {
+            // When settings finish loading and we have a working directory
+            if (!loading && wasLoading && newDir) {
+              logger.debug('Settings loaded, initializing files', { workingDirectory: newDir });
+              await loadFileTree();
+              setupFileWatcher();
+            }
+            // When working directory changes after initial load
+            else if (!loading && newDir && newDir !== oldDir) {
+              logger.debug('Working directory changed', { newDir, oldDir });
+              await loadFileTree();
+              setupFileWatcher();
+            }
+          } catch (err) {
+            logger.error('Error in settings watcher callback', err);
           }
         },
         { immediate: true }
@@ -323,6 +330,12 @@ export const useFilesStore = defineStore('files', () => {
   }
 
   function cleanup() {
+    // Clean up settings watcher
+    if (stopSettingsWatcher) {
+      stopSettingsWatcher();
+      stopSettingsWatcher = null;
+    }
+    // Clean up file change listener
     if (unsubscribe) {
       unsubscribe();
       unsubscribe = null;

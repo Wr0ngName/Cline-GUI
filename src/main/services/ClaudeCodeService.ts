@@ -30,6 +30,7 @@ import {
   SlashCommandInfo,
 } from '../../shared/types';
 import { MAIN_CONSTANTS } from '../constants/app';
+import { createSender } from '../utils/ipc-helpers';
 import logger from '../utils/logger';
 
 import ConfigService from './ConfigService';
@@ -48,24 +49,20 @@ export class ClaudeCodeService {
   private abortController: AbortController | null = null;
   private currentQuery: Query | null = null;
   private pendingPermissions: Map<string, PendingPermission> = new Map();
-  private mainWindow: BrowserWindow | null = null;
   private actionCounter = 0;
   // Track if we received a successful result from the SDK
   // Used to handle process exit errors that occur after successful completion
   private querySucceeded = false;
   // Cached slash commands from SDK init message
   private cachedSlashCommands: SlashCommandInfo[] = [];
+  // Bound sender function for DRY IPC communication
+  private send: (channel: string, ...args: unknown[]) => boolean;
 
-  constructor(configService: ConfigService) {
+  constructor(configService: ConfigService, getMainWindow: () => BrowserWindow | null) {
     this.configService = configService;
+    // Create bound sender using the provided window getter
+    this.send = createSender(getMainWindow);
     logger.info('ClaudeCodeService initialized');
-  }
-
-  /**
-   * Set the main window for IPC communication
-   */
-  setMainWindow(window: BrowserWindow): void {
-    this.mainWindow = window;
   }
 
   /**
@@ -812,18 +809,14 @@ export class ClaudeCodeService {
    * Emit a text chunk to the renderer
    */
   private emitChunk(chunk: string): void {
-    if (this.mainWindow && !this.mainWindow.isDestroyed()) {
-      this.mainWindow.webContents.send(IPC_CHANNELS.CLAUDE_CHUNK, chunk);
-    }
+    this.send(IPC_CHANNELS.CLAUDE_CHUNK, chunk);
   }
 
   /**
    * Emit a tool use event to the renderer for permission request
    */
   private emitToolUse(action: PendingAction): void {
-    if (this.mainWindow && !this.mainWindow.isDestroyed()) {
-      this.mainWindow.webContents.send(IPC_CHANNELS.CLAUDE_TOOL_USE, action);
-    }
+    this.send(IPC_CHANNELS.CLAUDE_TOOL_USE, action);
   }
 
   /**
@@ -869,27 +862,21 @@ export class ClaudeCodeService {
    * Emit an error to the renderer
    */
   private emitError(error: string): void {
-    if (this.mainWindow && !this.mainWindow.isDestroyed()) {
-      this.mainWindow.webContents.send(IPC_CHANNELS.CLAUDE_ERROR, error);
-    }
+    this.send(IPC_CHANNELS.CLAUDE_ERROR, error);
   }
 
   /**
    * Emit done event to the renderer
    */
   private emitDone(): void {
-    if (this.mainWindow && !this.mainWindow.isDestroyed()) {
-      this.mainWindow.webContents.send(IPC_CHANNELS.CLAUDE_DONE);
-    }
+    this.send(IPC_CHANNELS.CLAUDE_DONE);
   }
 
   /**
    * Emit slash commands to the renderer
    */
   private emitSlashCommands(commands: SlashCommandInfo[]): void {
-    if (this.mainWindow && !this.mainWindow.isDestroyed()) {
-      this.mainWindow.webContents.send(IPC_CHANNELS.CLAUDE_SLASH_COMMANDS, commands);
-    }
+    this.send(IPC_CHANNELS.CLAUDE_SLASH_COMMANDS, commands);
   }
 
   /**

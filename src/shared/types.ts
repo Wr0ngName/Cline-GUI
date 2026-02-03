@@ -397,8 +397,6 @@ export const IPC_CHANNELS = {
   CLAUDE_DONE: 'claude:done',
   /** Abort current Claude request */
   CLAUDE_ABORT: 'claude:abort',
-  /** Send tool execution result back to Claude */
-  CLAUDE_TOOL_RESULT: 'claude:tool-result',
   /** Send action approval/rejection response */
   CLAUDE_ACTION_RESPONSE: 'claude:action-response',
   /** Available slash commands from SDK */

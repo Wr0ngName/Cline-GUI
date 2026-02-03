@@ -46,7 +46,8 @@ export class ConfigService {
   private isInitialized: boolean = false;
 
   constructor() {
-    this.initPromise = this.initialize();
+    // Don't start initialization in constructor - let ensureInitialized handle it
+    // This avoids race conditions when multiple callers try to initialize
   }
 
   private async initialize(): Promise<void> {
@@ -71,24 +72,29 @@ export class ConfigService {
         },
       }) as unknown as TypedStore;
       this.isInitialized = true;
-      this.initPromise = null; // Clear promise after initialization
+      // Note: Don't clear initPromise here - keep it so concurrent callers can await it
       logger.info('ConfigService initialized');
     } catch (error) {
+      // Clear promise on failure so retry is possible
+      this.initPromise = null;
       logger.error('Failed to initialize ConfigService', error);
       throw error;
     }
   }
 
   /**
-   * Ensure store is initialized before use
+   * Ensure store is initialized before use.
+   * Thread-safe: multiple concurrent calls will all await the same initialization.
    */
   async ensureInitialized(): Promise<void> {
     if (this.isInitialized) {
       return;
     }
-    if (this.initPromise) {
-      await this.initPromise;
+    // Create promise only if not already initializing
+    if (!this.initPromise) {
+      this.initPromise = this.initialize();
     }
+    await this.initPromise;
   }
 
   /**

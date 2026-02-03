@@ -12,6 +12,7 @@ import { BrowserWindow, app, net } from 'electron';
 import { autoUpdater, UpdateInfo as ElectronUpdateInfo } from 'electron-updater';
 
 import { IPC_CHANNELS, UpdateInfo, UpdateProgress } from '../../shared/types';
+import { createSender } from '../utils/ipc-helpers';
 import logger from '../utils/logger';
 
 // GitLab server configuration
@@ -24,10 +25,13 @@ const RELEASES_API = `${GITLAB_HOST}/api/v4/projects/${GITLAB_PROJECT_ID}/releas
 const PACKAGES_API = `${GITLAB_HOST}/api/v4/projects/${GITLAB_PROJECT_ID}/packages/generic/releases`;
 
 export class UpdateService {
-  private mainWindow: BrowserWindow | null = null;
   private isCheckingForUpdates = false;
+  // Bound sender function for DRY IPC communication
+  private send: (channel: string, ...args: unknown[]) => boolean;
 
-  constructor() {
+  constructor(getMainWindow: () => BrowserWindow | null) {
+    // Create bound sender using the provided window getter
+    this.send = createSender(getMainWindow);
     this.configureUpdater();
     logger.info('UpdateService initialized');
   }
@@ -109,12 +113,6 @@ export class UpdateService {
     });
   }
 
-  /**
-   * Set the main window for IPC communication
-   */
-  setMainWindow(window: BrowserWindow): void {
-    this.mainWindow = window;
-  }
 
   /**
    * Fetch the latest release tag from GitLab Releases API
@@ -282,27 +280,21 @@ export class UpdateService {
    * Emit update available event
    */
   private emitUpdateAvailable(info: UpdateInfo): void {
-    if (this.mainWindow && !this.mainWindow.isDestroyed()) {
-      this.mainWindow.webContents.send(IPC_CHANNELS.UPDATE_AVAILABLE, info);
-    }
+    this.send(IPC_CHANNELS.UPDATE_AVAILABLE, info);
   }
 
   /**
    * Emit download progress event
    */
   private emitProgress(progress: UpdateProgress): void {
-    if (this.mainWindow && !this.mainWindow.isDestroyed()) {
-      this.mainWindow.webContents.send(IPC_CHANNELS.UPDATE_PROGRESS, progress);
-    }
+    this.send(IPC_CHANNELS.UPDATE_PROGRESS, progress);
   }
 
   /**
    * Emit update downloaded event
    */
   private emitDownloaded(): void {
-    if (this.mainWindow && !this.mainWindow.isDestroyed()) {
-      this.mainWindow.webContents.send(IPC_CHANNELS.UPDATE_DOWNLOADED);
-    }
+    this.send(IPC_CHANNELS.UPDATE_DOWNLOADED);
   }
 }
 

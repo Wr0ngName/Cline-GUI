@@ -340,12 +340,29 @@ export class AuthService {
     }
 
     return new Promise((resolve) => {
-      try {
-        let output = this.pendingOAuthFlow!.output;
-        let resolved = false;
+      let dataHandler: { dispose: () => void } | null = null;
+      let pollInterval: ReturnType<typeof setInterval> | null = null;
+      let resolved = false;
+      let output = this.pendingOAuthFlow!.output;
 
+      /**
+       * Cleanup function to dispose all resources.
+       * Safe to call multiple times.
+       */
+      const cleanup = () => {
+        if (dataHandler) {
+          dataHandler.dispose();
+          dataHandler = null;
+        }
+        if (pollInterval) {
+          clearInterval(pollInterval);
+          pollInterval = null;
+        }
+      };
+
+      try {
         // Listen for more output
-        const dataHandler = ptyProcess.onData((data: string) => {
+        dataHandler = ptyProcess.onData((data: string) => {
           output += data;
           logger.debug(`OAuth completion data: ${data.slice(0, 200)}`);
           checkResult();
@@ -398,7 +415,7 @@ export class AuthService {
             }
 
             resolved = true;
-            dataHandler.dispose();
+            cleanup();
             logger.info('OAuth token extracted from CLI output', {
               length: token.length,
               prefix: token.slice(0, 20) + '...',
@@ -423,7 +440,7 @@ export class AuthService {
               const token = creds.oauthToken || creds.claudeAiOauth?.accessToken;
               if (token && typeof token === 'string' && token.startsWith('sk-ant-')) {
                 resolved = true;
-                dataHandler.dispose();
+                cleanup();
                 logger.info('OAuth token extracted from credentials file', {
                   length: token.length,
                   prefix: token.slice(0, 15) + '...',
@@ -451,7 +468,7 @@ export class AuthService {
                 const token = creds.oauthToken || creds.claudeAiOauth?.accessToken;
                 if (token && typeof token === 'string' && token.startsWith('sk-ant-')) {
                   resolved = true;
-                  dataHandler.dispose();
+                  cleanup();
                   logger.info(`OAuth token extracted after success message (length=${token.length})`);
                   this.cleanupOAuthFlow();
                   resolve({ success: true, token });
@@ -469,7 +486,7 @@ export class AuthService {
             !lowerClean.includes('no error')
           ) {
             resolved = true;
-            dataHandler.dispose();
+            cleanup();
             logger.error('OAuth error detected in output');
             this.cleanupOAuthFlow();
             resolve({ success: false, error: 'Invalid code. Please try again.' });
@@ -481,17 +498,16 @@ export class AuthService {
 
         // Poll for result
         let attempts = 0;
-        const pollInterval = setInterval(() => {
+        pollInterval = setInterval(() => {
           attempts++;
           if (checkResult()) {
-            clearInterval(pollInterval);
+            cleanup();
             return;
           }
           if (attempts >= MAIN_CONSTANTS.AUTH.OAUTH_POLL_MAX_ATTEMPTS) {
-            clearInterval(pollInterval);
             if (!resolved) {
               resolved = true;
-              dataHandler.dispose();
+              cleanup();
               logger.error('Timeout waiting for OAuth completion');
               logger.debug(`Final output: ${this.stripAnsi(output).slice(-1000)}`);
               this.cleanupOAuthFlow();
@@ -506,11 +522,10 @@ export class AuthService {
           // Give a moment for any final output
           setTimeout(() => {
             if (!resolved) {
-              clearInterval(pollInterval);
               checkResult();
               if (!resolved) {
                 resolved = true;
-                dataHandler.dispose();
+                cleanup();
                 this.cleanupOAuthFlow();
                 resolve({ success: false, error: 'Authentication failed. Please try again.' });
               }
@@ -518,6 +533,7 @@ export class AuthService {
           }, MAIN_CONSTANTS.CLAUDE.INTERRUPT_DELAY_MS);
         });
       } catch (error) {
+        cleanup();
         logger.error('Error completing OAuth flow:', error);
         this.cleanupOAuthFlow();
         resolve({ success: false, error: `Authentication error: ${error}` });

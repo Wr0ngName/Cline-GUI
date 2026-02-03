@@ -70,10 +70,10 @@ async function main(): Promise<void> {
     await configService.ensureInitialized();
 
     authService = new AuthService();
-    claudeService = new ClaudeCodeService(configService);
+    claudeService = new ClaudeCodeService(configService, getMainWindow);
     fileWatcher = new FileWatcherService();
     conversationService = new ConversationService();
-    updateService = new UpdateService();
+    updateService = new UpdateService(getMainWindow);
 
     logger.info('All services initialized');
   }
@@ -107,9 +107,6 @@ async function main(): Promise<void> {
       debugLog('Creating window...');
       const mainWindow = await createWindow();
       debugLog(`Window created: ${mainWindow ? 'success' : 'null'}`);
-
-      claudeService.setMainWindow(mainWindow);
-      updateService.setMainWindow(mainWindow);
 
       const lastWorkingDir = await configService.getWorkingDirectory();
       if (lastWorkingDir) {
@@ -149,10 +146,7 @@ async function main(): Promise<void> {
   app.on('activate', () => {
     debugLog('activate event');
     if (BrowserWindow.getAllWindows().length === 0) {
-      createWindow().then((mainWindow) => {
-        claudeService.setMainWindow(mainWindow);
-        updateService.setMainWindow(mainWindow);
-      });
+      createWindow();
     }
   });
 
