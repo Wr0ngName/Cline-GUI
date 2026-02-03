@@ -1,29 +1,38 @@
 /**
  * Composable for Claude chat functionality
+ *
+ * IMPORTANT: IPC listeners are registered as a singleton to prevent
+ * duplicate message processing when multiple components use this composable.
  */
 
 import type { SlashCommandInfo } from '@shared/types';
-import { onMounted, onUnmounted, ref } from 'vue';
+import { onMounted, onUnmounted, shallowRef } from 'vue';
 
 import { useChatStore } from '../stores/chat';
 import { useFilesStore } from '../stores/files';
 import { useSettingsStore } from '../stores/settings';
 import { logger } from '../utils/logger';
 
+// Singleton state for IPC listeners - shared across all composable instances
+// This prevents duplicate listener registration when multiple components use this composable
+let listenersRegistered = false;
+let listenerRefCount = 0;
+let cleanupChunk: (() => void) | null = null;
+let cleanupToolUse: (() => void) | null = null;
+let cleanupError: (() => void) | null = null;
+let cleanupDone: (() => void) | null = null;
+let cleanupSlashCommands: (() => void) | null = null;
+
+// Shared slash commands state (singleton)
+const sharedSlashCommands = shallowRef<SlashCommandInfo[]>([]);
+
 export function useClaudeChat() {
   const chatStore = useChatStore();
   const filesStore = useFilesStore();
   const settingsStore = useSettingsStore();
 
-  // Cleanup functions for IPC listeners
-  let cleanupChunk: (() => void) | null = null;
-  let cleanupToolUse: (() => void) | null = null;
-  let cleanupError: (() => void) | null = null;
-  let cleanupDone: (() => void) | null = null;
-  let cleanupSlashCommands: (() => void) | null = null;
-
-  // Available slash commands from the SDK (dynamically populated)
-  const slashCommands = ref<SlashCommandInfo[]>([]);
+  // Reference to shared slash commands
+  const slashCommands = sharedSlashCommands;
 
   /**
    * Check if a message is a slash command
@@ -153,9 +162,18 @@ export function useClaudeChat() {
   }
 
   /**
-   * Set up IPC event listeners
+   * Set up IPC event listeners (singleton - only registers once)
    */
   function setupListeners() {
+    // Only register listeners once across all component instances
+    if (listenersRegistered) {
+      logger.debug('IPC listeners already registered, skipping');
+      return;
+    }
+
+    logger.info('Registering IPC listeners for Claude chat');
+    listenersRegistered = true;
+
     // Handle streaming chunks
     cleanupChunk = window.electron.claude.onChunk((chunk) => {
       chatStore.appendToLastMessage(chunk);
@@ -184,15 +202,28 @@ export function useClaudeChat() {
 
     // Handle slash commands updates from SDK
     cleanupSlashCommands = window.electron.claude.onSlashCommands((commands) => {
-      slashCommands.value = commands;
+      sharedSlashCommands.value = commands;
       logger.debug('Received slash commands from SDK', { count: commands.length });
     });
   }
 
   /**
-   * Clean up IPC event listeners
+   * Clean up IPC event listeners (only when last component unmounts)
    */
   function cleanupListeners() {
+    // Only cleanup when no more components are using the listeners
+    if (listenerRefCount > 0) {
+      logger.debug('Other components still using listeners, skipping cleanup');
+      return;
+    }
+
+    if (!listenersRegistered) {
+      return;
+    }
+
+    logger.info('Cleaning up IPC listeners for Claude chat');
+    listenersRegistered = false;
+
     if (cleanupChunk) {
       cleanupChunk();
       cleanupChunk = null;
@@ -216,13 +247,18 @@ export function useClaudeChat() {
   }
 
   // Set up listeners on mount, clean up on unmount
+  // Uses ref counting to handle multiple component instances
   onMounted(() => {
+    listenerRefCount++;
     setupListeners();
-    // Load available slash commands
-    loadSlashCommands();
+    // Load available slash commands (only if not already loaded)
+    if (sharedSlashCommands.value.length === 0) {
+      loadSlashCommands();
+    }
   });
 
   onUnmounted(() => {
+    listenerRefCount--;
     cleanupListeners();
   });
 

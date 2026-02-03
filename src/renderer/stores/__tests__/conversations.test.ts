@@ -568,7 +568,8 @@ describe('useConversationsStore', () => {
 
       await store.saveCurrentConversation();
 
-      expect(store.error).toBe('Failed to save conversation');
+      // Error message now includes the actual error details for better debugging
+      expect(store.error).toBe('Failed to save conversation: Save failed');
       expect(store.isSaving).toBe(false);
     });
   });

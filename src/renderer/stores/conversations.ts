@@ -196,8 +196,14 @@ export const useConversationsStore = defineStore('conversations', () => {
 
       logger.info('Conversation saved successfully', { id: conversation.id });
     } catch (err) {
-      logger.error('Failed to save conversation', { error: err instanceof Error ? err.message : String(err) });
-      error.value = 'Failed to save conversation';
+      const errorMessage = err instanceof Error ? err.message : String(err);
+      logger.error('Failed to save conversation', {
+        error: errorMessage,
+        conversationId: currentConversationId.value,
+        workingDirectory: settingsStore.workingDirectory,
+        messageCount: chatStore.messages.length,
+      });
+      error.value = `Failed to save conversation: ${errorMessage}`;
     } finally {
       isSaving.value = false;
     }

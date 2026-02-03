@@ -20,14 +20,19 @@ export class ConversationService {
 
   /**
    * Ensure the conversations directory exists
+   * @param throwOnError - If true, re-throw errors (used during save operations)
    */
-  private ensureDir(): void {
+  private ensureDir(throwOnError = false): void {
     try {
       if (!fs.existsSync(this.conversationsDir)) {
         fs.mkdirSync(this.conversationsDir, { recursive: true });
+        logger.info('Created conversations directory', { dir: this.conversationsDir });
       }
     } catch (error) {
-      logger.error('Failed to create conversations directory', error);
+      logger.error('Failed to create conversations directory', { dir: this.conversationsDir, error });
+      if (throwOnError) {
+        throw error; // Re-throw to surface the error during critical operations
+      }
     }
   }
 
@@ -101,6 +106,9 @@ export class ConversationService {
     const filePath = this.getFilePath(conversation.id);
 
     try {
+      // Ensure directory exists before writing (defensive check, throw on error)
+      this.ensureDir(true);
+
       // Update the updatedAt timestamp
       const updated = {
         ...conversation,
