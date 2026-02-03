@@ -2,9 +2,8 @@
  * Composable for Claude chat functionality
  */
 
-import { onMounted, onUnmounted, ref } from 'vue';
-
 import type { SlashCommandInfo } from '@shared/types';
+import { onMounted, onUnmounted, ref } from 'vue';
 
 import { useChatStore } from '../stores/chat';
 import { useFilesStore } from '../stores/files';
