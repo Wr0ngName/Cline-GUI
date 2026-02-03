@@ -20,9 +20,47 @@ export const useConversationsStore = defineStore('conversations', () => {
   const isLoading = ref(false);
   const isSaving = ref(false);
   const error = ref<string | null>(null);
+  const isInitialized = ref(false);
 
-  // Watch stop function for cleanup
-  let stopMessagesWatcher: (() => void) | null = null;
+  // Set up watchers at store creation time for proper reactivity
+  const chatStore = useChatStore();
+  const { messages: chatMessages, isLoading: chatIsLoading } = storeToRefs(chatStore);
+
+  // Watch for streaming to finish - save when Claude response is complete
+  watch(
+    chatIsLoading,
+    (loading, wasLoading) => {
+      if (!isInitialized.value) return; // Don't save before initialization
+
+      logger.info('Chat loading state changed', {
+        loading,
+        wasLoading,
+        conversationId: currentConversationId.value,
+        messageCount: chatMessages.value.length,
+      });
+
+      // When loading transitions from true to false, the message is complete
+      if (!loading && wasLoading && currentConversationId.value && chatMessages.value.length > 0) {
+        logger.info('Streaming finished, saving conversation');
+        saveCurrentConversation();
+      }
+    }
+  );
+
+  // Watch for message count changes - save when new messages are added after streaming ends
+  watch(
+    () => chatMessages.value.length,
+    (newLength, oldLength) => {
+      if (!isInitialized.value) return; // Don't save before initialization
+
+      logger.info('Messages length changed', {
+        newLength,
+        oldLength,
+        conversationId: currentConversationId.value,
+        isLoading: chatIsLoading.value,
+      });
+    }
+  );
 
   // Getters
   const currentConversation = computed(() => {
@@ -239,7 +277,7 @@ export const useConversationsStore = defineStore('conversations', () => {
   }
 
   /**
-   * Initialize the store - load conversations and set up auto-save
+   * Initialize the store - load conversations and enable auto-save
    */
   function initialize(): void {
     logger.info('Initializing conversations store');
@@ -250,60 +288,21 @@ export const useConversationsStore = defineStore('conversations', () => {
       createNewConversation();
     }
 
-    // Watch chat messages for auto-save
-    // Use storeToRefs to get proper reactive refs that Vue can track
-    const chatStore = useChatStore();
-    const { messages, isLoading: chatIsLoading } = storeToRefs(chatStore);
+    // Enable auto-save watchers (they're created at store creation time)
+    isInitialized.value = true;
 
-    logger.info('Setting up conversation auto-save watchers', {
+    logger.info('Conversations store initialized', {
       currentConversationId: currentConversationId.value,
-      initialMessageCount: messages.value.length,
+      messageCount: chatMessages.value.length,
     });
-
-    // Watch for streaming to finish - save IMMEDIATELY when done
-    const stopLoadingWatcher = watch(
-      chatIsLoading,
-      (loading, wasLoading) => {
-        logger.info('Chat loading state changed', { loading, wasLoading, conversationId: currentConversationId.value });
-        // When loading transitions from true to false, the message is complete - save immediately
-        if (!loading && wasLoading && currentConversationId.value && messages.value.length > 0) {
-          logger.info('Streaming finished, saving conversation immediately');
-          saveCurrentConversation();
-        }
-      }
-    );
-
-    // Also watch for user messages being added (they don't go through streaming)
-    const stopLengthWatcher = watch(
-      () => messages.value.length,
-      (newLength, oldLength) => {
-        logger.info('Messages length changed', { newLength, oldLength, conversationId: currentConversationId.value });
-        // Save when a new message is added and we're not currently streaming
-        if (currentConversationId.value && newLength > oldLength && !chatIsLoading.value) {
-          logger.info('New message added while not streaming, saving immediately');
-          saveCurrentConversation();
-        }
-      }
-    );
-
-    // Combine cleanup functions
-    stopMessagesWatcher = () => {
-      stopLengthWatcher();
-      stopLoadingWatcher();
-    };
-
-    logger.info('Conversation auto-save watchers set up');
   }
 
   /**
    * Cleanup on unmount
    */
   function cleanup(): void {
-    // Stop watching for message changes
-    if (stopMessagesWatcher) {
-      stopMessagesWatcher();
-      stopMessagesWatcher = null;
-    }
+    // Disable auto-save watchers
+    isInitialized.value = false;
 
     // Save current conversation before cleanup
     saveCurrentConversation();

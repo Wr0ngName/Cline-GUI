@@ -6,14 +6,12 @@ import type { SlashCommandInfo } from '@shared/types';
 import { onMounted, onUnmounted, ref } from 'vue';
 
 import { useChatStore } from '../stores/chat';
-import { useConversationsStore } from '../stores/conversations';
 import { useFilesStore } from '../stores/files';
 import { useSettingsStore } from '../stores/settings';
 import { logger } from '../utils/logger';
 
 export function useClaudeChat() {
   const chatStore = useChatStore();
-  const conversationsStore = useConversationsStore();
   const filesStore = useFilesStore();
   const settingsStore = useSettingsStore();
 
@@ -177,11 +175,11 @@ export function useClaudeChat() {
 
     // Handle completion
     cleanupDone = window.electron.claude.onDone(() => {
-      logger.info('Claude done event received, finishing streaming and saving conversation');
+      logger.info('Claude done event received, finishing streaming');
       chatStore.setLoading(false);
       chatStore.finishStreaming();
-      // Explicitly save conversation when response is complete
-      conversationsStore.saveCurrentConversation();
+      // Note: Conversation is saved automatically by the conversations store watcher
+      // when isLoading transitions from true to false
     });
 
     // Handle slash commands updates from SDK
