@@ -76,7 +76,11 @@ const config: ForgeConfig = {
     // Bundle Node.js for Windows (required because Windows GUI apps can't capture
     // stdout from ELECTRON_RUN_AS_NODE - known Electron limitation)
     // Run scripts/download-node-windows.sh before building for Windows
-    extraResource: isWindowsBuild && hasNodeExe ? [nodeExePath] : [],
+    // Also include app-update.yml for electron-updater
+    extraResource: [
+      './resources/app-update.yml',
+      ...(isWindowsBuild && hasNodeExe ? [nodeExePath] : []),
+    ],
   },
   rebuildConfig: {
     // Rebuild native modules for the target platform

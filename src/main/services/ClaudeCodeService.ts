@@ -669,6 +669,8 @@ export class ClaudeCodeService {
 
   /**
    * Process assistant message and extract text/tool use
+   * Note: Text content is already streamed via handleStreamEvent's content_block_delta events.
+   * This method only logs for debugging - we don't emit text here to avoid duplication.
    */
   private async processAssistantMessage(message: SDKAssistantMessage): Promise<void> {
     const content = message.message.content;
@@ -682,13 +684,14 @@ export class ClaudeCodeService {
     for (const block of content) {
       if (block.type === 'text') {
         // Log text content (truncated) to debug 401 errors
+        // Note: We don't emit the text here because it was already streamed
+        // via handleStreamEvent's content_block_delta events
         const textPreview = block.text.slice(0, 200);
         if (block.text.toLowerCase().includes('401') ||
             block.text.toLowerCase().includes('unauthorized') ||
             block.text.toLowerCase().includes('invalid')) {
           logger.warn('Assistant message contains error keywords', { textPreview });
         }
-        this.emitChunk(block.text);
       }
       // Tool use is handled via canUseTool callback, not here
     }
