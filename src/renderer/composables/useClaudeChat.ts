@@ -61,11 +61,13 @@ export function useClaudeChat() {
 
   /**
    * Approve a pending action
+   * @param actionId - The action to approve
+   * @param alwaysAllow - If true, automatically approve similar actions in the future
    */
-  async function approveAction(actionId: string) {
+  async function approveAction(actionId: string, alwaysAllow?: boolean) {
     try {
       chatStore.updateActionStatus(actionId, 'approved');
-      await window.electron.claude.approve(actionId);
+      await window.electron.claude.approve(actionId, undefined, alwaysAllow);
       chatStore.removePendingAction(actionId);
     } catch (err) {
       logger.error('Failed to approve action', err);

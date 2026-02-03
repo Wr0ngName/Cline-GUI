@@ -25,8 +25,8 @@ function handleAbort() {
   abort();
 }
 
-function handleApprove(actionId: string) {
-  approveAction(actionId);
+function handleApprove(actionId: string, alwaysAllow?: boolean) {
+  approveAction(actionId, alwaysAllow);
 }
 
 function handleReject(actionId: string) {

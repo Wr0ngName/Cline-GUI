@@ -18,7 +18,7 @@ interface Props {
 const props = defineProps<Props>();
 
 const emit = defineEmits<{
-  (e: 'approve', actionId: string): void;
+  (e: 'approve', actionId: string, alwaysAllow?: boolean): void;
   (e: 'reject', actionId: string): void;
 }>();
 
@@ -27,7 +27,7 @@ const cardRef = ref<HTMLElement | null>(null);
 
 /**
  * Handle keyboard shortcuts for quick action approval/rejection.
- * Enter or 'a' = approve, Escape or 'r' = reject
+ * Enter or 'a' = approve, Shift+Enter or 'A' = always allow, Escape or 'r' = reject
  */
 function handleKeydown(event: KeyboardEvent) {
   // Only handle if this action card is focused or contains focus
@@ -35,9 +35,17 @@ function handleKeydown(event: KeyboardEvent) {
     return;
   }
 
-  if (event.key === 'Enter' || event.key.toLowerCase() === 'a') {
+  if (event.key === 'Enter' && event.shiftKey) {
+    // Shift+Enter = approve and always allow
     event.preventDefault();
-    emit('approve', props.action.id);
+    emit('approve', props.action.id, true);
+  } else if (event.key === 'Enter' || event.key === 'a') {
+    event.preventDefault();
+    emit('approve', props.action.id, false);
+  } else if (event.key === 'A' && !event.shiftKey) {
+    // Capital A = always allow
+    event.preventDefault();
+    emit('approve', props.action.id, true);
   } else if (event.key === 'Escape' || event.key.toLowerCase() === 'r') {
     event.preventDefault();
     emit('reject', props.action.id);
@@ -133,7 +141,7 @@ const actionColor = computed(() => {
           :id="`action-desc-${action.id}`"
           class="text-xs text-surface-500 dark:text-surface-400 mt-0.5"
         >
-          Action requires your approval. Press Enter or 'A' to approve, Escape or 'R' to reject.
+          Action requires approval. Keys: Enter/a=approve, Shift+Enter/A=always allow, Esc/r=reject
         </p>
       </div>
     </div>
@@ -181,9 +189,17 @@ const actionColor = computed(() => {
         Reject
       </Button>
       <Button
+        variant="secondary"
+        size="sm"
+        title="Approve this action and allow similar actions automatically in the future"
+        @click="emit('approve', action.id, true)"
+      >
+        Always Allow
+      </Button>
+      <Button
         variant="success"
         size="sm"
-        @click="emit('approve', action.id)"
+        @click="emit('approve', action.id, false)"
       >
         Approve
       </Button>
