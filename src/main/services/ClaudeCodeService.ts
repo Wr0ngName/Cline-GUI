@@ -420,6 +420,9 @@ export class ClaudeCodeService {
     // Create abort controller for this request
     this.abortController = new AbortController();
 
+    // Track original env values for cleanup - must be outside try block for finally access
+    const originalEnv: Record<string, string | undefined> = {};
+
     try {
       logger.info('Sending message to Claude Code SDK', {
         messageLength: message.length,
@@ -429,12 +432,23 @@ export class ClaudeCodeService {
       // Set up authentication environment
       const authEnv = await this.setupAuthEnv();
 
+      // CRITICAL: Set auth env vars in actual process.env BEFORE calling query()
+      // This matches the mautrix-claude pattern that works.
+      // The SDK may check process.env for authentication before our spawn callback runs.
+      Object.entries(authEnv).forEach(([key, value]) => {
+        originalEnv[key] = process.env[key];
+        process.env[key] = value;
+        logger.debug('Set process.env for SDK', { key, valueLength: value.length });
+      });
+
       // Use Claude Code SDK query function with canUseTool callback
       const queryIterator = query({
         prompt: message,
         options: {
           cwd: workingDirectory,
           abortController: this.abortController,
+          // Note: We set env vars in process.env above, but also pass via options
+          // for completeness - the SDK should see them either way now
           env: authEnv,
           // Use canUseTool for custom permission UI
           canUseTool: this.createCanUseToolCallback(),
@@ -591,6 +605,17 @@ export class ClaudeCodeService {
       this.querySucceeded = false; // Reset for next query
       // Clear any pending permissions
       this.pendingPermissions.clear();
+
+      // CRITICAL: Restore original process.env values
+      // This prevents credential leakage between queries if they somehow differ
+      Object.entries(originalEnv).forEach(([key, value]) => {
+        if (value === undefined) {
+          delete process.env[key];
+        } else {
+          process.env[key] = value;
+        }
+      });
+      logger.debug('Restored original process.env');
     }
   }
 
