@@ -51,11 +51,9 @@ watch(
 );
 
 async function saveSettings() {
-  // Always save theme and font size
-  await settingsStore.saveConfig({
-    theme: localTheme.value,
-    fontSize: localFontSize.value,
-  });
+  // Save theme (also applies it) and font size
+  await settingsStore.setTheme(localTheme.value);
+  await settingsStore.setFontSize(localFontSize.value);
 
   emit('close');
 }

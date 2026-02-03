@@ -162,10 +162,10 @@ export class ConfigService {
 
     if (!safeStorage.isEncryptionAvailable()) {
       // Fallback to plain text storage when keyring is unavailable (Linux without gnome-keyring, etc.)
-      // Ask user for confirmation before storing insecurely
+      // Ask user for confirmation before storing insecurely (async to avoid freezing app)
       const keyDescription = key === 'encryptedApiKey' ? 'API Key' : 'OAuth Token';
 
-      const result = dialog.showMessageBoxSync({
+      const { response } = await dialog.showMessageBox({
         type: 'warning',
         title: 'Secure Storage Unavailable',
         message: `Cannot encrypt your ${keyDescription} securely`,
@@ -177,7 +177,7 @@ export class ConfigService {
         cancelId: 1,
       });
 
-      if (result === 1) {
+      if (response === 1) {
         // User cancelled
         logger.info('User declined to store credentials insecurely');
         throw new ConfigurationError(
@@ -188,7 +188,6 @@ export class ConfigService {
 
       // User accepted insecure storage
       logger.warn(`SafeStorage encryption not available, storing ${key} without encryption (INSECURE) - user approved`);
-      console.warn(`[SECURITY WARNING] Storing ${key} without encryption - user approved`);
       this.store.set(key, `plain:${value}`);
       return;
     }
@@ -196,12 +195,7 @@ export class ConfigService {
     try {
       const encrypted = safeStorage.encryptString(value);
       this.store.set(key, encrypted.toString('base64'));
-      // Log token details for debugging (prefix + length only, never full token)
-      logger.info(`${key} stored securely`, {
-        prefix: value.slice(0, 15) + '...',
-        length: value.length,
-        encryptedLength: encrypted.length,
-      });
+      logger.debug(`${key} stored securely`, { length: value.length });
     } catch (error) {
       logger.error(`Failed to encrypt ${key}`, error);
       throw new ConfigurationError(`Failed to encrypt ${key}: ${error instanceof Error ? error.message : 'Unknown error'}`, ERROR_CODES.CONFIG_SAVE_FAILED, error);
@@ -235,12 +229,7 @@ export class ConfigService {
 
     try {
       const decrypted = safeStorage.decryptString(Buffer.from(storedValue, 'base64'));
-      // Log token details for debugging (prefix + suffix + length)
-      logger.info(`${key} retrieved from secure storage`, {
-        prefix: decrypted.slice(0, 20) + '...',
-        suffix: '...' + decrypted.slice(-15),
-        length: decrypted.length,
-      });
+      logger.debug(`${key} retrieved from secure storage`, { length: decrypted.length });
       return decrypted;
     } catch (error) {
       logger.error(`Failed to decrypt ${key}`, error);

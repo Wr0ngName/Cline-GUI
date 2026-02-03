@@ -116,6 +116,7 @@ describe('useEventCleanup', () => {
 
     it('should log errors during cleanup', () => {
       const { addCleanup, cleanup } = useEventCleanup();
+      // Logger uses console.error internally, so we still spy on it
       const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
       const errorFn = vi.fn().mockImplementation(() => {
         throw new Error('Cleanup error');
@@ -124,7 +125,11 @@ describe('useEventCleanup', () => {
       addCleanup(errorFn);
       cleanup();
 
-      expect(consoleSpy).toHaveBeenCalledWith('Error during cleanup:', expect.any(Error));
+      // Logger formats the message, so we check for the error content in the formatted output
+      expect(consoleSpy).toHaveBeenCalled();
+      const callArg = consoleSpy.mock.calls[0][0] as string;
+      expect(callArg).toContain('error');
+      expect(callArg).toContain('Error during cleanup');
       consoleSpy.mockRestore();
     });
 

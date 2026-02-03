@@ -244,16 +244,13 @@ export class AuthService {
         // Handle PTY output
         ptyProcess.onData((data: string) => {
           output += data;
-          logger.debug(`OAuth pty data (${data.length} bytes): ${data.slice(0, 200).replace(/\n/g, '\\n')}`);
           checkForUrl();
         });
 
         // Timeout after configured duration
         const timeoutId = setTimeout(() => {
           if (!resolved) {
-            logger.error(`Timeout waiting for OAuth URL after ${MAIN_CONSTANTS.AUTH.OAUTH_URL_DETECTION_TIMEOUT_MS / 1000}s`);
-            logger.error(`Total output received: ${output.length} bytes`);
-            logger.error(`Cleaned output (last 1000 chars): ${this.stripAnsi(output).slice(-1000)}`);
+            logger.error('Timeout waiting for OAuth URL');
             this.cleanupOAuthFlow();
             resolve({ authUrl: '', error: 'Timeout waiting for authentication URL. Is Claude CLI installed?' });
           }
@@ -261,14 +258,12 @@ export class AuthService {
 
         ptyProcess.onExit(({ exitCode, signal }) => {
           clearTimeout(timeoutId);
-          logger.info(`PTY process exited: code=${exitCode}, signal=${signal}`);
+          logger.debug('PTY process exited', { exitCode, signal });
           // Give time for output to be processed
           setTimeout(() => {
             checkForUrl();
             if (!resolved) {
-              logger.error(`PTY exited with code ${exitCode} before getting URL`);
-              logger.error(`Total output: ${output.length} bytes`);
-              logger.error(`Output (last 1000 chars): ${this.stripAnsi(output).slice(-1000)}`);
+              logger.error('PTY exited before getting URL', { exitCode });
               this.cleanupOAuthFlow();
               resolve({ authUrl: '', error: `Authentication process exited (code ${exitCode}). Check logs for details.` });
             }
@@ -364,13 +359,11 @@ export class AuthService {
         // Listen for more output
         dataHandler = ptyProcess.onData((data: string) => {
           output += data;
-          logger.debug(`OAuth completion data: ${data.slice(0, 200)}`);
           checkResult();
         });
 
         // Send the code character by character (like mautrix-claude sidecar)
         // Ink/Node.js terminal UIs often need to see individual keystrokes
-        logger.info(`Typing OAuth code character by character (length=${code.length})`);
         for (const char of code) {
           ptyProcess.write(char);
         }
@@ -380,7 +373,6 @@ export class AuthService {
           ptyProcess.write('\r');
           setTimeout(() => {
             ptyProcess.write('\n');
-            logger.info('Finished typing code, sent CR+LF');
           }, MAIN_CONSTANTS.AUTH.OAUTH_POLL_INTERVAL_MS / 5);
         }, MAIN_CONSTANTS.AUTH.OAUTH_POLL_INTERVAL_MS / 10);
 
@@ -398,28 +390,17 @@ export class AuthService {
             // OAuth tokens are ~91 chars. If longer and ends with "Store" (from CLI output
             // "Store your token securely"), the regex over-matched due to missing whitespace
             if (token.length > MAIN_CONSTANTS.AUTH.OAUTH_TOKEN_EXPECTED_LENGTH && token.endsWith('Store')) {
-              logger.warn('Token ends with "Store" - regex over-matched CLI output text', {
-                originalLength: token.length,
-              });
               token = token.slice(0, -5); // Remove "Store"
-              logger.info('Trimmed "Store" from token end', { newLength: token.length });
             }
 
             // Validate token length (mautrix-claude requires > 80 chars)
             if (token.length <= 80) {
-              logger.warn('OAuth token too short, may be truncated', {
-                length: token.length,
-                token: token,
-              });
+              logger.warn('OAuth token may be truncated', { length: token.length });
             }
 
             resolved = true;
             cleanup();
-            logger.info('OAuth token extracted from CLI output', {
-              length: token.length,
-              prefix: token.slice(0, 20) + '...',
-              suffix: '...' + token.slice(-15),
-            });
+            logger.info('OAuth authentication successful');
             this.cleanupOAuthFlow();
             resolve({ success: true, token });
             return true;
@@ -430,30 +411,18 @@ export class AuthService {
           if (fs.existsSync(credsFile)) {
             try {
               const creds = JSON.parse(fs.readFileSync(credsFile, 'utf8'));
-              logger.info('OAuth credentials file found', {
-                keys: Object.keys(creds),
-                hasOauthToken: !!creds.oauthToken,
-                hasClaudeAiOauth: !!creds.claudeAiOauth,
-              });
               // Extract oauthToken - try various formats the CLI might use
               const token = creds.oauthToken || creds.claudeAiOauth?.accessToken;
               if (token && typeof token === 'string' && token.startsWith('sk-ant-')) {
                 resolved = true;
                 cleanup();
-                logger.info('OAuth token extracted from credentials file', {
-                  length: token.length,
-                  prefix: token.slice(0, 15) + '...',
-                  source: creds.oauthToken ? 'oauthToken' : 'claudeAiOauth.accessToken',
-                });
+                logger.info('OAuth authentication successful via credentials file');
                 this.cleanupOAuthFlow();
                 resolve({ success: true, token });
                 return true;
               }
-              logger.warn('Credentials file found but no valid token format', {
-                creds: JSON.stringify(creds).slice(0, 300),
-              });
-            } catch (err) {
-              logger.debug('Credentials file not ready or invalid JSON', err);
+            } catch {
+              // Credentials file not ready yet
             }
           }
 
@@ -468,12 +437,12 @@ export class AuthService {
                 if (token && typeof token === 'string' && token.startsWith('sk-ant-')) {
                   resolved = true;
                   cleanup();
-                  logger.info(`OAuth token extracted after success message (length=${token.length})`);
+                  logger.info('OAuth authentication successful');
                   this.cleanupOAuthFlow();
                   resolve({ success: true, token });
                 }
-              } catch (err) {
-                logger.debug('Credentials file not ready after success message', err);
+              } catch {
+                // Credentials file not ready after success message
               }
             }, MAIN_CONSTANTS.AUTH.OAUTH_CREDENTIALS_CHECK_DELAY_MS);
           }
@@ -508,7 +477,6 @@ export class AuthService {
               resolved = true;
               cleanup();
               logger.error('Timeout waiting for OAuth completion');
-              logger.debug(`Final output: ${this.stripAnsi(output).slice(-1000)}`);
               this.cleanupOAuthFlow();
               resolve({ success: false, error: 'Timeout waiting for authentication to complete' });
             }

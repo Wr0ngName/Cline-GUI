@@ -177,3 +177,30 @@ export function getErrorMessage(error: unknown): string {
 export function formatErrorMessage(prefix: string, error: unknown): string {
   return `${prefix}: ${getErrorMessage(error)}`;
 }
+
+/**
+ * Validate that a service is initialized.
+ * Use this at the start of IPC handlers to ensure services are ready.
+ *
+ * @param service - The service instance to check
+ * @param serviceName - Name of the service for error messages
+ * @throws ValidationError if service is not initialized
+ *
+ * @example
+ * ```typescript
+ * ensureService(configService, 'ConfigService');
+ * ensureService(claudeService, 'ClaudeCodeService');
+ * ```
+ */
+export function ensureService<T>(
+  service: T | null | undefined,
+  serviceName: string
+): asserts service is T {
+  if (!service) {
+    throw new ValidationError(
+      `${serviceName} not initialized`,
+      serviceName,
+      ERROR_CODES.IPC_HANDLER_FAILED
+    );
+  }
+}

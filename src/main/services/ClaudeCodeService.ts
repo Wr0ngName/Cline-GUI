@@ -133,12 +133,7 @@ export class ClaudeCodeService {
         throw new Error(`Invalid OAuth token: ${validation.error}. Please log out and log in again.`);
       }
       env['CLAUDE_CODE_OAUTH_TOKEN'] = oauthToken;
-      // Log at INFO level to ensure it appears in logs for debugging
-      logger.info('Using OAuth token for authentication', {
-        tokenPrefix: oauthToken.substring(0, 20) + '...',
-        tokenSuffix: '...' + oauthToken.slice(-15),
-        tokenLength: oauthToken.length,
-      });
+      logger.debug('Using OAuth token for authentication', { tokenLength: oauthToken.length });
       return env;
     }
 
@@ -151,10 +146,7 @@ export class ClaudeCodeService {
         throw new Error(`Invalid API key: ${validation.error}. Please check your API key.`);
       }
       env['ANTHROPIC_API_KEY'] = apiKey;
-      logger.debug('Using API key for authentication', {
-        keyPrefix: apiKey.substring(0, 10) + '...',
-        keyLength: apiKey.length,
-      });
+      logger.debug('Using API key for authentication', { keyLength: apiKey.length });
       return env;
     }
 
@@ -495,20 +487,10 @@ export class ClaudeCodeService {
               }
             }
 
-            // Log full spawn details for debugging - include token details from SDK
-            const sdkToken = options.env?.CLAUDE_CODE_OAUTH_TOKEN;
-            logger.info('Spawning SDK process', {
-              spawnFile,
-              args: spawnArgs.slice(0, 3).map(a => a.length > 50 ? a.slice(0, 50) + '...' : a), // First 3 args, truncated
+            logger.debug('Spawning SDK process', {
               argsCount: spawnArgs.length,
               cwd: options.cwd,
-              platform: process.platform,
-              // Token details from what SDK passes to our callback
-              sdkEnvKeys: Object.keys(options.env || {}).length,
-              hasOAuthToken: !!sdkToken,
-              sdkTokenPrefix: sdkToken ? sdkToken.slice(0, 20) + '...' : undefined,
-              sdkTokenSuffix: sdkToken ? '...' + sdkToken.slice(-15) : undefined,
-              sdkTokenLength: sdkToken?.length,
+              hasOAuthToken: !!options.env?.CLAUDE_CODE_OAUTH_TOKEN,
               hasApiKey: !!options.env?.ANTHROPIC_API_KEY,
             });
 

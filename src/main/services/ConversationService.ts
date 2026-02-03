@@ -64,24 +64,25 @@ export class ConversationService {
   /**
    * Get the file path for a conversation
    * Validates the ID to prevent path traversal attacks
+   *
+   * Security: We check the ORIGINAL path first to detect attacks,
+   * then sanitize for safe filesystem operations
    */
   private getFilePath(id: string): string {
-    // Sanitize ID to prevent path traversal
+    // SECURITY: Check original input FIRST to detect path traversal attempts
+    const originalPath = path.join(this.conversationsDir, `${id}.json`);
+    if (!isPathWithin(originalPath, this.conversationsDir)) {
+      logger.error('Path traversal attempt detected', { id });
+      throw new Error('Invalid conversation ID: path traversal detected');
+    }
+
+    // Sanitize ID for safe filesystem operations
     const sanitizedId = id.replace(/[^a-zA-Z0-9_-]/g, '_');
     if (sanitizedId !== id) {
       logger.warn('Conversation ID was sanitized', { original: id, sanitized: sanitizedId });
     }
 
-    const filePath = path.join(this.conversationsDir, `${sanitizedId}.json`);
-
-    // Security check: ensure the resolved path is within the conversations directory
-    // This prevents symlink attacks and path traversal
-    if (!isPathWithin(filePath, this.conversationsDir)) {
-      logger.error('Path traversal attempt detected', { id, filePath, conversationsDir: this.conversationsDir });
-      throw new Error('Invalid conversation ID: path traversal detected');
-    }
-
-    return filePath;
+    return path.join(this.conversationsDir, `${sanitizedId}.json`);
   }
 
   /**

@@ -17,6 +17,8 @@
  * ```
  */
 
+import { logger } from '../utils/logger';
+
 /**
  * Creates an event cleanup manager for tracking and disposing of event listeners
  */
@@ -42,7 +44,7 @@ export function useEventCleanup() {
       try {
         fn();
       } catch (error) {
-        console.error('Error during cleanup:', error);
+        logger.error('Error during cleanup', error);
       }
     }
     cleanupFns.length = 0;

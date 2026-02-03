@@ -7,7 +7,7 @@ import { ipcMain, BrowserWindow } from 'electron';
 import { AppConfig, IPC_CHANNELS } from '../../shared/types';
 import { ConfigurationError, ERROR_CODES } from '../errors';
 import ConfigService from '../services/ConfigService';
-import { validateObject, sendToRenderer } from '../utils/ipc-helpers';
+import { validateObject, sendToRenderer, ensureService, formatErrorMessage } from '../utils/ipc-helpers';
 import logger from '../utils/logger';
 
 export function setupConfigIPC(
@@ -18,14 +18,9 @@ export function setupConfigIPC(
   ipcMain.handle(IPC_CHANNELS.CONFIG_GET, async () => {
     try {
       logger.debug('IPC: config:get');
-
-      // Validate service
-      if (!configService) {
-        throw new ConfigurationError('Config service not initialized', ERROR_CODES.CONFIG_LOAD_FAILED);
-      }
+      ensureService(configService, 'ConfigService');
 
       const config = await configService.getConfig();
-
       if (!config) {
         throw new ConfigurationError('Failed to load configuration', ERROR_CODES.CONFIG_LOAD_FAILED);
       }
@@ -33,7 +28,7 @@ export function setupConfigIPC(
       return config;
     } catch (error) {
       logger.error('Failed to get config', { error });
-      throw new ConfigurationError(`Failed to get configuration: ${error instanceof Error ? error.message : String(error)}`, ERROR_CODES.CONFIG_LOAD_FAILED, error);
+      throw new ConfigurationError(formatErrorMessage('Failed to get configuration', error), ERROR_CODES.CONFIG_LOAD_FAILED, error);
     }
   });
 
@@ -41,13 +36,7 @@ export function setupConfigIPC(
   ipcMain.handle(IPC_CHANNELS.CONFIG_SET, async (_event, config: Partial<AppConfig>) => {
     try {
       logger.debug('IPC: config:set', { keys: config ? Object.keys(config) : [] });
-
-      // Validate service
-      if (!configService) {
-        throw new ConfigurationError('Config service not initialized', ERROR_CODES.CONFIG_SAVE_FAILED);
-      }
-
-      // Validate input
+      ensureService(configService, 'ConfigService');
       validateObject(config, 'Config');
 
       if (Object.keys(config).length === 0) {
@@ -60,7 +49,7 @@ export function setupConfigIPC(
       sendToRenderer(getMainWindow, IPC_CHANNELS.CONFIG_CHANGED, config);
     } catch (error) {
       logger.error('Failed to set config', { error, configKeys: config ? Object.keys(config) : [] });
-      throw new ConfigurationError(`Failed to set configuration: ${error instanceof Error ? error.message : String(error)}`, ERROR_CODES.CONFIG_SAVE_FAILED, error);
+      throw new ConfigurationError(formatErrorMessage('Failed to set configuration', error), ERROR_CODES.CONFIG_SAVE_FAILED, error);
     }
   });
 
