@@ -7,8 +7,8 @@
 import { storeToRefs } from 'pinia';
 import { ref } from 'vue';
 
-import { TIME_MS } from '../../constants/app';
 import { useConversationsStore } from '../../stores/conversations';
+import { formatRelativeDate } from '../../utils/date';
 import Spinner from '../shared/Spinner.vue';
 import Icon from '../shared/Icon.vue';
 
@@ -50,32 +50,6 @@ async function handleConfirmDelete(id: string) {
 
 function handleCancelDelete() {
   confirmDeleteId.value = null;
-}
-
-function formatDate(timestamp: number): string {
-  const date = new Date(timestamp);
-  const now = new Date();
-  const diff = now.getTime() - date.getTime();
-
-  // Today
-  if (diff < TIME_MS.ONE_DAY && date.getDate() === now.getDate()) {
-    return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-  }
-
-  // Yesterday
-  const yesterday = new Date(now);
-  yesterday.setDate(yesterday.getDate() - 1);
-  if (date.getDate() === yesterday.getDate()) {
-    return 'Yesterday';
-  }
-
-  // This week
-  if (diff < TIME_MS.ONE_WEEK) {
-    return date.toLocaleDateString([], { weekday: 'short' });
-  }
-
-  // Older
-  return date.toLocaleDateString([], { month: 'short', day: 'numeric' });
 }
 </script>
 
@@ -193,7 +167,7 @@ function formatDate(timestamp: number): string {
               </div>
               <div class="flex items-center gap-1">
                 <span class="text-xs text-surface-400 dark:text-surface-500 whitespace-nowrap">
-                  {{ formatDate(conversation.updatedAt) }}
+                  {{ formatRelativeDate(conversation.updatedAt) }}
                 </span>
                 <!-- Delete button -->
                 <button

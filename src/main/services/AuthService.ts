@@ -397,8 +397,7 @@ export class AuthService {
 
             // OAuth tokens are ~91 chars. If longer and ends with "Store" (from CLI output
             // "Store your token securely"), the regex over-matched due to missing whitespace
-            const EXPECTED_TOKEN_LENGTH = 91;
-            if (token.length > EXPECTED_TOKEN_LENGTH && token.endsWith('Store')) {
+            if (token.length > MAIN_CONSTANTS.AUTH.OAUTH_TOKEN_EXPECTED_LENGTH && token.endsWith('Store')) {
               logger.warn('Token ends with "Store" - regex over-matched CLI output text', {
                 originalLength: token.length,
               });

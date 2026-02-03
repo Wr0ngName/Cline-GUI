@@ -106,3 +106,74 @@ export function validatePath(filePath: string): void {
     throw new ValidationError('Invalid path: null bytes not allowed', 'filePath', ERROR_CODES.VALIDATION_INVALID_PATH);
   }
 }
+
+/**
+ * Validate that a value is a boolean.
+ *
+ * @param value - Value to validate
+ * @param fieldName - Name of the field for error messages
+ * @throws Error if validation fails
+ */
+export function validateBoolean(value: unknown, fieldName: string): asserts value is boolean {
+  if (typeof value !== 'boolean') {
+    throw new ValidationError(`${fieldName} must be a boolean`, fieldName, ERROR_CODES.VALIDATION_TYPE_MISMATCH);
+  }
+}
+
+/**
+ * Validate that a value is a number within optional bounds.
+ *
+ * @param value - Value to validate
+ * @param fieldName - Name of the field for error messages
+ * @param options - Optional min/max constraints
+ * @throws Error if validation fails
+ */
+export function validateNumber(
+  value: unknown,
+  fieldName: string,
+  options?: { min?: number; max?: number }
+): asserts value is number {
+  if (typeof value !== 'number' || isNaN(value)) {
+    throw new ValidationError(`${fieldName} must be a number`, fieldName, ERROR_CODES.VALIDATION_TYPE_MISMATCH);
+  }
+  if (options?.min !== undefined && value < options.min) {
+    throw new ValidationError(`${fieldName} must be >= ${options.min}`, fieldName, ERROR_CODES.VALIDATION_TYPE_MISMATCH);
+  }
+  if (options?.max !== undefined && value > options.max) {
+    throw new ValidationError(`${fieldName} must be <= ${options.max}`, fieldName, ERROR_CODES.VALIDATION_TYPE_MISMATCH);
+  }
+}
+
+/**
+ * Validate that a value is an array.
+ *
+ * @param value - Value to validate
+ * @param fieldName - Name of the field for error messages
+ * @throws Error if validation fails
+ */
+export function validateArray(value: unknown, fieldName: string): asserts value is unknown[] {
+  if (!Array.isArray(value)) {
+    throw new ValidationError(`${fieldName} must be an array`, fieldName, ERROR_CODES.VALIDATION_TYPE_MISMATCH);
+  }
+}
+
+/**
+ * Get a human-readable error message from an unknown error.
+ *
+ * @param error - The error to extract message from
+ * @returns Human-readable error message
+ */
+export function getErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+/**
+ * Format an error message with a prefix.
+ *
+ * @param prefix - Prefix for the error message (e.g., "Failed to load config")
+ * @param error - The original error
+ * @returns Formatted error message
+ */
+export function formatErrorMessage(prefix: string, error: unknown): string {
+  return `${prefix}: ${getErrorMessage(error)}`;
+}

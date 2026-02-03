@@ -7,6 +7,7 @@ import path from 'node:path';
 
 import { BrowserWindow, shell } from 'electron';
 
+import { MAIN_CONSTANTS } from './constants/app';
 import { debugLog as debugLogBase } from './utils/debugLog';
 import logger from './utils/logger';
 
@@ -33,10 +34,10 @@ export async function createWindow(): Promise<BrowserWindow> {
   debugLog(`Preload exists: ${fs.existsSync(preloadPath)}`);
 
   mainWindow = new BrowserWindow({
-    width: 1400,
-    height: 900,
-    minWidth: 800,
-    minHeight: 600,
+    width: MAIN_CONSTANTS.WINDOW.DEFAULT_WIDTH,
+    height: MAIN_CONSTANTS.WINDOW.DEFAULT_HEIGHT,
+    minWidth: MAIN_CONSTANTS.WINDOW.MIN_WIDTH,
+    minHeight: MAIN_CONSTANTS.WINDOW.MIN_HEIGHT,
     title: 'Cline GUI',
     backgroundColor: '#fafafa',
     show: false, // Don't show until ready
@@ -86,7 +87,7 @@ export async function createWindow(): Promise<BrowserWindow> {
       logger.warn('Window not shown after timeout, forcing show');
       mainWindow.show();
     }
-  }, 5000);
+  }, MAIN_CONSTANTS.WINDOW.SHOW_TIMEOUT_MS);
 
   // Open external links in browser
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {

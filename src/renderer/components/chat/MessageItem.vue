@@ -8,6 +8,7 @@ import { computed } from 'vue';
 
 import type { ChatMessage } from '@shared/types';
 
+import { formatTime } from '../../utils/date';
 import Spinner from '../shared/Spinner.vue';
 
 interface Props {
@@ -18,10 +19,7 @@ const props = defineProps<Props>();
 
 const isUser = computed(() => props.message.role === 'user');
 
-const formattedTime = computed(() => {
-  const date = new Date(props.message.timestamp);
-  return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-});
+const formattedTime = computed(() => formatTime(props.message.timestamp));
 
 // Simple markdown-like rendering for code blocks
 const renderedContent = computed(() => {

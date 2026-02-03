@@ -227,10 +227,11 @@ export class ConfigService {
   }
 
   /**
-   * Set API key (encrypted)
+   * Set API key (encrypted) and update authMethod accordingly
    */
   async setApiKey(apiKey: string): Promise<void> {
-    return this.setEncryptedValue('encryptedApiKey', apiKey);
+    await this.setEncryptedValue('encryptedApiKey', apiKey);
+    await this.updateAuthMethod();
   }
 
   /**
@@ -250,10 +251,11 @@ export class ConfigService {
   }
 
   /**
-   * Set OAuth token (encrypted)
+   * Set OAuth token (encrypted) and update authMethod accordingly
    */
   async setOAuthToken(token: string): Promise<void> {
-    return this.setEncryptedValue('encryptedOAuthToken', token);
+    await this.setEncryptedValue('encryptedOAuthToken', token);
+    await this.updateAuthMethod();
   }
 
   /**
@@ -270,6 +272,43 @@ export class ConfigService {
    */
   async hasAuth(): Promise<boolean> {
     return (await this.hasApiKey()) || (await this.hasOAuthToken());
+  }
+
+  /**
+   * Update authMethod based on current credentials.
+   * OAuth takes priority over API key.
+   */
+  private async updateAuthMethod(): Promise<void> {
+    if (!this.store) return;
+
+    const hasOAuth = await this.hasOAuthToken();
+    const hasApiKey = await this.hasApiKey();
+
+    let authMethod: AuthMethod;
+    if (hasOAuth) {
+      authMethod = 'oauth';
+    } else if (hasApiKey) {
+      authMethod = 'api-key';
+    } else {
+      authMethod = 'none';
+    }
+
+    this.store.set('authMethod', authMethod);
+    logger.debug('authMethod updated', { authMethod });
+  }
+
+  /**
+   * Clear all authentication credentials and reset authMethod
+   */
+  async logout(): Promise<void> {
+    await this.ensureInitialized();
+    if (!this.store) return;
+
+    this.store.delete('encryptedApiKey');
+    this.store.delete('encryptedOAuthToken');
+    this.store.set('authMethod', 'none');
+
+    logger.info('User logged out, credentials cleared');
   }
 
   /**

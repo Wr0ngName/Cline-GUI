@@ -16,7 +16,7 @@ import { ipcMain } from 'electron';
 import { IPC_CHANNELS, ActionResponse } from '../../shared/types';
 import { IpcError, ValidationError, AppError, ERROR_CODES } from '../errors';
 import ClaudeCodeService from '../services/ClaudeCodeService';
-import { validateString, validateObject } from '../utils/ipc-helpers';
+import { validateString, validateObject, validateBoolean, formatErrorMessage } from '../utils/ipc-helpers';
 import logger from '../utils/logger';
 
 /**
@@ -70,8 +70,8 @@ export function setupClaudeIPC(claudeService: ClaudeCodeService): void {
           validateObject(updatedInput, 'Updated input');
         }
 
-        if (alwaysAllow !== undefined && typeof alwaysAllow !== 'boolean') {
-          throw new ValidationError('Invalid alwaysAllow type: must be a boolean', 'alwaysAllow', ERROR_CODES.VALIDATION_TYPE_MISMATCH);
+        if (alwaysAllow !== undefined) {
+          validateBoolean(alwaysAllow, 'alwaysAllow');
         }
 
         await claudeService.approveAction(actionId, updatedInput, alwaysAllow);
@@ -104,7 +104,7 @@ export function setupClaudeIPC(claudeService: ClaudeCodeService): void {
         await claudeService.rejectAction(actionId, message);
       } catch (error) {
         logger.error('Failed to reject action', { error, actionId });
-        throw new IpcError(`Failed to reject action: ${error instanceof Error ? error.message : String(error)}`, IPC_CHANNELS.CLAUDE_REJECT, ERROR_CODES.IPC_HANDLER_FAILED, error);
+        throw new IpcError(formatErrorMessage('Failed to reject action', error), IPC_CHANNELS.CLAUDE_REJECT, ERROR_CODES.IPC_HANDLER_FAILED, error);
       }
     }
   );

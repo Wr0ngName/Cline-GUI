@@ -91,7 +91,7 @@ export class ClaudeCodeService {
     }
 
     // OAuth tokens are typically 80+ characters
-    if (token.length < 50) {
+    if (token.length < MAIN_CONSTANTS.AUTH.OAUTH_TOKEN_MIN_LENGTH) {
       return { valid: false, error: `Token too short (${token.length} chars, expected 80+)` };
     }
 
@@ -111,7 +111,7 @@ export class ClaudeCodeService {
       return { valid: false, error: 'API key must start with sk-' };
     }
 
-    if (key.length < 40) {
+    if (key.length < MAIN_CONSTANTS.AUTH.API_KEY_MIN_LENGTH) {
       return { valid: false, error: `API key too short (${key.length} chars)` };
     }
 

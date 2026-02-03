@@ -60,6 +60,9 @@ async function main(): Promise<void> {
   let conversationService: InstanceType<typeof ConversationService>;
   let updateService: InstanceType<typeof UpdateService>;
 
+  // IPC cleanup function - stored to call on app quit
+  let ipcCleanup: (() => void) | null = null;
+
   /**
    * Initialize all services
    */
@@ -91,7 +94,7 @@ async function main(): Promise<void> {
       debugLog('Services initialized');
 
       debugLog('Setting up IPC...');
-      setupIPC(
+      ipcCleanup = setupIPC(
         {
           authService,
           configService,
@@ -153,7 +156,17 @@ async function main(): Promise<void> {
   app.on('before-quit', () => {
     debugLog('before-quit event');
     logger.info('Application quitting');
+
+    // Clean up all resources
     fileWatcher?.stop();
+
+    if (ipcCleanup) {
+      ipcCleanup();
+      ipcCleanup = null;
+    }
+
+    // Clean up any pending OAuth flows
+    authService?.cleanupOAuthFlow();
   });
 
   process.on('uncaughtException', (error) => {
