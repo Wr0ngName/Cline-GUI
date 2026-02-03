@@ -47,7 +47,8 @@ export const useConversationsStore = defineStore('conversations', () => {
     }
   );
 
-  // Watch for message count changes - save when new messages are added after streaming ends
+  // Watch for message count changes - save when first user message is added
+  // This ensures the conversation appears in history immediately
   watch(
     () => chatMessages.value.length,
     (newLength, oldLength) => {
@@ -59,6 +60,13 @@ export const useConversationsStore = defineStore('conversations', () => {
         conversationId: currentConversationId.value,
         isLoading: chatIsLoading.value,
       });
+
+      // Save when first message is added (user message)
+      // This makes the conversation appear in history immediately
+      if (oldLength === 0 && newLength > 0 && currentConversationId.value) {
+        logger.info('First message added, saving conversation to history');
+        saveCurrentConversation();
+      }
     }
   );
 

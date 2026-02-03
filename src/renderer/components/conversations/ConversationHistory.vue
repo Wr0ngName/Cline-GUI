@@ -23,7 +23,9 @@ const {
 const deletingId = ref<string | null>(null);
 const confirmDeleteId = ref<string | null>(null);
 
-function handleNewConversation() {
+async function handleNewConversation() {
+  // Save current conversation before creating new one
+  await conversationsStore.saveCurrentConversation();
   conversationsStore.createNewConversation();
 }
 

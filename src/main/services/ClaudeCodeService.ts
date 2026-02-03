@@ -53,6 +53,9 @@ export class ClaudeCodeService {
   // Track if we received a successful result from the SDK
   // Used to handle process exit errors that occur after successful completion
   private querySucceeded = false;
+  // Track if any text was streamed during the current query
+  // Used to handle non-streaming responses (like slash commands)
+  private hasStreamedText = false;
   // Cached slash commands from SDK init message
   private cachedSlashCommands: SlashCommandInfo[] = [];
   // Bound sender function for DRY IPC communication
@@ -410,6 +413,7 @@ export class ClaudeCodeService {
   async sendMessage(message: string, workingDirectory: string): Promise<void> {
     // Reset query state
     this.querySucceeded = false;
+    this.hasStreamedText = false;
 
     // Check if auth is configured
     if (!(await this.hasAuthInternal())) {
@@ -603,6 +607,7 @@ export class ClaudeCodeService {
       this.abortController = null;
       this.currentQuery = null;
       this.querySucceeded = false; // Reset for next query
+      this.hasStreamedText = false; // Reset for next query
       // Clear any pending permissions
       this.pendingPermissions.clear();
 
@@ -710,8 +715,9 @@ export class ClaudeCodeService {
 
   /**
    * Process assistant message and extract text/tool use
-   * Note: Text content is already streamed via handleStreamEvent's content_block_delta events.
-   * This method only logs for debugging - we don't emit text here to avoid duplication.
+   * Note: Text content is usually streamed via handleStreamEvent's content_block_delta events.
+   * However, some responses (like slash commands) may not produce streaming events,
+   * so we emit text here if nothing was streamed.
    */
   private async processAssistantMessage(message: SDKAssistantMessage): Promise<void> {
     const content = message.message.content;
@@ -720,18 +726,29 @@ export class ClaudeCodeService {
     logger.debug('Assistant message content', {
       blockCount: content.length,
       blockTypes: content.map(b => b.type),
+      hasStreamedText: this.hasStreamedText,
     });
 
     for (const block of content) {
       if (block.type === 'text') {
-        // Log text content (truncated) to debug 401 errors
-        // Note: We don't emit the text here because it was already streamed
-        // via handleStreamEvent's content_block_delta events
-        const textPreview = block.text.slice(0, 200);
-        if (block.text.toLowerCase().includes('401') ||
-            block.text.toLowerCase().includes('unauthorized') ||
-            block.text.toLowerCase().includes('invalid')) {
+        const text = block.text;
+        const textPreview = text.slice(0, 200);
+
+        // Log warnings for auth errors
+        if (text.toLowerCase().includes('401') ||
+            text.toLowerCase().includes('unauthorized') ||
+            text.toLowerCase().includes('invalid')) {
           logger.warn('Assistant message contains error keywords', { textPreview });
+        }
+
+        // If no text was streamed (e.g., slash command response), emit it now
+        // This handles non-streaming responses like /help, /compact, etc.
+        if (!this.hasStreamedText && text) {
+          logger.info('Emitting non-streamed text from assistant message', {
+            textLength: text.length,
+            preview: textPreview,
+          });
+          this.emitChunk(text);
         }
       }
       // Tool use is handled via canUseTool callback, not here
@@ -744,7 +761,11 @@ export class ClaudeCodeService {
   private handleStreamEvent(message: SDKMessage): void {
     const event = (message as { event?: { type?: string; delta?: { type?: string; text?: string } } }).event;
     if (event?.type === 'content_block_delta' && event?.delta?.type === 'text_delta') {
-      this.emitChunk(event.delta.text || '');
+      const text = event.delta.text || '';
+      if (text) {
+        this.hasStreamedText = true;
+      }
+      this.emitChunk(text);
     }
   }
 
