@@ -6,6 +6,7 @@
 import { safeStorage, dialog } from 'electron';
 
 import { AppConfig, AuthMethod, DEFAULT_CONFIG } from '../../shared/types';
+import { MAIN_CONSTANTS } from '../constants/app';
 import { ConfigurationError, ERROR_CODES } from '../errors';
 import logger from '../utils/logger';
 
@@ -356,7 +357,7 @@ export class ConfigService {
     // Update recent projects
     const recent = this.store.get('recentProjects', []) as string[];
     const filtered = recent.filter((p: string) => p !== directory);
-    const updated = [directory, ...filtered].slice(0, 10);
+    const updated = [directory, ...filtered].slice(0, MAIN_CONSTANTS.CONFIG.MAX_RECENT_PROJECTS);
     this.store.set('recentProjects', updated);
 
     logger.info('Working directory updated', { directory });

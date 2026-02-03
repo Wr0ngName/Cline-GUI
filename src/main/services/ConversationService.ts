@@ -6,6 +6,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 import { Conversation } from '../../shared/types';
+import { MAIN_CONSTANTS } from '../constants/app';
 import logger from '../utils/logger';
 import { getConversationsPath, isPathWithin } from '../utils/paths';
 
@@ -147,7 +148,7 @@ export class ConversationService {
    */
   async save(conversation: Conversation): Promise<void> {
     const filePath = this.getFilePath(conversation.id);
-    const maxRetries = 3;
+    const maxRetries = MAIN_CONSTANTS.CONVERSATION.MAX_SAVE_RETRIES;
     let lastError: Error | null = null;
 
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
@@ -193,7 +194,7 @@ export class ConversationService {
 
         if (attempt < maxRetries) {
           // Exponential backoff: 100ms, 200ms, 400ms
-          const delay = 100 * Math.pow(2, attempt - 1);
+          const delay = MAIN_CONSTANTS.CONVERSATION.RETRY_BASE_DELAY_MS * Math.pow(2, attempt - 1);
           await new Promise((resolve) => setTimeout(resolve, delay));
         }
       }

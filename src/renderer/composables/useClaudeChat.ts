@@ -249,6 +249,7 @@ export function useClaudeChat() {
   // Set up listeners on mount, clean up on unmount
   // Uses ref counting to handle multiple component instances
   onMounted(() => {
+    // Increment ref count BEFORE setup to track this component
     listenerRefCount++;
     setupListeners();
     // Load available slash commands (only if not already loaded)
@@ -258,7 +259,11 @@ export function useClaudeChat() {
   });
 
   onUnmounted(() => {
-    listenerRefCount--;
+    // Decrement ref count BEFORE cleanup check
+    // Guard against going negative (defensive programming)
+    if (listenerRefCount > 0) {
+      listenerRefCount--;
+    }
     cleanupListeners();
   });
 

@@ -30,8 +30,10 @@ const renderedContent = computed(() => {
     return `<pre class="code-block"><code class="language-${lang || 'text'}">${escapeHtml(code.trim())}</code></pre>`;
   });
 
-  // Replace inline code
-  content = content.replace(/`([^`]+)`/g, '<code class="px-1 py-0.5 bg-surface-100 dark:bg-surface-700 rounded text-sm font-mono">$1</code>');
+  // Replace inline code (escape HTML to prevent XSS)
+  content = content.replace(/`([^`]+)`/g, (_match, code) => {
+    return `<code class="px-1 py-0.5 bg-surface-100 dark:bg-surface-700 rounded text-sm font-mono">${escapeHtml(code)}</code>`;
+  });
 
   // Replace newlines with br tags (outside of pre blocks)
   content = content.replace(/\n/g, '<br>');

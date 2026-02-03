@@ -7,7 +7,7 @@ import { ipcMain } from 'electron';
 import { Conversation, IPC_CHANNELS } from '../../shared/types';
 import { ConfigurationError, ValidationError, ERROR_CODES } from '../errors';
 import ConversationService from '../services/ConversationService';
-import { validateString, validateObject } from '../utils/ipc-helpers';
+import { validateString, validateObject, ensureService, formatErrorMessage } from '../utils/ipc-helpers';
 import logger from '../utils/logger';
 
 export function setupConversationIPC(conversationService: ConversationService): void {
@@ -17,9 +17,7 @@ export function setupConversationIPC(conversationService: ConversationService): 
       logger.info('IPC: conversation:list called');
 
       // Validate service
-      if (!conversationService) {
-        throw new ConfigurationError('Conversation service not initialized', ERROR_CODES.CONFIG_LOAD_FAILED);
-      }
+      ensureService(conversationService, 'ConversationService');
 
       const conversations = await conversationService.list();
 
@@ -30,7 +28,7 @@ export function setupConversationIPC(conversationService: ConversationService): 
       return conversations;
     } catch (error) {
       logger.error('Failed to list conversations', { error });
-      throw new ConfigurationError(`Failed to list conversations: ${error instanceof Error ? error.message : String(error)}`, ERROR_CODES.CONVERSATION_LOAD_FAILED, error);
+      throw new ConfigurationError(formatErrorMessage('Failed to list conversations', error), ERROR_CODES.CONVERSATION_LOAD_FAILED, error);
     }
   });
 
@@ -40,9 +38,7 @@ export function setupConversationIPC(conversationService: ConversationService): 
       logger.debug('IPC: conversation:get', { id });
 
       // Validate service
-      if (!conversationService) {
-        throw new ConfigurationError('Conversation service not initialized', ERROR_CODES.CONFIG_LOAD_FAILED);
-      }
+      ensureService(conversationService, 'ConversationService');
 
       // Validate input
       validateString(id, 'Conversation ID');
@@ -56,7 +52,7 @@ export function setupConversationIPC(conversationService: ConversationService): 
       return conversation;
     } catch (error) {
       logger.error('Failed to get conversation', { error, id });
-      throw new ConfigurationError(`Failed to get conversation: ${error instanceof Error ? error.message : String(error)}`, ERROR_CODES.CONVERSATION_LOAD_FAILED, error);
+      throw new ConfigurationError(formatErrorMessage('Failed to get conversation', error), ERROR_CODES.CONVERSATION_LOAD_FAILED, error);
     }
   });
 
@@ -64,9 +60,7 @@ export function setupConversationIPC(conversationService: ConversationService): 
   ipcMain.handle(IPC_CHANNELS.CONVERSATION_SAVE, async (_event, conversation: Conversation) => {
     try {
       // Validate service first
-      if (!conversationService) {
-        throw new ConfigurationError('Conversation service not initialized', ERROR_CODES.CONFIG_SAVE_FAILED);
-      }
+      ensureService(conversationService, 'ConversationService');
 
       // Validate input BEFORE logging to prevent errors during logging
       validateObject(conversation, 'Conversation');
@@ -132,9 +126,7 @@ export function setupConversationIPC(conversationService: ConversationService): 
       logger.debug('IPC: conversation:delete', { id });
 
       // Validate service
-      if (!conversationService) {
-        throw new ConfigurationError('Conversation service not initialized', ERROR_CODES.CONFIG_SAVE_FAILED);
-      }
+      ensureService(conversationService, 'ConversationService');
 
       // Validate input
       validateString(id, 'Conversation ID');
@@ -142,7 +134,7 @@ export function setupConversationIPC(conversationService: ConversationService): 
       await conversationService.delete(id);
     } catch (error) {
       logger.error('Failed to delete conversation', { error, id });
-      throw new ConfigurationError(`Failed to delete conversation: ${error instanceof Error ? error.message : String(error)}`, ERROR_CODES.CONVERSATION_SAVE_FAILED, error);
+      throw new ConfigurationError(formatErrorMessage('Failed to delete conversation', error), ERROR_CODES.CONVERSATION_SAVE_FAILED, error);
     }
   });
 

@@ -16,7 +16,7 @@ import { ipcMain } from 'electron';
 import { IPC_CHANNELS, ActionResponse } from '../../shared/types';
 import { IpcError, ValidationError, AppError, ERROR_CODES } from '../errors';
 import ClaudeCodeService from '../services/ClaudeCodeService';
-import { validateString, validateObject, validateBoolean, formatErrorMessage } from '../utils/ipc-helpers';
+import { validateString, validateObject, validateBoolean, formatErrorMessage, ensureService } from '../utils/ipc-helpers';
 import logger from '../utils/logger';
 
 /**
@@ -31,9 +31,7 @@ export function setupClaudeIPC(claudeService: ClaudeCodeService): void {
       logger.debug('IPC: claude:send', { messageLength: message?.length || 0 });
 
       // Validate service
-      if (!claudeService) {
-        throw new IpcError('Claude service not initialized', IPC_CHANNELS.CLAUDE_SEND, ERROR_CODES.IPC_HANDLER_FAILED);
-      }
+      ensureService(claudeService, 'ClaudeCodeService');
 
       // Validate inputs
       validateString(message, 'Message');
@@ -42,7 +40,7 @@ export function setupClaudeIPC(claudeService: ClaudeCodeService): void {
       await claudeService.sendMessage(message, workingDir);
     } catch (error) {
       logger.error('Failed to send message to Claude', { error, messageLength: message?.length });
-      throw new IpcError(`Failed to send message: ${error instanceof Error ? error.message : String(error)}`, IPC_CHANNELS.CLAUDE_SEND, ERROR_CODES.CLAUDE_SEND_FAILED, error);
+      throw new IpcError(formatErrorMessage('Failed to send message', error), IPC_CHANNELS.CLAUDE_SEND, ERROR_CODES.CLAUDE_SEND_FAILED, error);
     }
   });
 
@@ -59,9 +57,7 @@ export function setupClaudeIPC(claudeService: ClaudeCodeService): void {
         logger.debug('IPC: claude:approve', { actionId, alwaysAllow });
 
         // Validate service
-        if (!claudeService) {
-          throw new IpcError('Claude service not initialized', IPC_CHANNELS.CLAUDE_APPROVE, ERROR_CODES.IPC_HANDLER_FAILED);
-        }
+        ensureService(claudeService, 'ClaudeCodeService');
 
         // Validate inputs
         validateString(actionId, 'Action ID');
@@ -77,7 +73,7 @@ export function setupClaudeIPC(claudeService: ClaudeCodeService): void {
         await claudeService.approveAction(actionId, updatedInput, alwaysAllow);
       } catch (error) {
         logger.error('Failed to approve action', { error, actionId });
-        throw new IpcError(`Failed to approve action: ${error instanceof Error ? error.message : String(error)}`, IPC_CHANNELS.CLAUDE_APPROVE, ERROR_CODES.IPC_HANDLER_FAILED, error);
+        throw new IpcError(formatErrorMessage('Failed to approve action', error), IPC_CHANNELS.CLAUDE_APPROVE, ERROR_CODES.IPC_HANDLER_FAILED, error);
       }
     }
   );
@@ -90,9 +86,7 @@ export function setupClaudeIPC(claudeService: ClaudeCodeService): void {
         logger.debug('IPC: claude:reject', { actionId, message });
 
         // Validate service
-        if (!claudeService) {
-          throw new IpcError('Claude service not initialized', IPC_CHANNELS.CLAUDE_REJECT, ERROR_CODES.IPC_HANDLER_FAILED);
-        }
+        ensureService(claudeService, 'ClaudeCodeService');
 
         // Validate inputs
         validateString(actionId, 'Action ID');
@@ -120,9 +114,7 @@ export function setupClaudeIPC(claudeService: ClaudeCodeService): void {
         });
 
         // Validate service
-        if (!claudeService) {
-          throw new IpcError('Claude service not initialized', IPC_CHANNELS.CLAUDE_ACTION_RESPONSE, ERROR_CODES.IPC_HANDLER_FAILED);
-        }
+        ensureService(claudeService, 'ClaudeCodeService');
 
         // Validate input
         validateObject(response, 'Response');
@@ -138,7 +130,7 @@ export function setupClaudeIPC(claudeService: ClaudeCodeService): void {
         claudeService.handleActionResponse(response);
       } catch (error) {
         logger.error('Failed to handle action response', { error, response });
-        throw new IpcError(`Failed to handle action response: ${error instanceof Error ? error.message : String(error)}`, IPC_CHANNELS.CLAUDE_ACTION_RESPONSE, ERROR_CODES.IPC_HANDLER_FAILED, error);
+        throw new IpcError(formatErrorMessage('Failed to handle action response', error), IPC_CHANNELS.CLAUDE_ACTION_RESPONSE, ERROR_CODES.IPC_HANDLER_FAILED, error);
       }
     }
   );
@@ -149,14 +141,12 @@ export function setupClaudeIPC(claudeService: ClaudeCodeService): void {
       logger.debug('IPC: claude:abort');
 
       // Validate service
-      if (!claudeService) {
-        throw new IpcError('Claude service not initialized', IPC_CHANNELS.CLAUDE_ABORT, ERROR_CODES.IPC_HANDLER_FAILED);
-      }
+      ensureService(claudeService, 'ClaudeCodeService');
 
       await claudeService.abort();
     } catch (error) {
       logger.error('Failed to abort Claude request', { error });
-      throw new AppError(`Failed to abort request: ${error instanceof Error ? error.message : String(error)}`, ERROR_CODES.CLAUDE_ABORT_FAILED, error);
+      throw new AppError(formatErrorMessage('Failed to abort request', error), ERROR_CODES.CLAUDE_ABORT_FAILED, error);
     }
   });
 
@@ -166,14 +156,12 @@ export function setupClaudeIPC(claudeService: ClaudeCodeService): void {
       logger.debug('IPC: claude:get-commands');
 
       // Validate service
-      if (!claudeService) {
-        throw new IpcError('Claude service not initialized', IPC_CHANNELS.CLAUDE_GET_COMMANDS, ERROR_CODES.IPC_HANDLER_FAILED);
-      }
+      ensureService(claudeService, 'ClaudeCodeService');
 
       return claudeService.getSlashCommands();
     } catch (error) {
       logger.error('Failed to get slash commands', { error });
-      throw new IpcError(`Failed to get slash commands: ${error instanceof Error ? error.message : String(error)}`, IPC_CHANNELS.CLAUDE_GET_COMMANDS, ERROR_CODES.IPC_HANDLER_FAILED, error);
+      throw new IpcError(formatErrorMessage('Failed to get slash commands', error), IPC_CHANNELS.CLAUDE_GET_COMMANDS, ERROR_CODES.IPC_HANDLER_FAILED, error);
     }
   });
 

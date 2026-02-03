@@ -6,6 +6,7 @@ import type { FileNode, FileChange } from '@shared/types';
 import { defineStore } from 'pinia';
 import { ref, computed, reactive } from 'vue';
 
+import { useEventCleanup } from '../composables/useEventCleanup';
 import { CONSTANTS } from '../constants/app';
 import { logger } from '../utils/logger';
 
@@ -19,10 +20,11 @@ export const useFilesStore = defineStore('files', () => {
   const isLoading = ref(false);
   const error = ref<string | null>(null);
 
-  // Cleanup function for file change listener
-  let unsubscribe: (() => void) | null = null;
-  // Cleanup function for settings watcher
-  let stopSettingsWatcher: (() => void) | null = null;
+  // Use centralized cleanup management
+  const { addCleanup, cleanup } = useEventCleanup();
+
+  // Track file watcher unsubscribe separately for re-setup
+  let fileWatcherUnsubscribe: (() => void) | null = null;
 
   // Getters
   const hasFiles = computed(() => fileTree.value.length > 0);
@@ -249,12 +251,13 @@ export const useFilesStore = defineStore('files', () => {
 
   function setupFileWatcher() {
     // Clean up existing watcher
-    if (unsubscribe) {
-      unsubscribe();
+    if (fileWatcherUnsubscribe) {
+      fileWatcherUnsubscribe();
+      fileWatcherUnsubscribe = null;
     }
 
     // Set up new watcher
-    unsubscribe = window.electron.files.onChange((changes: FileChange[]) => {
+    fileWatcherUnsubscribe = window.electron.files.onChange((changes: FileChange[]) => {
       logger.debug('File changes detected', { changeCount: changes.length });
 
       // Use incremental updates for better performance
@@ -277,9 +280,9 @@ export const useFilesStore = defineStore('files', () => {
     expandedDirs.clear();
     error.value = null;
 
-    if (unsubscribe) {
-      unsubscribe();
-      unsubscribe = null;
+    if (fileWatcherUnsubscribe) {
+      fileWatcherUnsubscribe();
+      fileWatcherUnsubscribe = null;
     }
   }
 
@@ -292,8 +295,7 @@ export const useFilesStore = defineStore('files', () => {
 
       // Watch for settings loading to complete AND working directory changes
       // This handles the race condition where settings load after this store initializes
-      // Store the stop function so we can clean it up later
-      stopSettingsWatcher = watch(
+      const stopSettingsWatcher = watch(
         [() => settingsStore.isLoading, () => settingsStore.workingDirectory],
         async ([loading, newDir], [wasLoading, oldDir]) => {
           try {
@@ -315,6 +317,7 @@ export const useFilesStore = defineStore('files', () => {
         },
         { immediate: true }
       );
+      addCleanup(stopSettingsWatcher);
 
       // Also try to load immediately if settings are already loaded and have a directory
       if (!settingsStore.isLoading && settingsStore.workingDirectory) {
@@ -329,16 +332,13 @@ export const useFilesStore = defineStore('files', () => {
     }
   }
 
-  function cleanup() {
-    // Clean up settings watcher
-    if (stopSettingsWatcher) {
-      stopSettingsWatcher();
-      stopSettingsWatcher = null;
-    }
-    // Clean up file change listener
-    if (unsubscribe) {
-      unsubscribe();
-      unsubscribe = null;
+  // Cleanup function that uses useEventCleanup for the settings watcher
+  // and manually cleans up the file watcher (since it can be re-setup)
+  function cleanupStore() {
+    cleanup(); // From useEventCleanup
+    if (fileWatcherUnsubscribe) {
+      fileWatcherUnsubscribe();
+      fileWatcherUnsubscribe = null;
     }
   }
 
@@ -369,6 +369,6 @@ export const useFilesStore = defineStore('files', () => {
     clearError,
     reset,
     initialize,
-    cleanup,
+    cleanup: cleanupStore,
   };
 });

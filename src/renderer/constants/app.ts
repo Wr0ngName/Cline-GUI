@@ -14,6 +14,8 @@ export const CONSTANTS = {
     TITLE_MAX_LENGTH: 50,
     /** Length at which to truncate titles with ellipsis */
     TITLE_TRUNCATE_LENGTH: 47,
+    /** Timeout for save operations - 30 seconds */
+    SAVE_TIMEOUT_MS: 30000,
   },
   /** File system constants */
   FILES: {

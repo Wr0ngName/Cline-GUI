@@ -5,10 +5,10 @@
 import { dialog, ipcMain, BrowserWindow } from 'electron';
 
 import { IPC_CHANNELS } from '../../shared/types';
-import { ValidationError, FileSystemError, ERROR_CODES } from '../errors';
+import { FileSystemError, ERROR_CODES } from '../errors';
 import ConfigService from '../services/ConfigService';
 import FileWatcherService from '../services/FileWatcherService';
-import { validateString, validatePath, sendToRenderer } from '../utils/ipc-helpers';
+import { validateString, validatePath, sendToRenderer, ensureService, formatErrorMessage } from '../utils/ipc-helpers';
 import logger from '../utils/logger';
 
 export function setupFilesIPC(
@@ -20,9 +20,8 @@ export function setupFilesIPC(
   ipcMain.handle(IPC_CHANNELS.FILES_SELECT_DIR, async () => {
     try {
       // Validate services
-      if (!fileWatcher || !configService) {
-        throw new ValidationError('File watcher or Config service not initialized', 'services', ERROR_CODES.VALIDATION_REQUIRED);
-      }
+      ensureService(fileWatcher, 'FileWatcherService');
+      ensureService(configService, 'ConfigService');
 
       const mainWindow = getMainWindow();
       if (!mainWindow) {
@@ -53,7 +52,7 @@ export function setupFilesIPC(
       return selectedDir;
     } catch (error) {
       logger.error('Failed to select directory', { error });
-      throw new FileSystemError(`Failed to select directory: ${error instanceof Error ? error.message : String(error)}`, undefined, ERROR_CODES.FS_READ_FAILED, error);
+      throw new FileSystemError(formatErrorMessage('Failed to select directory', error), undefined, ERROR_CODES.FS_READ_FAILED, error);
     }
   });
 
@@ -63,9 +62,7 @@ export function setupFilesIPC(
       logger.debug('IPC: files:get-tree', { directory });
 
       // Validate service
-      if (!fileWatcher) {
-        throw new ValidationError('File watcher service not initialized', 'fileWatcher', ERROR_CODES.VALIDATION_REQUIRED);
-      }
+      ensureService(fileWatcher, 'FileWatcherService');
 
       // Validate input
       validateString(directory, 'Directory path');
@@ -80,7 +77,7 @@ export function setupFilesIPC(
       return fileTree;
     } catch (error) {
       logger.error('Failed to get file tree', { error, directory });
-      throw new FileSystemError(`Failed to get file tree: ${error instanceof Error ? error.message : String(error)}`, directory, ERROR_CODES.FS_READ_FAILED, error);
+      throw new FileSystemError(formatErrorMessage('Failed to get file tree', error), directory, ERROR_CODES.FS_READ_FAILED, error);
     }
   });
 
@@ -90,9 +87,8 @@ export function setupFilesIPC(
       logger.debug('IPC: files:read', { filePath });
 
       // Validate services
-      if (!fileWatcher || !configService) {
-        throw new ValidationError('File watcher or Config service not initialized', 'services', ERROR_CODES.VALIDATION_REQUIRED);
-      }
+      ensureService(fileWatcher, 'FileWatcherService');
+      ensureService(configService, 'ConfigService');
 
       // Validate input
       validateString(filePath, 'File path');
@@ -112,15 +108,13 @@ export function setupFilesIPC(
       return content;
     } catch (error) {
       logger.error('Failed to read file', { error, filePath });
-      throw new FileSystemError(`Failed to read file: ${error instanceof Error ? error.message : String(error)}`, filePath, ERROR_CODES.FS_READ_FAILED, error);
+      throw new FileSystemError(formatErrorMessage('Failed to read file', error), filePath, ERROR_CODES.FS_READ_FAILED, error);
     }
   });
 
   // Set up file change notifications
   try {
-    if (!fileWatcher) {
-      throw new ValidationError('File watcher service not initialized', 'fileWatcher', ERROR_CODES.VALIDATION_REQUIRED);
-    }
+    ensureService(fileWatcher, 'FileWatcherService');
 
     fileWatcher.onChange((changes) => {
       try {

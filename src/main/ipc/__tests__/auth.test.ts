@@ -272,7 +272,7 @@ describe('Auth IPC handlers', () => {
 
       expect(result).toEqual({
         authUrl: '',
-        error: expect.stringContaining('Auth service not initialized'),
+        error: expect.stringContaining('AuthService not initialized'),
       });
     });
   });

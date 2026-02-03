@@ -5,8 +5,9 @@
 import { ipcMain } from 'electron';
 
 import { IPC_CHANNELS } from '../../shared/types';
-import { AppError, ERROR_CODES } from '../errors';
+import { AppError } from '../errors';
 import UpdateService from '../services/UpdateService';
+import { ensureService, formatErrorMessage } from '../utils/ipc-helpers';
 import logger from '../utils/logger';
 
 export function setupUpdateIPC(updateService: UpdateService): void {
@@ -16,9 +17,7 @@ export function setupUpdateIPC(updateService: UpdateService): void {
       logger.debug('IPC: update:check');
 
       // Validate service
-      if (!updateService) {
-        throw new AppError('Update service not initialized', ERROR_CODES.IPC_HANDLER_FAILED);
-      }
+      ensureService(updateService, 'UpdateService');
 
       const updateInfo = await updateService.checkForUpdates();
 
@@ -26,7 +25,7 @@ export function setupUpdateIPC(updateService: UpdateService): void {
       return updateInfo;
     } catch (error) {
       logger.error('Failed to check for updates', { error });
-      throw new AppError(`Failed to check for updates: ${error instanceof Error ? error.message : String(error)}`, 'UPDATE_CHECK_FAILED', error);
+      throw new AppError(formatErrorMessage('Failed to check for updates', error), 'UPDATE_CHECK_FAILED', error);
     }
   });
 
@@ -36,14 +35,12 @@ export function setupUpdateIPC(updateService: UpdateService): void {
       logger.debug('IPC: update:download');
 
       // Validate service
-      if (!updateService) {
-        throw new AppError('Update service not initialized', ERROR_CODES.IPC_HANDLER_FAILED);
-      }
+      ensureService(updateService, 'UpdateService');
 
       await updateService.downloadUpdate();
     } catch (error) {
       logger.error('Failed to download update', { error });
-      throw new AppError(`Failed to download update: ${error instanceof Error ? error.message : String(error)}`, 'UPDATE_DOWNLOAD_FAILED', error);
+      throw new AppError(formatErrorMessage('Failed to download update', error), 'UPDATE_DOWNLOAD_FAILED', error);
     }
   });
 
@@ -53,14 +50,12 @@ export function setupUpdateIPC(updateService: UpdateService): void {
       logger.debug('IPC: update:install');
 
       // Validate service
-      if (!updateService) {
-        throw new AppError('Update service not initialized', ERROR_CODES.IPC_HANDLER_FAILED);
-      }
+      ensureService(updateService, 'UpdateService');
 
       updateService.installUpdate();
     } catch (error) {
       logger.error('Failed to install update', { error });
-      throw new AppError(`Failed to install update: ${error instanceof Error ? error.message : String(error)}`, 'UPDATE_INSTALL_FAILED', error);
+      throw new AppError(formatErrorMessage('Failed to install update', error), 'UPDATE_INSTALL_FAILED', error);
     }
   });
 

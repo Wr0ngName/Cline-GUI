@@ -9,7 +9,7 @@ import { MAIN_CONSTANTS } from '../constants/app';
 import { AuthenticationError, ERROR_CODES } from '../errors';
 import AuthService from '../services/AuthService';
 import ConfigService from '../services/ConfigService';
-import { validateString, sendToRenderer } from '../utils/ipc-helpers';
+import { validateString, sendToRenderer, ensureService, formatErrorMessage } from '../utils/ipc-helpers';
 import logger from '../utils/logger';
 
 export function setupAuthHandlers(
@@ -23,9 +23,8 @@ export function setupAuthHandlers(
       logger.debug('IPC: auth:get-status');
 
       // Validate services
-      if (!authService || !configService) {
-        throw new AuthenticationError('Auth or Config service not initialized', ERROR_CODES.AUTH_NOT_CONFIGURED);
-      }
+      ensureService(authService, 'AuthService');
+      ensureService(configService, 'ConfigService');
 
       const config = await configService.getConfig();
 
@@ -55,7 +54,7 @@ export function setupAuthHandlers(
       };
     } catch (error) {
       logger.error('Failed to get auth status', { error });
-      throw new AuthenticationError(`Failed to get authentication status: ${error instanceof Error ? error.message : String(error)}`, ERROR_CODES.AUTH_NOT_CONFIGURED, error);
+      throw new AuthenticationError(formatErrorMessage('Failed to get authentication status', error), ERROR_CODES.AUTH_NOT_CONFIGURED, error);
     }
   });
 
@@ -67,9 +66,7 @@ export function setupAuthHandlers(
         logger.info('IPC: auth:start-oauth');
 
         // Validate service
-        if (!authService) {
-          throw new AuthenticationError('Auth service not initialized', ERROR_CODES.AUTH_NOT_CONFIGURED);
-        }
+        ensureService(authService, 'AuthService');
 
         const result = await authService.startOAuthFlow();
 
@@ -88,7 +85,7 @@ export function setupAuthHandlers(
         logger.error('Failed to start OAuth flow', { error });
         return {
           authUrl: '',
-          error: `Failed to start OAuth flow: ${error instanceof Error ? error.message : String(error)}`,
+          error: formatErrorMessage('Failed to start OAuth flow', error),
         };
       }
     }
@@ -102,9 +99,8 @@ export function setupAuthHandlers(
         logger.info('IPC: auth:complete-oauth');
 
         // Validate services
-        if (!authService || !configService) {
-          throw new AuthenticationError('Auth or Config service not initialized', ERROR_CODES.AUTH_NOT_CONFIGURED);
-        }
+        ensureService(authService, 'AuthService');
+        ensureService(configService, 'ConfigService');
 
         // Validate input
         try {
@@ -148,7 +144,7 @@ export function setupAuthHandlers(
         logger.error('Failed to complete OAuth flow', { error });
         return {
           success: false,
-          error: `Failed to complete OAuth flow: ${error instanceof Error ? error.message : String(error)}`,
+          error: formatErrorMessage('Failed to complete OAuth flow', error),
         };
       }
     }
@@ -160,9 +156,8 @@ export function setupAuthHandlers(
       logger.info('IPC: auth:logout');
 
       // Validate services
-      if (!authService || !configService) {
-        throw new AuthenticationError('Auth or Config service not initialized', ERROR_CODES.AUTH_NOT_CONFIGURED);
-      }
+      ensureService(authService, 'AuthService');
+      ensureService(configService, 'ConfigService');
 
       // Clear both OAuth token and API key
       const configUpdate = {
@@ -181,7 +176,7 @@ export function setupAuthHandlers(
       logger.info('Logged out successfully');
     } catch (error) {
       logger.error('Failed to logout', { error });
-      throw new AuthenticationError(`Failed to logout: ${error instanceof Error ? error.message : String(error)}`, ERROR_CODES.AUTH_NOT_CONFIGURED, error);
+      throw new AuthenticationError(formatErrorMessage('Failed to logout', error), ERROR_CODES.AUTH_NOT_CONFIGURED, error);
     }
   });
 

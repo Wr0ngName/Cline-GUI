@@ -52,6 +52,16 @@ export const MAIN_CONSTANTS = {
     /** Threshold for batch file changes before full tree reload */
     BATCH_CHANGE_THRESHOLD: 10,
   },
+  CONFIG: {
+    /** Maximum number of recent projects to keep */
+    MAX_RECENT_PROJECTS: 10,
+  },
+  CONVERSATION: {
+    /** Base delay for retry exponential backoff - 100ms */
+    RETRY_BASE_DELAY_MS: 100,
+    /** Maximum number of save retries */
+    MAX_SAVE_RETRIES: 3,
+  },
   LOGGING: {
     /** Maximum log file size before rotation - 5MB */
     MAX_FILE_SIZE_BYTES: 5 * 1024 * 1024,

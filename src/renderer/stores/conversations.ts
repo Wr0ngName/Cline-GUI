@@ -213,8 +213,9 @@ export const useConversationsStore = defineStore('conversations', () => {
 
       // Add timeout to prevent indefinite hang if main process is unresponsive
       const savePromise = window.electron.conversation.save(conversation);
+      const timeoutMs = CONSTANTS.CONVERSATION.SAVE_TIMEOUT_MS;
       const timeoutPromise = new Promise<never>((_, reject) => {
-        setTimeout(() => reject(new Error('Save operation timed out after 30 seconds')), 30000);
+        setTimeout(() => reject(new Error(`Save operation timed out after ${timeoutMs / 1000} seconds`)), timeoutMs);
       });
 
       await Promise.race([savePromise, timeoutPromise]);
