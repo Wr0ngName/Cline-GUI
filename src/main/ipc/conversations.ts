@@ -14,7 +14,7 @@ export function setupConversationIPC(conversationService: ConversationService): 
   // List all conversations
   ipcMain.handle(IPC_CHANNELS.CONVERSATION_LIST, async () => {
     try {
-      logger.debug('IPC: conversation:list');
+      logger.info('IPC: conversation:list called');
 
       // Validate service
       if (!conversationService) {
@@ -63,7 +63,11 @@ export function setupConversationIPC(conversationService: ConversationService): 
   // Save a conversation
   ipcMain.handle(IPC_CHANNELS.CONVERSATION_SAVE, async (_event, conversation: Conversation) => {
     try {
-      logger.debug('IPC: conversation:save', { id: conversation?.id });
+      logger.info('IPC: conversation:save called', {
+        id: conversation?.id,
+        messageCount: conversation?.messages?.length,
+        title: conversation?.title?.slice(0, 30),
+      });
 
       // Validate service
       if (!conversationService) {
