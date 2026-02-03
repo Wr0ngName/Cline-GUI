@@ -347,17 +347,29 @@ export class AuthService {
           // Match format from mautrix-claude: r'(sk-ant-oat01-[A-Za-z0-9_\-]+)'
           const tokenMatch = clean.match(/(sk-ant-oat01-[A-Za-z0-9_-]+)/);
           if (tokenMatch) {
-            const token = tokenMatch[1];
+            let token = tokenMatch[1];
+
+            // OAuth tokens are ~91 chars. If longer and ends with "Store" (from CLI output
+            // "Store your token securely"), the regex over-matched due to missing whitespace
+            const EXPECTED_TOKEN_LENGTH = 91;
+            if (token.length > EXPECTED_TOKEN_LENGTH && token.endsWith('Store')) {
+              logger.warn('Token ends with "Store" - regex over-matched CLI output text', {
+                originalLength: token.length,
+              });
+              token = token.slice(0, -5); // Remove "Store"
+              logger.info('Trimmed "Store" from token end', { newLength: token.length });
+            }
+
             // Validate token length (mautrix-claude requires > 80 chars)
             if (token.length <= 80) {
               logger.warn('OAuth token too short, may be truncated', {
                 length: token.length,
-                token: token, // Log full token for debugging (will be in server logs only)
+                token: token,
               });
             }
+
             resolved = true;
             dataHandler.dispose();
-            // Log full details for debugging
             logger.info('OAuth token extracted from CLI output', {
               length: token.length,
               prefix: token.slice(0, 20) + '...',
