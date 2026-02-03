@@ -107,7 +107,6 @@ export function setupConversationIPC(conversationService: ConversationService): 
 
       logger.debug('IPC: conversation:save completed', { id: conversation.id });
     } catch (error) {
-      // Provide specific error messages for different error types
       const errorMessage = error instanceof ValidationError
         ? `Validation error: ${error.message} (field: ${error.field})`
         : error instanceof Error
@@ -117,7 +116,6 @@ export function setupConversationIPC(conversationService: ConversationService): 
       logger.error('Failed to save conversation', {
         error: errorMessage,
         id: conversation?.id,
-        errorType: error?.constructor?.name,
       });
 
       throw new ConfigurationError(

@@ -3,7 +3,7 @@
  * Uses electron-store with safeStorage for secure API key storage
  */
 
-import { safeStorage } from 'electron';
+import { safeStorage, dialog } from 'electron';
 
 import { AppConfig, AuthMethod, DEFAULT_CONFIG } from '../../shared/types';
 import { ConfigurationError, ERROR_CODES } from '../errors';
@@ -161,7 +161,36 @@ export class ConfigService {
     }
 
     if (!safeStorage.isEncryptionAvailable()) {
-      throw new ConfigurationError('SafeStorage encryption is not available. Cannot store credentials securely.', ERROR_CODES.AUTH_ENCRYPTION_UNAVAILABLE);
+      // Fallback to plain text storage when keyring is unavailable (Linux without gnome-keyring, etc.)
+      // Ask user for confirmation before storing insecurely
+      const keyDescription = key === 'encryptedApiKey' ? 'API Key' : 'OAuth Token';
+
+      const result = dialog.showMessageBoxSync({
+        type: 'warning',
+        title: 'Secure Storage Unavailable',
+        message: `Cannot encrypt your ${keyDescription} securely`,
+        detail: 'Your system does not have a keyring daemon running (e.g., gnome-keyring, kwallet).\n\n' +
+          `If you continue, your ${keyDescription} will be stored in PLAIN TEXT on disk, which is less secure.\n\n` +
+          'To enable secure storage on Linux, install and start gnome-keyring or kwallet.',
+        buttons: ['Store Insecurely', 'Cancel'],
+        defaultId: 1,
+        cancelId: 1,
+      });
+
+      if (result === 1) {
+        // User cancelled
+        logger.info('User declined to store credentials insecurely');
+        throw new ConfigurationError(
+          'Secure storage is not available and user declined insecure storage. Please install a keyring daemon.',
+          ERROR_CODES.AUTH_ENCRYPTION_UNAVAILABLE
+        );
+      }
+
+      // User accepted insecure storage
+      logger.warn(`SafeStorage encryption not available, storing ${key} without encryption (INSECURE) - user approved`);
+      console.warn(`[SECURITY WARNING] Storing ${key} without encryption - user approved`);
+      this.store.set(key, `plain:${value}`);
+      return;
     }
 
     try {
@@ -188,9 +217,15 @@ export class ConfigService {
     await this.ensureInitialized();
     if (!this.store) throw new ConfigurationError('Store not initialized', ERROR_CODES.CONFIG_LOAD_FAILED);
 
-    const encryptedValue = this.store.get(key) as string | undefined;
-    if (!encryptedValue) {
+    const storedValue = this.store.get(key) as string | undefined;
+    if (!storedValue) {
       return '';
+    }
+
+    // Check if this is a plain text fallback value (from when encryption wasn't available)
+    if (storedValue.startsWith('plain:')) {
+      logger.warn(`Retrieving ${key} from plain text storage (INSECURE)`);
+      return storedValue.slice(6); // Remove 'plain:' prefix
     }
 
     if (!safeStorage.isEncryptionAvailable()) {
@@ -199,7 +234,7 @@ export class ConfigService {
     }
 
     try {
-      const decrypted = safeStorage.decryptString(Buffer.from(encryptedValue, 'base64'));
+      const decrypted = safeStorage.decryptString(Buffer.from(storedValue, 'base64'));
       // Log token details for debugging (prefix + suffix + length)
       logger.info(`${key} retrieved from secure storage`, {
         prefix: decrypted.slice(0, 20) + '...',

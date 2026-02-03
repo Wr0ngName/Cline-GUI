@@ -181,7 +181,7 @@ export const useConversationsStore = defineStore('conversations', () => {
       return false;
     }
 
-    // Prevent concurrent saves - wait if already saving
+    // Prevent concurrent saves
     if (isSaving.value) {
       logger.debug('Save already in progress, skipping duplicate save');
       return false;
@@ -191,11 +191,15 @@ export const useConversationsStore = defineStore('conversations', () => {
     error.value = null;
 
     try {
+      // Deep clone messages to strip ALL Vue reactivity (including nested objects)
+      // Vue proxies can't be cloned across IPC - use JSON round-trip for complete deproxification
+      const rawMessages: ChatMessage[] = JSON.parse(JSON.stringify(chatStore.messages));
+
       const conversation: Conversation = {
         id: currentConversationId.value,
         title: generateTitle(chatStore.messages),
         workingDirectory: settingsStore.workingDirectory,
-        messages: [...chatStore.messages],
+        messages: rawMessages,
         createdAt: currentConversation.value?.createdAt || Date.now(),
         updatedAt: Date.now(),
       };
@@ -230,8 +234,6 @@ export const useConversationsStore = defineStore('conversations', () => {
       logger.error('Failed to save conversation', {
         error: errorMessage,
         conversationId: currentConversationId.value,
-        workingDirectory: settingsStore.workingDirectory,
-        messageCount: chatStore.messages.length,
       });
       error.value = `Failed to save conversation: ${errorMessage}`;
       return false;

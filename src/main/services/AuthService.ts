@@ -298,8 +298,8 @@ export class AuthService {
       return false;
     }
     const trimmed = code.trim();
-    // Allow alphanumeric, hyphens, and underscores (common in OAuth codes)
-    const isValidFormat = /^[a-zA-Z0-9_-]+$/.test(trimmed);
+    // Allow alphanumeric, hyphens, underscores, and hash (# appears in some OAuth codes)
+    const isValidFormat = /^[a-zA-Z0-9_#-]+$/.test(trimmed);
     const isValidLength = trimmed.length >= 10 && trimmed.length <= 200;
     return isValidFormat && isValidLength;
   }
