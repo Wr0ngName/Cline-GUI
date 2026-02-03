@@ -21,9 +21,6 @@ export const useConversationsStore = defineStore('conversations', () => {
   const isSaving = ref(false);
   const error = ref<string | null>(null);
 
-  // Auto-save debounce timer
-  let autoSaveTimer: ReturnType<typeof setTimeout> | null = null;
-
   // Watch stop function for cleanup
   let stopMessagesWatcher: (() => void) | null = null;
 
@@ -122,12 +119,6 @@ export const useConversationsStore = defineStore('conversations', () => {
       return;
     }
 
-    // Don't save while still streaming (content is incomplete)
-    if (chatStore.isLoading) {
-      logger.debug('Still loading, deferring save');
-      return;
-    }
-
     isSaving.value = true;
     error.value = null;
 
@@ -159,7 +150,7 @@ export const useConversationsStore = defineStore('conversations', () => {
 
       logger.info('Conversation saved successfully', { id: conversation.id });
     } catch (err) {
-      logger.error('Failed to save conversation', err);
+      logger.error('Failed to save conversation', { error: err instanceof Error ? err.message : String(err) });
       error.value = 'Failed to save conversation';
     } finally {
       isSaving.value = false;
@@ -210,30 +201,19 @@ export const useConversationsStore = defineStore('conversations', () => {
   }
 
   /**
-   * Schedule auto-save with debounce
+   * Schedule auto-save - now just saves immediately
+   * @deprecated Use saveCurrentConversation directly
    */
   function scheduleAutoSave(): void {
-    logger.info('Scheduling auto-save', { delay: CONSTANTS.AUTO_SAVE.DELAY_MS, conversationId: currentConversationId.value });
-
-    if (autoSaveTimer) {
-      clearTimeout(autoSaveTimer);
-    }
-
-    autoSaveTimer = setTimeout(() => {
-      logger.info('Auto-save timer fired, calling saveCurrentConversation');
-      saveCurrentConversation();
-      autoSaveTimer = null;
-    }, CONSTANTS.AUTO_SAVE.DELAY_MS);
+    saveCurrentConversation();
   }
 
   /**
-   * Cancel pending auto-save
+   * Cancel pending auto-save - no longer needed but kept for API compatibility
+   * @deprecated No longer uses timers
    */
   function cancelAutoSave(): void {
-    if (autoSaveTimer) {
-      clearTimeout(autoSaveTimer);
-      autoSaveTimer = null;
-    }
+    // No-op - we no longer use timers
   }
 
   /**
@@ -280,26 +260,28 @@ export const useConversationsStore = defineStore('conversations', () => {
       initialMessageCount: messages.value.length,
     });
 
-    // Watch for new messages being added
-    const stopLengthWatcher = watch(
-      () => messages.value.length,
-      (newLength, oldLength) => {
-        logger.info('Messages length changed', { newLength, oldLength, conversationId: currentConversationId.value });
-        if (currentConversationId.value && newLength > 0) {
-          scheduleAutoSave();
-        }
-      }
-    );
-
-    // Watch for streaming to finish (saves the complete message content)
+    // Watch for streaming to finish - save IMMEDIATELY when done
     const stopLoadingWatcher = watch(
       chatIsLoading,
       (loading, wasLoading) => {
         logger.info('Chat loading state changed', { loading, wasLoading, conversationId: currentConversationId.value });
-        // When loading transitions from true to false, the message is complete
+        // When loading transitions from true to false, the message is complete - save immediately
         if (!loading && wasLoading && currentConversationId.value && messages.value.length > 0) {
-          logger.info('Streaming finished, triggering save');
-          scheduleAutoSave();
+          logger.info('Streaming finished, saving conversation immediately');
+          saveCurrentConversation();
+        }
+      }
+    );
+
+    // Also watch for user messages being added (they don't go through streaming)
+    const stopLengthWatcher = watch(
+      () => messages.value.length,
+      (newLength, oldLength) => {
+        logger.info('Messages length changed', { newLength, oldLength, conversationId: currentConversationId.value });
+        // Save when a new message is added and we're not currently streaming
+        if (currentConversationId.value && newLength > oldLength && !chatIsLoading.value) {
+          logger.info('New message added while not streaming, saving immediately');
+          saveCurrentConversation();
         }
       }
     );
@@ -323,12 +305,8 @@ export const useConversationsStore = defineStore('conversations', () => {
       stopMessagesWatcher = null;
     }
 
-    // Save any pending changes before cleanup
-    if (autoSaveTimer) {
-      cancelAutoSave();
-      // Synchronously mark as saving but don't await
-      saveCurrentConversation();
-    }
+    // Save current conversation before cleanup
+    saveCurrentConversation();
   }
 
   return {
