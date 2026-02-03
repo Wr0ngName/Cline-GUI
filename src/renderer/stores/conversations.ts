@@ -3,7 +3,7 @@
  */
 
 import type { ChatMessage, Conversation } from '@shared/types';
-import { defineStore } from 'pinia';
+import { defineStore, storeToRefs } from 'pinia';
 import { ref, computed, watch } from 'vue';
 
 import { CONSTANTS } from '../constants/app';
@@ -213,11 +213,14 @@ export const useConversationsStore = defineStore('conversations', () => {
    * Schedule auto-save with debounce
    */
   function scheduleAutoSave(): void {
+    logger.info('Scheduling auto-save', { delay: CONSTANTS.AUTO_SAVE.DELAY_MS, conversationId: currentConversationId.value });
+
     if (autoSaveTimer) {
       clearTimeout(autoSaveTimer);
     }
 
     autoSaveTimer = setTimeout(() => {
+      logger.info('Auto-save timer fired, calling saveCurrentConversation');
       saveCurrentConversation();
       autoSaveTimer = null;
     }, CONSTANTS.AUTO_SAVE.DELAY_MS);
@@ -259,6 +262,7 @@ export const useConversationsStore = defineStore('conversations', () => {
    * Initialize the store - load conversations and set up auto-save
    */
   function initialize(): void {
+    logger.info('Initializing conversations store');
     loadConversationList();
 
     // Create initial conversation if none exists
@@ -267,13 +271,20 @@ export const useConversationsStore = defineStore('conversations', () => {
     }
 
     // Watch chat messages for auto-save
+    // Use storeToRefs to get proper reactive refs that Vue can track
     const chatStore = useChatStore();
+    const { messages, isLoading: chatIsLoading } = storeToRefs(chatStore);
+
+    logger.info('Setting up conversation auto-save watchers', {
+      currentConversationId: currentConversationId.value,
+      initialMessageCount: messages.value.length,
+    });
 
     // Watch for new messages being added
     const stopLengthWatcher = watch(
-      () => chatStore.messages.length,
+      () => messages.value.length,
       (newLength, oldLength) => {
-        logger.debug('Messages length changed', { newLength, oldLength, conversationId: currentConversationId.value });
+        logger.info('Messages length changed', { newLength, oldLength, conversationId: currentConversationId.value });
         if (currentConversationId.value && newLength > 0) {
           scheduleAutoSave();
         }
@@ -282,12 +293,12 @@ export const useConversationsStore = defineStore('conversations', () => {
 
     // Watch for streaming to finish (saves the complete message content)
     const stopLoadingWatcher = watch(
-      () => chatStore.isLoading,
+      chatIsLoading,
       (loading, wasLoading) => {
-        logger.debug('Loading state changed', { loading, wasLoading, conversationId: currentConversationId.value });
+        logger.info('Chat loading state changed', { loading, wasLoading, conversationId: currentConversationId.value });
         // When loading transitions from true to false, the message is complete
-        if (!loading && wasLoading && currentConversationId.value && chatStore.messages.length > 0) {
-          logger.debug('Streaming finished, triggering save');
+        if (!loading && wasLoading && currentConversationId.value && messages.value.length > 0) {
+          logger.info('Streaming finished, triggering save');
           scheduleAutoSave();
         }
       }
@@ -298,6 +309,8 @@ export const useConversationsStore = defineStore('conversations', () => {
       stopLengthWatcher();
       stopLoadingWatcher();
     };
+
+    logger.info('Conversation auto-save watchers set up');
   }
 
   /**
