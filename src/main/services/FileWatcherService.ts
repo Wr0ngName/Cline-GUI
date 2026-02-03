@@ -57,16 +57,21 @@ export class FileWatcherService {
 
     try {
       this.watcher = fs.watch(normalizedDir, { recursive: true }, (eventType, filename) => {
+        logger.debug('Raw fs.watch event', { eventType, filename, hasFilename: !!filename });
         if (filename) {
           this.handleChange(eventType, filename, normalizedDir);
         }
       });
 
       this.watchedDirectory = normalizedDir;
-      logger.info('Started watching directory', { directory: normalizedDir });
+      logger.info('Started watching directory', { directory: normalizedDir, recursive: true });
 
       this.watcher.on('error', (error) => {
         logger.error('File watcher error', error);
+      });
+
+      this.watcher.on('close', () => {
+        logger.info('File watcher closed');
       });
     } catch (error) {
       logger.error('Failed to start file watcher', error);
@@ -96,10 +101,15 @@ export class FileWatcherService {
    * Handle file system change event
    */
   private handleChange(eventType: string, filename: string, baseDir: string): void {
-    const fullPath = path.join(baseDir, filename);
+    // Normalize path separators (Windows fs.watch can return mixed separators)
+    const normalizedFilename = filename.replace(/\\/g, '/').replace(/\//g, path.sep);
+    const fullPath = path.join(baseDir, normalizedFilename);
+
+    logger.debug('File watcher event', { eventType, filename, normalizedFilename, fullPath });
 
     // Check if we should ignore this path
-    if (this.shouldIgnore(filename)) {
+    if (this.shouldIgnore(normalizedFilename)) {
+      logger.debug('Ignoring file change', { filename: normalizedFilename });
       return;
     }
 
@@ -111,6 +121,8 @@ export class FileWatcherService {
     } catch {
       changeType = 'unlink';
     }
+
+    logger.debug('File change detected', { changeType, fullPath });
 
     // Add to pending changes (debounce)
     this.pendingChanges.set(fullPath, { type: changeType, path: fullPath });
@@ -151,7 +163,9 @@ export class FileWatcherService {
    * Check if a path should be ignored
    */
   private shouldIgnore(relativePath: string): boolean {
-    const parts = relativePath.split(path.sep);
+    // Normalize separators and split - handle both Windows and Unix paths
+    const normalizedPath = relativePath.replace(/\\/g, '/');
+    const parts = normalizedPath.split('/');
 
     for (const part of parts) {
       if (IGNORED_DIRS.has(part) || IGNORED_FILES.has(part)) {

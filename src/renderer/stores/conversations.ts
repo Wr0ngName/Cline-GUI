@@ -254,7 +254,9 @@ export const useConversationsStore = defineStore('conversations', () => {
 
     // Watch chat messages for auto-save
     const chatStore = useChatStore();
-    stopMessagesWatcher = watch(
+
+    // Watch for new messages being added
+    const stopLengthWatcher = watch(
       () => chatStore.messages.length,
       () => {
         if (currentConversationId.value && chatStore.messages.length > 0) {
@@ -262,6 +264,23 @@ export const useConversationsStore = defineStore('conversations', () => {
         }
       }
     );
+
+    // Watch for streaming to finish (saves the complete message content)
+    const stopLoadingWatcher = watch(
+      () => chatStore.isLoading,
+      (loading, wasLoading) => {
+        // When loading transitions from true to false, the message is complete
+        if (!loading && wasLoading && currentConversationId.value && chatStore.messages.length > 0) {
+          scheduleAutoSave();
+        }
+      }
+    );
+
+    // Combine cleanup functions
+    stopMessagesWatcher = () => {
+      stopLengthWatcher();
+      stopLoadingWatcher();
+    };
   }
 
   /**
