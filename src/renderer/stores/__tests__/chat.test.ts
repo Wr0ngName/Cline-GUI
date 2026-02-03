@@ -11,11 +11,39 @@
  * - Integration scenarios (full conversation flow, tool approval flow)
  */
 
-import type { ChatMessage, PendingAction } from '@shared/types';
+import type { ChatMessage, PendingAction, BashCommandAction, FileEditAction } from '@shared/types';
 import { setActivePinia, createPinia } from 'pinia';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 
 import { useChatStore } from '../chat';
+
+// Helper to create valid BashCommandAction
+function createBashAction(overrides: Partial<BashCommandAction> & { id: string }): BashCommandAction {
+  return {
+    type: 'bash-command',
+    toolName: 'Bash',
+    description: 'Run command',
+    input: {},
+    status: 'pending',
+    timestamp: Date.now(),
+    details: { command: 'ls', workingDirectory: '/tmp' },
+    ...overrides,
+  };
+}
+
+// Helper to create valid FileEditAction
+function createFileEditAction(overrides: Partial<FileEditAction> & { id: string }): FileEditAction {
+  return {
+    type: 'file-edit',
+    toolName: 'Edit',
+    description: 'Edit file',
+    input: {},
+    status: 'pending',
+    timestamp: Date.now(),
+    details: { filePath: '/tmp/test.txt', newContent: 'content' },
+    ...overrides,
+  };
+}
 
 // Mock CONSTANTS with testable values
 vi.mock('../../constants/app', () => ({
@@ -93,26 +121,12 @@ describe('useChatStore', () => {
       });
 
       it('should be true when actions exist', () => {
-        store.addPendingAction({
-          id: 'action-1',
-          type: 'bash-command',
-          toolName: 'Bash',
-          description: 'Run command',
-          input: { command: 'ls' },
-          status: 'pending',
-        });
+        store.addPendingAction(createBashAction({ id: 'action-1' }));
         expect(store.hasPendingActions).toBe(true);
       });
 
       it('should become false after removing all actions', () => {
-        store.addPendingAction({
-          id: 'action-1',
-          type: 'bash-command',
-          toolName: 'Bash',
-          description: 'Run',
-          input: {},
-          status: 'pending',
-        });
+        store.addPendingAction(createBashAction({ id: 'action-1' }));
         expect(store.hasPendingActions).toBe(true);
         store.removePendingAction('action-1');
         expect(store.hasPendingActions).toBe(false);
@@ -384,14 +398,7 @@ describe('useChatStore', () => {
   // ===========================================================================
   describe('addPendingAction', () => {
     it('should add action to pending actions', () => {
-      const action: PendingAction = {
-        id: 'action-1',
-        type: 'bash-command',
-        toolName: 'Bash',
-        description: 'Run command',
-        input: { command: 'ls' },
-        status: 'pending',
-      };
+      const action = createBashAction({ id: 'action-1' });
       store.addPendingAction(action);
       expect(store.pendingActions).toHaveLength(1);
       expect(store.pendingActions[0]).toEqual(action);
@@ -400,17 +407,17 @@ describe('useChatStore', () => {
 
     it('should allow multiple actions', () => {
       const actions: PendingAction[] = [
-        { id: 'a1', type: 'file-edit', toolName: 'Edit', description: 'Edit 1', input: {}, status: 'pending' },
-        { id: 'a2', type: 'file-edit', toolName: 'Edit', description: 'Edit 2', input: {}, status: 'pending' },
-        { id: 'a3', type: 'bash-command', toolName: 'Bash', description: 'Run', input: {}, status: 'pending' },
+        createFileEditAction({ id: 'a1', description: 'Edit 1' }),
+        createFileEditAction({ id: 'a2', description: 'Edit 2' }),
+        createBashAction({ id: 'a3', description: 'Run' }),
       ];
       actions.forEach((a) => store.addPendingAction(a));
       expect(store.pendingActions).toHaveLength(3);
     });
 
     it('should preserve action order', () => {
-      store.addPendingAction({ id: 'first', type: 'bash-command', toolName: 'Bash', description: 'First', input: {}, status: 'pending' });
-      store.addPendingAction({ id: 'second', type: 'bash-command', toolName: 'Bash', description: 'Second', input: {}, status: 'pending' });
+      store.addPendingAction(createBashAction({ id: 'first', description: 'First' }));
+      store.addPendingAction(createBashAction({ id: 'second', description: 'Second' }));
       expect(store.pendingActions[0].id).toBe('first');
       expect(store.pendingActions[1].id).toBe('second');
     });
@@ -418,23 +425,23 @@ describe('useChatStore', () => {
 
   describe('removePendingAction', () => {
     it('should remove action by id', () => {
-      store.addPendingAction({ id: 'action-1', type: 'file-edit', toolName: 'Edit', description: 'Edit', input: {}, status: 'pending' });
-      store.addPendingAction({ id: 'action-2', type: 'bash-command', toolName: 'Bash', description: 'Run', input: {}, status: 'pending' });
+      store.addPendingAction(createFileEditAction({ id: 'action-1' }));
+      store.addPendingAction(createBashAction({ id: 'action-2' }));
       store.removePendingAction('action-1');
       expect(store.pendingActions).toHaveLength(1);
       expect(store.pendingActions[0].id).toBe('action-2');
     });
 
     it('should handle non-existent action id gracefully', () => {
-      store.addPendingAction({ id: 'action-1', type: 'file-edit', toolName: 'Edit', description: 'Edit', input: {}, status: 'pending' });
+      store.addPendingAction(createFileEditAction({ id: 'action-1' }));
       store.removePendingAction('non-existent');
       expect(store.pendingActions).toHaveLength(1);
     });
 
     it('should remove from middle of array', () => {
-      store.addPendingAction({ id: 'a1', type: 'bash-command', toolName: 'Bash', description: '1', input: {}, status: 'pending' });
-      store.addPendingAction({ id: 'a2', type: 'bash-command', toolName: 'Bash', description: '2', input: {}, status: 'pending' });
-      store.addPendingAction({ id: 'a3', type: 'bash-command', toolName: 'Bash', description: '3', input: {}, status: 'pending' });
+      store.addPendingAction(createBashAction({ id: 'a1', description: '1' }));
+      store.addPendingAction(createBashAction({ id: 'a2', description: '2' }));
+      store.addPendingAction(createBashAction({ id: 'a3', description: '3' }));
       store.removePendingAction('a2');
       expect(store.pendingActions).toHaveLength(2);
       expect(store.pendingActions[0].id).toBe('a1');
@@ -444,13 +451,13 @@ describe('useChatStore', () => {
 
   describe('updateActionStatus', () => {
     it('should update action status to approved', () => {
-      store.addPendingAction({ id: 'action-1', type: 'file-edit', toolName: 'Edit', description: 'Edit', input: {}, status: 'pending' });
+      store.addPendingAction(createFileEditAction({ id: 'action-1' }));
       store.updateActionStatus('action-1', 'approved');
       expect(store.pendingActions[0].status).toBe('approved');
     });
 
     it('should update action status to rejected', () => {
-      store.addPendingAction({ id: 'action-1', type: 'file-edit', toolName: 'Edit', description: 'Edit', input: {}, status: 'pending' });
+      store.addPendingAction(createFileEditAction({ id: 'action-1' }));
       store.updateActionStatus('action-1', 'rejected');
       expect(store.pendingActions[0].status).toBe('rejected');
     });
@@ -462,8 +469,8 @@ describe('useChatStore', () => {
     });
 
     it('should update correct action when multiple exist', () => {
-      store.addPendingAction({ id: 'a1', type: 'bash-command', toolName: 'Bash', description: '1', input: {}, status: 'pending' });
-      store.addPendingAction({ id: 'a2', type: 'bash-command', toolName: 'Bash', description: '2', input: {}, status: 'pending' });
+      store.addPendingAction(createBashAction({ id: 'a1', description: '1' }));
+      store.addPendingAction(createBashAction({ id: 'a2', description: '2' }));
       store.updateActionStatus('a2', 'approved');
       expect(store.pendingActions[0].status).toBe('pending');
       expect(store.pendingActions[1].status).toBe('approved');
@@ -528,7 +535,7 @@ describe('useChatStore', () => {
     });
 
     it('should clear pending actions', () => {
-      store.addPendingAction({ id: 'a1', type: 'bash-command', toolName: 'Bash', description: 'Run', input: {}, status: 'pending' });
+      store.addPendingAction(createBashAction({ id: 'a1' }));
       store.clearMessages();
       expect(store.pendingActions).toEqual([]);
     });
@@ -551,7 +558,7 @@ describe('useChatStore', () => {
       store.startAssistantMessage();
       store.appendToLastMessage('Response');
       store.setError('Error');
-      store.addPendingAction({ id: 'a1', type: 'bash-command', toolName: 'Bash', description: 'Run', input: {}, status: 'pending' });
+      store.addPendingAction(createBashAction({ id: 'a1' }));
 
       store.clearMessages();
 
@@ -643,14 +650,11 @@ describe('useChatStore', () => {
       store.finishStreaming();
 
       // Tool use requested
-      const action: PendingAction = {
+      const action = createBashAction({
         id: 'tool-1',
-        type: 'bash-command',
-        toolName: 'Bash',
         description: 'npm test',
-        input: { command: 'npm test' },
-        status: 'pending',
-      };
+        details: { command: 'npm test', workingDirectory: '/project' },
+      });
       store.addPendingAction(action);
       expect(store.hasPendingActions).toBe(true);
 
@@ -703,14 +707,10 @@ describe('useChatStore', () => {
     it('should handle concurrent action updates', () => {
       // Add multiple actions
       for (let i = 0; i < 5; i++) {
-        store.addPendingAction({
+        store.addPendingAction(createFileEditAction({
           id: `action-${i}`,
-          type: 'file-edit',
-          toolName: 'Edit',
           description: `Edit ${i}`,
-          input: {},
-          status: 'pending',
-        });
+        }));
       }
 
       // Update all to approved

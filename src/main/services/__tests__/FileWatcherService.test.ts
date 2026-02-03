@@ -37,11 +37,6 @@ const { mockFSWatcher, mockFs } = vi.hoisted(() => {
 
 // Store event handlers for triggering
 let watchCallback: ((eventType: string, filename: string) => void) | null = null;
-// Handlers captured for potential future use (error/close event simulation)
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-let _errorCallback: ((error: Error) => void) | null = null;
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-let _closeCallback: (() => void) | null = null;
 
 vi.mock('node:fs', () => ({
   default: mockFs,
@@ -86,15 +81,11 @@ describe('FileWatcherService', () => {
     vi.clearAllMocks();
     vi.useFakeTimers();
     watchCallback = null;
-    _errorCallback = null;
-    _closeCallback = null;
 
     // Set up watch mock to capture callbacks
-    mockFs.watch.mockImplementation((dir: string, options: any, callback: any) => {
+    mockFs.watch.mockImplementation((_dir: string, _options: any, callback: any) => {
       watchCallback = callback;
-      mockFSWatcher.on.mockImplementation((event: string, handler: any) => {
-        if (event === 'error') _errorCallback = handler;
-        if (event === 'close') _closeCallback = handler;
+      mockFSWatcher.on.mockImplementation((_event: string, _handler: any) => {
         return mockFSWatcher;
       });
       return mockFSWatcher;
@@ -219,7 +210,7 @@ describe('FileWatcherService', () => {
 
     beforeEach(() => {
       changeHandler = vi.fn();
-      service.onChange(changeHandler);
+      service.onChange(changeHandler as any);
       service.watch('/home/user/project');
     });
 
@@ -305,7 +296,7 @@ describe('FileWatcherService', () => {
 
     beforeEach(() => {
       changeHandler = vi.fn();
-      service.onChange(changeHandler);
+      service.onChange(changeHandler as any);
       service.watch('/home/user/project');
       mockFs.accessSync.mockReturnValue(undefined);
     });
@@ -510,7 +501,7 @@ describe('FileWatcherService', () => {
         { name: 'level', isDirectory: () => true, isFile: () => false },
       ]);
 
-      await service.getFileTree('/home/user/project', 1);
+      await service.getFileTree('/home/user/project', 1 as any);
 
       // At max depth, should not recurse
       expect(mockFs.promises.readdir).toHaveBeenCalledTimes(1);

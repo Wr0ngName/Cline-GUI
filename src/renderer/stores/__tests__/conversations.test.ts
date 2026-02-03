@@ -12,12 +12,26 @@
  * - Edge cases (concurrent operations, large conversations)
  */
 
-import type { Conversation, ChatMessage } from '@shared/types';
+import type { Conversation, ChatMessage, BashCommandAction } from '@shared/types';
 import { setActivePinia, createPinia } from 'pinia';
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 
 import { useChatStore } from '../chat';
 import { useConversationsStore } from '../conversations';
+
+// Helper to create valid BashCommandAction
+function createBashAction(overrides: Partial<BashCommandAction> & { id: string }): BashCommandAction {
+  return {
+    type: 'bash-command',
+    toolName: 'Bash',
+    description: 'Run command',
+    input: {},
+    status: 'pending',
+    timestamp: Date.now(),
+    details: { command: 'ls', workingDirectory: '/tmp' },
+    ...overrides,
+  };
+}
 
 // Mock logger
 vi.mock('../../utils/logger', () => ({
@@ -429,14 +443,7 @@ describe('useConversationsStore', () => {
     });
 
     it('should clear pending actions in chat store', () => {
-      chatStore.addPendingAction({
-        id: 'action-1',
-        type: 'bash-command',
-        toolName: 'Bash',
-        description: 'Run',
-        input: {},
-        status: 'pending',
-      });
+      chatStore.addPendingAction(createBashAction({ id: 'action-1' }));
 
       store.createNewConversation();
 

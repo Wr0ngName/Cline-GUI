@@ -202,7 +202,7 @@ describe('Files IPC handlers', () => {
     });
 
     it('should return null when main window is not available', async () => {
-      mockGetMainWindow.mockReturnValue(null);
+      mockGetMainWindow.mockReturnValue(null as any);
 
       const result = await handler({});
 
@@ -258,7 +258,7 @@ describe('Files IPC handlers', () => {
     });
 
     it('should return file tree for valid directory', async () => {
-      const result = await handler({}, '/home/user/project');
+      const result = await handler({}, '/home/user/project') as any;
 
       expect(mockFileWatcher.getFileTree).toHaveBeenCalledWith('/home/user/project');
       expect(result).toHaveProperty('name', 'project');
@@ -337,7 +337,7 @@ describe('Files IPC handlers', () => {
       };
       mockFileWatcher.getFileTree.mockResolvedValue(deepTree);
 
-      const result = await handler({}, '/root');
+      const result = await handler({}, '/root') as any;
 
       expect(result.children[0].children[0].name).toBe('level2');
     });
@@ -516,7 +516,7 @@ describe('Files IPC handlers', () => {
 
     it('should handle window being null during notification', () => {
       expect(mockFileWatcher._changeCallback).toBeDefined();
-      mockGetMainWindow.mockReturnValue(null);
+      mockGetMainWindow.mockReturnValue(null as any);
 
       // Should not throw
       expect(() => {

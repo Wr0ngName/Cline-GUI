@@ -375,7 +375,7 @@ describe('ClaudeCodeService', () => {
         'Read',
         { file_path: '/home/user/test.txt' },
         { signal: mockAbortController.signal, suggestions: [] }
-      );
+      ) as { behavior: string };
 
       expect(result.behavior).toBe('allow');
       // Should NOT emit tool use event for auto-approved
@@ -394,7 +394,7 @@ describe('ClaudeCodeService', () => {
         'Bash',
         { command: 'ls' },
         { signal: mockAbortController.signal, suggestions: [] }
-      );
+      ) as { behavior: string; interrupt: boolean };
 
       expect(result.behavior).toBe('deny');
       expect(result.interrupt).toBe(true);
@@ -491,7 +491,7 @@ describe('ClaudeCodeService', () => {
   // ===========================================================================
   describe('handleActionResponse', () => {
     let capturedCanUseTool: (...args: unknown[]) => unknown;
-    let permissionPromise: Promise<unknown>;
+    let permissionPromise: ReturnType<typeof capturedCanUseTool>;
 
     beforeEach(async () => {
       mockConfigService.getOAuthToken.mockResolvedValue(
@@ -524,7 +524,7 @@ describe('ClaudeCodeService', () => {
         approved: true,
       });
 
-      const result = await permissionPromise;
+      const result = await permissionPromise as { behavior: string };
       expect(result.behavior).toBe('allow');
     });
 
@@ -539,7 +539,7 @@ describe('ClaudeCodeService', () => {
         denyMessage: 'Too dangerous',
       });
 
-      const result = await permissionPromise;
+      const result = await permissionPromise as { behavior: string; message: string };
       expect(result.behavior).toBe('deny');
       expect(result.message).toBe('Too dangerous');
     });
@@ -555,7 +555,7 @@ describe('ClaudeCodeService', () => {
         updatedInput: { command: 'ls -la' }, // Modified command
       });
 
-      const result = await permissionPromise;
+      const result = await permissionPromise as { updatedInput: Record<string, unknown> };
       expect(result.updatedInput).toEqual({ command: 'ls -la' });
     });
 
@@ -665,7 +665,7 @@ describe('ClaudeCodeService', () => {
       // Abort should clear pending permissions and release the iterator
       await service.abort();
 
-      const result = await permissionPromise;
+      const result = await permissionPromise as { behavior: string; interrupt: boolean };
       expect(result.behavior).toBe('deny');
       expect(result.interrupt).toBe(true);
 

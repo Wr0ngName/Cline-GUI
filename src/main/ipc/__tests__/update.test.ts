@@ -135,7 +135,7 @@ describe('Update IPC handlers', () => {
         releaseNotes: 'Major update with many improvements',
       });
 
-      const result = await handler({});
+      const result = (await handler({})) as UpdateInfo;
 
       expect(result.releaseNotes).toBe('Major update with many improvements');
     });

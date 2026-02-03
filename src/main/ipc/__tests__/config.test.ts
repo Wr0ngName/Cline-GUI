@@ -54,7 +54,7 @@ const mockMainWindow = {
 const mockGetMainWindow = vi.fn(() => mockMainWindow);
 
 // Import after mocks
-import { IPC_CHANNELS } from '../../../shared/types';
+import { IPC_CHANNELS, AppConfig } from '../../../shared/types';
 import { ConfigurationError } from '../../errors';
 import { setupConfigIPC } from '../config';
 
@@ -127,7 +127,7 @@ describe('Config IPC handlers', () => {
         authMethod: 'oauth',
       });
 
-      const result = await handler({});
+      const result = await handler({}) as AppConfig;
 
       expect(result.oauthToken).toBe('oauth_token_123');
       expect(result.authMethod).toBe('oauth');
@@ -140,7 +140,7 @@ describe('Config IPC handlers', () => {
         authMethod: 'api-key',
       });
 
-      const result = await handler({});
+      const result = await handler({}) as AppConfig;
 
       expect(result.apiKey).toBe('sk-ant-api-key');
       expect(result.authMethod).toBe('api-key');
@@ -173,7 +173,7 @@ describe('Config IPC handlers', () => {
           theme,
         });
 
-        const result = await handler({});
+        const result = await handler({}) as AppConfig;
         expect(result.theme).toBe(theme);
       }
     });
@@ -184,7 +184,7 @@ describe('Config IPC handlers', () => {
         fontSize: 18,
       });
 
-      const result = await handler({});
+      const result = await handler({}) as AppConfig;
       expect(result.fontSize).toBe(18);
     });
 
@@ -194,7 +194,7 @@ describe('Config IPC handlers', () => {
         recentProjects: [],
       });
 
-      const result = await handler({});
+      const result = await handler({}) as AppConfig;
       expect(result.recentProjects).toEqual([]);
     });
   });
@@ -299,7 +299,7 @@ describe('Config IPC handlers', () => {
     });
 
     it('should handle window being null during notification', async () => {
-      mockGetMainWindow.mockReturnValue(null);
+      mockGetMainWindow.mockReturnValue(null as any);
       const update = { theme: 'dark' as const };
 
       // Should not throw

@@ -62,7 +62,7 @@ const mockMainWindow = {
 const mockGetMainWindow = vi.fn(() => mockMainWindow);
 
 // Import after mocks
-import { IPC_CHANNELS } from '../../../shared/types';
+import { IPC_CHANNELS, AuthStatus } from '../../../shared/types';
 import { AuthenticationError } from '../../errors';
 import { setupAuthHandlers } from '../auth';
 
@@ -164,7 +164,7 @@ describe('Auth IPC handlers', () => {
         authMethod: 'oauth',
       });
 
-      const result = await handler({});
+      const result = await handler({}) as AuthStatus;
 
       expect(result.method).toBe('oauth');
       expect(result.isAuthenticated).toBe(true);
@@ -476,11 +476,11 @@ describe('Auth IPC handlers', () => {
   // ===========================================================================
   describe('window notification edge cases', () => {
     it('should handle null main window gracefully', async () => {
-      mockGetMainWindow.mockReturnValue(null);
+      mockGetMainWindow.mockReturnValue(null as any);
       const handler = handlers.get(IPC_CHANNELS.AUTH_COMPLETE_OAUTH)!;
 
       // Should not throw even if window is null
-      const result = await handler({}, 'valid_code_12345');
+      const result = await handler({}, 'valid_code_12345') as { success: boolean; error?: string };
 
       expect(result.success).toBe(true);
     });

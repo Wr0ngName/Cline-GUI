@@ -1,0 +1,12 @@
+# Get list of staged .ts, .vue, .js files
+STAGED_FILES=$(git diff --cached --name-only --diff-filter=ACM | grep -E '\.(ts|vue|js)$')
+
+if [ -z "$STAGED_FILES" ]; then
+  exit 0
+fi
+
+echo "Running eslint on staged files..."
+npx eslint $STAGED_FILES
+
+echo "Running typecheck..."
+npm run typecheck
