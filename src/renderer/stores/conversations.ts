@@ -271,9 +271,11 @@ export const useConversationsStore = defineStore('conversations', () => {
   /**
    * Initialize the store - load conversations and enable auto-save
    */
-  function initialize(): void {
+  async function initialize(): Promise<void> {
     logger.info('Initializing conversations store');
-    loadConversationList();
+
+    // Wait for conversation list to load before proceeding
+    await loadConversationList();
 
     // Create initial conversation if none exists
     if (!currentConversationId.value) {

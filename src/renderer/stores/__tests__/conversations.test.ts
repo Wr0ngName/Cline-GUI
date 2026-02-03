@@ -646,24 +646,21 @@ describe('useConversationsStore', () => {
         { id: 'conv_1', title: 'Test', workingDirectory: '', messages: [], createdAt: 1000, updatedAt: 2000 },
       ]);
 
-      store.initialize();
+      await store.initialize();
 
-      // Wait for async operation
-      await vi.waitFor(() => {
-        expect(mockElectron.conversation.list).toHaveBeenCalled();
-      });
+      expect(mockElectron.conversation.list).toHaveBeenCalled();
     });
 
-    it('should create initial conversation if none exists', () => {
-      store.initialize();
+    it('should create initial conversation if none exists', async () => {
+      await store.initialize();
 
       expect(store.currentConversationId).toMatch(/^conv_/);
     });
 
-    it('should not create new conversation if one already exists', () => {
+    it('should not create new conversation if one already exists', async () => {
       store.currentConversationId = 'existing_conv';
 
-      store.initialize();
+      await store.initialize();
 
       expect(store.currentConversationId).toBe('existing_conv');
     });
@@ -676,7 +673,7 @@ describe('useConversationsStore', () => {
     it('should save current conversation on cleanup', async () => {
       store.currentConversationId = 'conv_1';
       chatStore.addUserMessage('Test message');
-      store.initialize(); // Enable auto-save
+      await store.initialize(); // Enable auto-save
 
       store.cleanup();
 
@@ -708,7 +705,7 @@ describe('useConversationsStore', () => {
     it('should handle complete conversation workflow', async () => {
       // 1. Initialize store
       mockElectron.conversation.list.mockResolvedValue([]);
-      store.initialize();
+      await store.initialize();
 
       expect(store.currentConversationId).not.toBeNull();
       const convId = store.currentConversationId!;
