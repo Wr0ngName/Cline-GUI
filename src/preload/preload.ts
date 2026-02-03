@@ -28,6 +28,8 @@ const electronAPI: ElectronAPI = {
 
     abort: () => ipcRenderer.invoke(IPC_CHANNELS.CLAUDE_ABORT),
 
+    getCommands: () => ipcRenderer.invoke(IPC_CHANNELS.CLAUDE_GET_COMMANDS),
+
     onChunk: (callback) => {
       const handler = (_event: Electron.IpcRendererEvent, chunk: string) => callback(chunk);
       ipcRenderer.on(IPC_CHANNELS.CLAUDE_CHUNK, handler);
@@ -51,6 +53,15 @@ const electronAPI: ElectronAPI = {
       const handler = () => callback();
       ipcRenderer.on(IPC_CHANNELS.CLAUDE_DONE, handler);
       return () => ipcRenderer.removeListener(IPC_CHANNELS.CLAUDE_DONE, handler);
+    },
+
+    onSlashCommands: (callback) => {
+      const handler = (
+        _event: Electron.IpcRendererEvent,
+        commands: Parameters<typeof callback>[0]
+      ) => callback(commands);
+      ipcRenderer.on(IPC_CHANNELS.CLAUDE_SLASH_COMMANDS, handler);
+      return () => ipcRenderer.removeListener(IPC_CHANNELS.CLAUDE_SLASH_COMMANDS, handler);
     },
   },
 

@@ -286,26 +286,37 @@ export const useFilesStore = defineStore('files', () => {
   async function initialize() {
     try {
       const settingsStore = useSettingsStore();
-
-      // Try to load immediately if settings are already available
-      if (settingsStore.workingDirectory) {
-        await loadFileTree();
-        setupFileWatcher();
-      }
-
-      // Watch for working directory changes (handles race condition where
-      // settings load after this store initializes)
       const { watch } = await import('vue');
+
+      // Watch for settings loading to complete AND working directory changes
+      // This handles the race condition where settings load after this store initializes
       watch(
-        () => settingsStore.workingDirectory,
-        async (newDir, oldDir) => {
-          if (newDir && newDir !== oldDir) {
+        [() => settingsStore.isLoading, () => settingsStore.workingDirectory],
+        async ([loading, newDir], [wasLoading, oldDir]) => {
+          // When settings finish loading and we have a working directory
+          if (!loading && wasLoading && newDir) {
+            logger.debug('Settings loaded, initializing files', { workingDirectory: newDir });
+            await loadFileTree();
+            setupFileWatcher();
+          }
+          // When working directory changes after initial load
+          else if (!loading && newDir && newDir !== oldDir) {
+            logger.debug('Working directory changed', { newDir, oldDir });
             await loadFileTree();
             setupFileWatcher();
           }
         },
-        { immediate: false }
+        { immediate: true }
       );
+
+      // Also try to load immediately if settings are already loaded and have a directory
+      if (!settingsStore.isLoading && settingsStore.workingDirectory) {
+        logger.debug('Settings already loaded, initializing files immediately', {
+          workingDirectory: settingsStore.workingDirectory,
+        });
+        await loadFileTree();
+        setupFileWatcher();
+      }
     } catch (err) {
       logger.error('Failed to initialize files store', err);
     }

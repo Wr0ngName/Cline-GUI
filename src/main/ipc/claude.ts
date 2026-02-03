@@ -146,5 +146,22 @@ export function setupClaudeIPC(claudeService: ClaudeCodeService): void {
     }
   });
 
+  // Get available slash commands
+  ipcMain.handle(IPC_CHANNELS.CLAUDE_GET_COMMANDS, async () => {
+    try {
+      logger.debug('IPC: claude:get-commands');
+
+      // Validate service
+      if (!claudeService) {
+        throw new IpcError('Claude service not initialized', IPC_CHANNELS.CLAUDE_GET_COMMANDS, ERROR_CODES.IPC_HANDLER_FAILED);
+      }
+
+      return claudeService.getSlashCommands();
+    } catch (error) {
+      logger.error('Failed to get slash commands', { error });
+      throw new IpcError(`Failed to get slash commands: ${error instanceof Error ? error.message : String(error)}`, IPC_CHANNELS.CLAUDE_GET_COMMANDS, ERROR_CODES.IPC_HANDLER_FAILED, error);
+    }
+  });
+
   logger.info('Claude IPC handlers registered');
 }

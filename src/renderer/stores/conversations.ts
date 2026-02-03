@@ -109,6 +109,7 @@ export const useConversationsStore = defineStore('conversations', () => {
    */
   async function saveCurrentConversation(): Promise<void> {
     if (!currentConversationId.value) {
+      logger.debug('No current conversation ID, skipping save');
       return;
     }
 
@@ -117,6 +118,13 @@ export const useConversationsStore = defineStore('conversations', () => {
 
     // Don't save if no messages
     if (chatStore.messages.length === 0) {
+      logger.debug('No messages to save');
+      return;
+    }
+
+    // Don't save while still streaming (content is incomplete)
+    if (chatStore.isLoading) {
+      logger.debug('Still loading, deferring save');
       return;
     }
 
@@ -133,6 +141,12 @@ export const useConversationsStore = defineStore('conversations', () => {
         updatedAt: Date.now(),
       };
 
+      logger.info('Saving conversation', {
+        id: conversation.id,
+        messageCount: conversation.messages.length,
+        title: conversation.title?.slice(0, 30),
+      });
+
       await window.electron.conversation.save(conversation);
 
       // Update in list
@@ -143,7 +157,7 @@ export const useConversationsStore = defineStore('conversations', () => {
         conversations.value.push({ ...conversation, messages: [] });
       }
 
-      logger.debug('Saved conversation', { id: conversation.id });
+      logger.info('Conversation saved successfully', { id: conversation.id });
     } catch (err) {
       logger.error('Failed to save conversation', err);
       error.value = 'Failed to save conversation';
@@ -258,8 +272,9 @@ export const useConversationsStore = defineStore('conversations', () => {
     // Watch for new messages being added
     const stopLengthWatcher = watch(
       () => chatStore.messages.length,
-      () => {
-        if (currentConversationId.value && chatStore.messages.length > 0) {
+      (newLength, oldLength) => {
+        logger.debug('Messages length changed', { newLength, oldLength, conversationId: currentConversationId.value });
+        if (currentConversationId.value && newLength > 0) {
           scheduleAutoSave();
         }
       }
@@ -269,8 +284,10 @@ export const useConversationsStore = defineStore('conversations', () => {
     const stopLoadingWatcher = watch(
       () => chatStore.isLoading,
       (loading, wasLoading) => {
+        logger.debug('Loading state changed', { loading, wasLoading, conversationId: currentConversationId.value });
         // When loading transitions from true to false, the message is complete
         if (!loading && wasLoading && currentConversationId.value && chatStore.messages.length > 0) {
+          logger.debug('Streaming finished, triggering save');
           scheduleAutoSave();
         }
       }

@@ -248,13 +248,14 @@ publish:packages:
       done
 
       # Create latest.yml for auto-updater (electron-updater expects this at the root)
+      # NOTE: path should NOT include version - the feed URL already points to version folder
       echo "Creating latest.yml for auto-updater..."
       WIN_EXE=$(ls out/make/squirrel.windows/x64/*.exe 2>/dev/null | head -1)
       WIN_FILENAME=$(basename "$WIN_EXE" | tr ' ' '-')
       WIN_SHA512=$(sha512sum "$WIN_EXE" 2>/dev/null | cut -d' ' -f1 || echo "")
       RELEASE_DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-      printf 'version: %s\npath: %s/%s\nsha512: %s\nreleaseDate: %s\n' \
-        "${VERSION}" "${VERSION}" "${WIN_FILENAME}" "${WIN_SHA512}" "${RELEASE_DATE}" > latest.yml
+      printf 'version: %s\npath: %s\nsha512: %s\nreleaseDate: %s\n' \
+        "${VERSION}" "${WIN_FILENAME}" "${WIN_SHA512}" "${RELEASE_DATE}" > latest.yml
 
       # Upload latest.yml to the version-specific location in Package Registry
       echo "Uploading latest.yml to ${PACKAGE_REGISTRY_URL}/releases/${VERSION}/latest.yml"

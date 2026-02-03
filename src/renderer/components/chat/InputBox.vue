@@ -7,6 +7,7 @@ import { ref, computed } from 'vue';
 import { storeToRefs } from 'pinia';
 
 import { CONSTANTS } from '../../constants/app';
+import { useClaudeChat } from '../../composables/useClaudeChat';
 import { useChatStore } from '../../stores/chat';
 import { useFilesStore } from '../../stores/files';
 import { useSettingsStore } from '../../stores/settings';
@@ -21,6 +22,7 @@ const emit = defineEmits<{
 const chatStore = useChatStore();
 const filesStore = useFilesStore();
 const settingsStore = useSettingsStore();
+const { slashCommands } = useClaudeChat();
 
 const { isLoading } = storeToRefs(chatStore);
 const { hasAuth } = storeToRefs(settingsStore);
@@ -40,7 +42,12 @@ const placeholder = computed(() => {
   if (!hasWorkingDirectory.value) {
     return 'Please select a working directory first...';
   }
-  return 'Ask Claude anything... (Shift+Enter for new line)';
+  return 'Ask Claude anything... (try /compact, /help, /cost)';
+});
+
+// Check if current input looks like a CLI command
+const isTypingCommand = computed(() => {
+  return message.value.trim().startsWith('/');
 });
 
 function handleSubmit() {
@@ -123,7 +130,13 @@ function handleInput(event: Event) {
 
     <!-- Hints -->
     <div class="flex items-center justify-between mt-2 text-xs text-surface-400 dark:text-surface-500">
-      <span>Press Enter to send, Shift+Enter for new line</span>
+      <span v-if="isTypingCommand && slashCommands.length > 0" class="text-primary-500 dark:text-primary-400 truncate max-w-[70%]">
+        Commands: {{ slashCommands.slice(0, 8).map(c => '/' + c.name).join(', ') }}{{ slashCommands.length > 8 ? '...' : '' }}
+      </span>
+      <span v-else-if="isTypingCommand" class="text-primary-500 dark:text-primary-400">
+        Slash command detected
+      </span>
+      <span v-else>Press Enter to send, Shift+Enter for new line</span>
       <span v-if="message.length > 0">{{ message.length }} characters</span>
     </div>
   </div>

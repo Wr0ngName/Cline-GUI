@@ -11,6 +11,18 @@
 export type MessageRole = 'user' | 'assistant' | 'system';
 
 /**
+ * Information about a slash command from the Claude SDK
+ */
+export interface SlashCommandInfo {
+  /** Command name (without leading slash) */
+  name: string;
+  /** Description of what the command does */
+  description: string;
+  /** Hint for command arguments */
+  argumentHint: string;
+}
+
+/**
  * Represents a single message in the chat conversation
  */
 export interface ChatMessage {
@@ -389,6 +401,10 @@ export const IPC_CHANNELS = {
   CLAUDE_TOOL_RESULT: 'claude:tool-result',
   /** Send action approval/rejection response */
   CLAUDE_ACTION_RESPONSE: 'claude:action-response',
+  /** Available slash commands from SDK */
+  CLAUDE_SLASH_COMMANDS: 'claude:slash-commands',
+  /** Get available slash commands */
+  CLAUDE_GET_COMMANDS: 'claude:get-commands',
 
   // File operations
   /** Open directory picker dialog */

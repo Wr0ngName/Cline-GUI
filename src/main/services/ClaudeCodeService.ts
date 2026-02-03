@@ -27,6 +27,7 @@ import {
   IPC_CHANNELS,
   PendingAction,
   ActionResponse,
+  SlashCommandInfo,
 } from '../../shared/types';
 import { MAIN_CONSTANTS } from '../constants/app';
 import logger from '../utils/logger';
@@ -52,6 +53,8 @@ export class ClaudeCodeService {
   // Track if we received a successful result from the SDK
   // Used to handle process exit errors that occur after successful completion
   private querySucceeded = false;
+  // Cached slash commands from SDK init message
+  private cachedSlashCommands: SlashCommandInfo[] = [];
 
   constructor(configService: ConfigService) {
     this.configService = configService;
@@ -658,9 +661,50 @@ export class ClaudeCodeService {
         this.handleStreamEvent(message);
         break;
 
-      case 'system':
-        logger.debug('System message', { subtype: (message as { subtype?: string }).subtype });
+      case 'system': {
+        const systemMsg = message as {
+          subtype?: string;
+          message?: string;
+          slash_commands?: string[];
+          tools?: string[];
+          model?: string;
+          status?: string;
+        };
+        logger.debug('System message', {
+          subtype: systemMsg.subtype,
+          message: systemMsg.message,
+          hasSlashCommands: !!systemMsg.slash_commands,
+        });
+
+        // Handle init message - capture available slash commands
+        if (systemMsg.subtype === 'init' && systemMsg.slash_commands) {
+          logger.info('SDK init received', {
+            slashCommandCount: systemMsg.slash_commands.length,
+            slashCommands: systemMsg.slash_commands,
+            model: systemMsg.model,
+          });
+          // Cache the slash commands for later retrieval
+          // The init message only has names, we'll get full details via supportedCommands()
+          this.cachedSlashCommands = systemMsg.slash_commands.map((name) => ({
+            name,
+            description: '',
+            argumentHint: '',
+          }));
+          // Emit slash commands to renderer
+          this.emitSlashCommands(this.cachedSlashCommands);
+        }
+
+        // Handle status messages (like compacting)
+        if (systemMsg.subtype === 'status' && systemMsg.status) {
+          this.emitChunk(`\n_${systemMsg.status}_\n`);
+        }
+
+        // Emit other system messages to the UI
+        if (systemMsg.message) {
+          this.emitChunk(`\n_${systemMsg.message}_\n`);
+        }
         break;
+      }
 
       default:
         logger.debug('Unknown SDK message type', { type: message.type });
@@ -836,6 +880,47 @@ export class ClaudeCodeService {
   private emitDone(): void {
     if (this.mainWindow && !this.mainWindow.isDestroyed()) {
       this.mainWindow.webContents.send(IPC_CHANNELS.CLAUDE_DONE);
+    }
+  }
+
+  /**
+   * Emit slash commands to the renderer
+   */
+  private emitSlashCommands(commands: SlashCommandInfo[]): void {
+    if (this.mainWindow && !this.mainWindow.isDestroyed()) {
+      this.mainWindow.webContents.send(IPC_CHANNELS.CLAUDE_SLASH_COMMANDS, commands);
+    }
+  }
+
+  /**
+   * Get available slash commands
+   * Returns cached commands from the last SDK init message
+   */
+  getSlashCommands(): SlashCommandInfo[] {
+    return this.cachedSlashCommands;
+  }
+
+  /**
+   * Fetch full slash command details from the SDK
+   * This provides descriptions and argument hints
+   */
+  async fetchSlashCommandDetails(): Promise<SlashCommandInfo[]> {
+    if (!this.currentQuery) {
+      return this.cachedSlashCommands;
+    }
+
+    try {
+      const commands = await this.currentQuery.supportedCommands();
+      this.cachedSlashCommands = commands.map((cmd) => ({
+        name: cmd.name,
+        description: cmd.description,
+        argumentHint: cmd.argumentHint,
+      }));
+      logger.info('Fetched slash command details', { count: commands.length });
+      return this.cachedSlashCommands;
+    } catch (error) {
+      logger.warn('Failed to fetch slash command details', error);
+      return this.cachedSlashCommands;
     }
   }
 }

@@ -116,6 +116,14 @@ function skipAuth() {
   finishWizard();
 }
 
+/**
+ * Handle successful authentication from AuthForm
+ */
+async function onAuthenticated() {
+  // Refresh our auth status to update canProceed
+  await refreshAuthStatus();
+}
+
 // Initialize
 onMounted(() => {
   refreshAuthStatus();
@@ -277,6 +285,7 @@ onMounted(() => {
           <AuthForm
             ref="authFormRef"
             :show-title="false"
+            @authenticated="onAuthenticated"
           />
         </div>
       </div>

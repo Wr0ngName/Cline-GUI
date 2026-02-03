@@ -10,6 +10,7 @@ import type {
   FileChange,
   FileNode,
   PendingAction,
+  SlashCommandInfo,
   UpdateInfo,
   UpdateProgress,
 } from './types';
@@ -26,10 +27,12 @@ export interface ElectronAPI {
     reject: (actionId: string, message?: string) => Promise<void>;
     respondToAction: (response: ActionResponse) => Promise<void>;
     abort: () => Promise<void>;
+    getCommands: () => Promise<SlashCommandInfo[]>;
     onChunk: (callback: (chunk: string) => void) => () => void;
     onToolUse: (callback: (action: PendingAction) => void) => () => void;
     onError: (callback: (error: string) => void) => () => void;
     onDone: (callback: () => void) => () => void;
+    onSlashCommands: (callback: (commands: SlashCommandInfo[]) => void) => () => void;
   };
 
   // File operations

@@ -25,6 +25,7 @@ const { isLoading, needsSetup } = storeToRefs(settingsStore);
 
 const showSettings = ref(false);
 const showWizard = ref(false);
+const hasCompletedInitialSetup = ref(false);
 const showHistory = ref(true);
 const sidebarWidth = ref(280);
 const historyWidth = ref(240);
@@ -36,11 +37,13 @@ onMounted(() => {
   conversationsStore.initialize();
 });
 
-// Show wizard when setup is needed (after loading completes)
+// Show wizard ONLY on initial app load when setup is needed
+// Do NOT show wizard after logout - user can use Settings panel to re-authenticate
 watch(
   [isLoading, needsSetup],
   ([loading, needs]) => {
-    if (!loading && needs) {
+    // Only show wizard on initial load, not after logout
+    if (!loading && needs && !hasCompletedInitialSetup.value) {
       showWizard.value = true;
     }
   },
@@ -56,6 +59,7 @@ onUnmounted(() => {
 
 function onWizardComplete() {
   showWizard.value = false;
+  hasCompletedInitialSetup.value = true;
   // Reload config and files after wizard completes
   settingsStore.loadConfig();
   filesStore.initialize();
