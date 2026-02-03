@@ -7,22 +7,21 @@ import path from 'node:path';
 
 import { Conversation } from '../../shared/types';
 import logger from '../utils/logger';
-import { getConversationsPath } from '../utils/paths';
+import { getConversationsPath, isPathWithin } from '../utils/paths';
 
 export class ConversationService {
   private conversationsDir: string;
 
   constructor() {
     this.conversationsDir = getConversationsPath();
-    this.ensureDir();
+    this.ensureDirSync();
     logger.info('ConversationService initialized', { dir: this.conversationsDir });
   }
 
   /**
-   * Ensure the conversations directory exists
-   * @param throwOnError - If true, re-throw errors (used during save operations)
+   * Ensure the conversations directory exists (sync version for constructor)
    */
-  private ensureDir(throwOnError = false): void {
+  private ensureDirSync(): void {
     try {
       if (!fs.existsSync(this.conversationsDir)) {
         fs.mkdirSync(this.conversationsDir, { recursive: true });
@@ -30,17 +29,59 @@ export class ConversationService {
       }
     } catch (error) {
       logger.error('Failed to create conversations directory', { dir: this.conversationsDir, error });
-      if (throwOnError) {
-        throw error; // Re-throw to surface the error during critical operations
+      // Don't throw in constructor - let save() handle creation
+    }
+  }
+
+  /**
+   * Ensure the conversations directory exists and is writable (async version for save operations)
+   * Throws on error so save operations can fail properly
+   */
+  private async ensureDirAsync(): Promise<void> {
+    try {
+      // Check if directory exists
+      await fs.promises.access(this.conversationsDir);
+    } catch {
+      // Directory doesn't exist, create it
+      try {
+        await fs.promises.mkdir(this.conversationsDir, { recursive: true });
+        logger.info('Created conversations directory', { dir: this.conversationsDir });
+      } catch (error) {
+        logger.error('Failed to create conversations directory', { dir: this.conversationsDir, error });
+        throw error;
       }
+    }
+
+    // Verify directory is writable
+    try {
+      await fs.promises.access(this.conversationsDir, fs.constants.W_OK);
+    } catch (error) {
+      logger.error('Conversations directory is not writable', { dir: this.conversationsDir, error });
+      throw new Error(`Conversations directory is not writable: ${this.conversationsDir}`);
     }
   }
 
   /**
    * Get the file path for a conversation
+   * Validates the ID to prevent path traversal attacks
    */
   private getFilePath(id: string): string {
-    return path.join(this.conversationsDir, `${id}.json`);
+    // Sanitize ID to prevent path traversal
+    const sanitizedId = id.replace(/[^a-zA-Z0-9_-]/g, '_');
+    if (sanitizedId !== id) {
+      logger.warn('Conversation ID was sanitized', { original: id, sanitized: sanitizedId });
+    }
+
+    const filePath = path.join(this.conversationsDir, `${sanitizedId}.json`);
+
+    // Security check: ensure the resolved path is within the conversations directory
+    // This prevents symlink attacks and path traversal
+    if (!isPathWithin(filePath, this.conversationsDir)) {
+      logger.error('Path traversal attempt detected', { id, filePath, conversationsDir: this.conversationsDir });
+      throw new Error('Invalid conversation ID: path traversal detected');
+    }
+
+    return filePath;
   }
 
   /**
@@ -100,35 +141,70 @@ export class ConversationService {
   }
 
   /**
-   * Save a conversation
+   * Save a conversation with retry logic for transient failures
+   * Retries up to 3 times with exponential backoff
    */
   async save(conversation: Conversation): Promise<void> {
     const filePath = this.getFilePath(conversation.id);
+    const maxRetries = 3;
+    let lastError: Error | null = null;
 
-    try {
-      // Ensure directory exists before writing (defensive check, throw on error)
-      this.ensureDir(true);
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        // Ensure directory exists before writing (async, throws on error)
+        await this.ensureDirAsync();
 
-      // Update the updatedAt timestamp
-      const updated = {
-        ...conversation,
-        updatedAt: Date.now(),
-      };
+        // Update the updatedAt timestamp
+        const updated = {
+          ...conversation,
+          updatedAt: Date.now(),
+        };
 
-      // Generate title from first user message if not set
-      if (!updated.title && updated.messages.length > 0) {
-        const firstUserMessage = updated.messages.find((m) => m.role === 'user');
-        if (firstUserMessage) {
-          updated.title = firstUserMessage.content.slice(0, 50) + (firstUserMessage.content.length > 50 ? '...' : '');
+        // Generate title from first user message if not set
+        if (!updated.title && updated.messages.length > 0) {
+          const firstUserMessage = updated.messages.find((m) => m.role === 'user');
+          if (firstUserMessage) {
+            updated.title = firstUserMessage.content.slice(0, 50) + (firstUserMessage.content.length > 50 ? '...' : '');
+          }
+        }
+
+        // Serialize and write atomically
+        const content = JSON.stringify(updated, null, 2);
+        await fs.promises.writeFile(filePath, content, 'utf-8');
+
+        logger.debug('Conversation saved', { id: conversation.id, attempt });
+        return; // Success, exit retry loop
+      } catch (error) {
+        lastError = error as Error;
+        logger.warn(`Conversation save attempt ${attempt} failed`, {
+          id: conversation.id,
+          error: lastError.message,
+          attempt,
+          maxRetries,
+        });
+
+        // Don't retry for certain error types
+        const errCode = (error as NodeJS.ErrnoException).code;
+        if (errCode === 'EACCES' || errCode === 'EROFS') {
+          // Permission denied or read-only filesystem - no point retrying
+          break;
+        }
+
+        if (attempt < maxRetries) {
+          // Exponential backoff: 100ms, 200ms, 400ms
+          const delay = 100 * Math.pow(2, attempt - 1);
+          await new Promise((resolve) => setTimeout(resolve, delay));
         }
       }
-
-      await fs.promises.writeFile(filePath, JSON.stringify(updated, null, 2), 'utf-8');
-      logger.debug('Conversation saved', { id: conversation.id });
-    } catch (error) {
-      logger.error('Failed to save conversation', { id: conversation.id, error });
-      throw error;
     }
+
+    // All retries exhausted
+    logger.error('Failed to save conversation after retries', {
+      id: conversation.id,
+      attempts: maxRetries,
+      error: lastError?.message,
+    });
+    throw lastError || new Error('Failed to save conversation');
   }
 
   /**

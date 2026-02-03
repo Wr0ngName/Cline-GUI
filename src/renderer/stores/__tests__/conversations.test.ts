@@ -43,6 +43,18 @@ vi.mock('../../utils/logger', () => ({
   },
 }));
 
+// Mock settings store - provides workingDirectory for save operations
+vi.mock('../settings', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../settings')>();
+  return {
+    ...actual,
+    useSettingsStore: () => ({
+      workingDirectory: '/home/user/project',
+      setWorkingDirectory: vi.fn(),
+    }),
+  };
+});
+
 // Mock CONSTANTS
 vi.mock('../../constants/app', () => ({
   CONSTANTS: {

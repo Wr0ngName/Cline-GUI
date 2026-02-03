@@ -27,12 +27,13 @@ export const useConversationsStore = defineStore('conversations', () => {
   const { messages: chatMessages, isLoading: chatIsLoading } = storeToRefs(chatStore);
 
   // Watch for streaming to finish - save when Claude response is complete
+  // IMPORTANT: Must handle errors since watchers are fire-and-forget
   watch(
     chatIsLoading,
     (loading, wasLoading) => {
       if (!isInitialized.value) return; // Don't save before initialization
 
-      logger.info('Chat loading state changed', {
+      logger.debug('Chat loading state changed', {
         loading,
         wasLoading,
         conversationId: currentConversationId.value,
@@ -42,19 +43,23 @@ export const useConversationsStore = defineStore('conversations', () => {
       // When loading transitions from true to false, the message is complete
       if (!loading && wasLoading && currentConversationId.value && chatMessages.value.length > 0) {
         logger.info('Streaming finished, saving conversation');
-        saveCurrentConversation();
+        // Must catch errors since watcher callbacks can't be async
+        saveCurrentConversation().catch((err) => {
+          logger.error('Failed to save conversation after streaming', err);
+        });
       }
     }
   );
 
   // Watch for message count changes - save when first user message is added
   // This ensures the conversation appears in history immediately
+  // IMPORTANT: Must handle errors since watchers are fire-and-forget
   watch(
     () => chatMessages.value.length,
     (newLength, oldLength) => {
       if (!isInitialized.value) return; // Don't save before initialization
 
-      logger.info('Messages length changed', {
+      logger.debug('Messages length changed', {
         newLength,
         oldLength,
         conversationId: currentConversationId.value,
@@ -65,7 +70,10 @@ export const useConversationsStore = defineStore('conversations', () => {
       // This makes the conversation appear in history immediately
       if (oldLength === 0 && newLength > 0 && currentConversationId.value) {
         logger.info('First message added, saving conversation to history');
-        saveCurrentConversation();
+        // Must catch errors since watcher callbacks can't be async
+        saveCurrentConversation().catch((err) => {
+          logger.error('Failed to save conversation after first message', err);
+        });
       }
     }
   );
@@ -149,11 +157,12 @@ export const useConversationsStore = defineStore('conversations', () => {
 
   /**
    * Save the current conversation
+   * Returns true if save was successful, false otherwise
    */
-  async function saveCurrentConversation(): Promise<void> {
+  async function saveCurrentConversation(): Promise<boolean> {
     if (!currentConversationId.value) {
       logger.debug('No current conversation ID, skipping save');
-      return;
+      return false;
     }
 
     const chatStore = useChatStore();
@@ -162,7 +171,20 @@ export const useConversationsStore = defineStore('conversations', () => {
     // Don't save if no messages
     if (chatStore.messages.length === 0) {
       logger.debug('No messages to save');
-      return;
+      return false;
+    }
+
+    // Validate workingDirectory is set
+    if (!settingsStore.workingDirectory) {
+      logger.warn('Cannot save conversation: working directory not set');
+      error.value = 'Cannot save conversation: working directory not set';
+      return false;
+    }
+
+    // Prevent concurrent saves - wait if already saving
+    if (isSaving.value) {
+      logger.debug('Save already in progress, skipping duplicate save');
+      return false;
     }
 
     isSaving.value = true;
@@ -182,9 +204,16 @@ export const useConversationsStore = defineStore('conversations', () => {
         id: conversation.id,
         messageCount: conversation.messages.length,
         title: conversation.title?.slice(0, 30),
+        workingDirectory: conversation.workingDirectory,
       });
 
-      await window.electron.conversation.save(conversation);
+      // Add timeout to prevent indefinite hang if main process is unresponsive
+      const savePromise = window.electron.conversation.save(conversation);
+      const timeoutPromise = new Promise<never>((_, reject) => {
+        setTimeout(() => reject(new Error('Save operation timed out after 30 seconds')), 30000);
+      });
+
+      await Promise.race([savePromise, timeoutPromise]);
 
       // Update in list
       const index = conversations.value.findIndex((c) => c.id === conversation.id);
@@ -195,6 +224,7 @@ export const useConversationsStore = defineStore('conversations', () => {
       }
 
       logger.info('Conversation saved successfully', { id: conversation.id });
+      return true;
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : String(err);
       logger.error('Failed to save conversation', {
@@ -204,6 +234,7 @@ export const useConversationsStore = defineStore('conversations', () => {
         messageCount: chatStore.messages.length,
       });
       error.value = `Failed to save conversation: ${errorMessage}`;
+      return false;
     } finally {
       isSaving.value = false;
     }
@@ -298,14 +329,20 @@ export const useConversationsStore = defineStore('conversations', () => {
   }
 
   /**
-   * Cleanup on unmount
+   * Cleanup on unmount - saves current conversation before disabling watchers
+   * Returns a promise that resolves when cleanup is complete
    */
-  function cleanup(): void {
-    // Disable auto-save watchers
-    isInitialized.value = false;
+  async function cleanup(): Promise<void> {
+    // Save current conversation before disabling watchers
+    // This ensures no data loss on app close
+    try {
+      await saveCurrentConversation();
+    } catch (err) {
+      logger.error('Failed to save conversation during cleanup', err);
+    }
 
-    // Save current conversation before cleanup
-    saveCurrentConversation();
+    // Disable auto-save watchers after save completes
+    isInitialized.value = false;
   }
 
   return {

@@ -20,7 +20,12 @@ const { mockFs, mockFileSystem } = vi.hoisted(() => {
     mockFs: {
       existsSync: vi.fn(),
       mkdirSync: vi.fn(),
+      constants: {
+        W_OK: 2,
+      },
       promises: {
+        access: vi.fn().mockResolvedValue(undefined), // Directory is accessible by default
+        mkdir: vi.fn().mockResolvedValue(undefined),
         readdir: vi.fn().mockImplementation(async (dir: string) => {
           const files: string[] = [];
           for (const key of fileSystem.keys()) {
@@ -62,6 +67,7 @@ vi.mock('node:fs', () => ({
   default: mockFs,
   existsSync: mockFs.existsSync,
   mkdirSync: mockFs.mkdirSync,
+  constants: mockFs.constants,
   promises: mockFs.promises,
 }));
 
@@ -83,6 +89,7 @@ vi.mock('../../utils/logger', () => ({
 
 vi.mock('../../utils/paths', () => ({
   getConversationsPath: () => '/app/conversations',
+  isPathWithin: () => true, // Always return true in tests (paths are mocked)
 }));
 
 // Import after mocks
@@ -399,9 +406,13 @@ describe('ConversationService', () => {
       );
     });
 
-    it('should propagate write errors', async () => {
+    it('should propagate write errors after retries', async () => {
       const conv = createConversation();
-      mockFs.promises.writeFile.mockRejectedValueOnce(new Error('Disk full'));
+      // Mock all 3 retry attempts to fail
+      mockFs.promises.writeFile
+        .mockRejectedValueOnce(new Error('Disk full'))
+        .mockRejectedValueOnce(new Error('Disk full'))
+        .mockRejectedValueOnce(new Error('Disk full'));
 
       await expect(service.save(conv)).rejects.toThrow('Disk full');
     });

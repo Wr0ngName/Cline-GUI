@@ -63,40 +63,68 @@ export function setupConversationIPC(conversationService: ConversationService): 
   // Save a conversation
   ipcMain.handle(IPC_CHANNELS.CONVERSATION_SAVE, async (_event, conversation: Conversation) => {
     try {
-      logger.info('IPC: conversation:save called', {
-        id: conversation?.id,
-        messageCount: conversation?.messages?.length,
-        title: conversation?.title?.slice(0, 30),
-      });
-
-      // Validate service
+      // Validate service first
       if (!conversationService) {
         throw new ConfigurationError('Conversation service not initialized', ERROR_CODES.CONFIG_SAVE_FAILED);
       }
 
-      // Validate input
+      // Validate input BEFORE logging to prevent errors during logging
       validateObject(conversation, 'Conversation');
 
       if (typeof conversation.id !== 'string' || !conversation.id.trim()) {
-        throw new ValidationError('Invalid conversation ID', 'id', ERROR_CODES.VALIDATION_REQUIRED);
+        throw new ValidationError('Conversation ID is required and must be a non-empty string', 'id', ERROR_CODES.VALIDATION_REQUIRED);
+      }
+
+      if (typeof conversation.title !== 'string') {
+        throw new ValidationError('Conversation title must be a string', 'title', ERROR_CODES.VALIDATION_TYPE_MISMATCH);
+      }
+
+      if (typeof conversation.workingDirectory !== 'string') {
+        throw new ValidationError('Conversation workingDirectory must be a string', 'workingDirectory', ERROR_CODES.VALIDATION_TYPE_MISMATCH);
       }
 
       if (!Array.isArray(conversation.messages)) {
-        throw new ValidationError('Invalid conversation messages: must be an array', 'messages', ERROR_CODES.VALIDATION_TYPE_MISMATCH);
+        throw new ValidationError('Conversation messages must be an array', 'messages', ERROR_CODES.VALIDATION_TYPE_MISMATCH);
       }
 
       if (typeof conversation.createdAt !== 'number' || conversation.createdAt <= 0) {
-        throw new ValidationError('Invalid conversation createdAt timestamp', 'createdAt', ERROR_CODES.VALIDATION_TYPE_MISMATCH);
+        throw new ValidationError('Conversation createdAt must be a positive timestamp', 'createdAt', ERROR_CODES.VALIDATION_TYPE_MISMATCH);
       }
 
       if (typeof conversation.updatedAt !== 'number' || conversation.updatedAt <= 0) {
-        throw new ValidationError('Invalid conversation updatedAt timestamp', 'updatedAt', ERROR_CODES.VALIDATION_TYPE_MISMATCH);
+        throw new ValidationError('Conversation updatedAt must be a positive timestamp', 'updatedAt', ERROR_CODES.VALIDATION_TYPE_MISMATCH);
       }
 
+      // Now safe to log after validation
+      logger.info('IPC: conversation:save called', {
+        id: conversation.id,
+        messageCount: conversation.messages.length,
+        title: conversation.title.slice(0, 30),
+        workingDirectory: conversation.workingDirectory,
+      });
+
       await conversationService.save(conversation);
+
+      logger.debug('IPC: conversation:save completed', { id: conversation.id });
     } catch (error) {
-      logger.error('Failed to save conversation', { error, id: conversation?.id });
-      throw new ConfigurationError(`Failed to save conversation: ${error instanceof Error ? error.message : String(error)}`, ERROR_CODES.CONVERSATION_SAVE_FAILED, error);
+      // Provide specific error messages for different error types
+      const errorMessage = error instanceof ValidationError
+        ? `Validation error: ${error.message} (field: ${error.field})`
+        : error instanceof Error
+          ? error.message
+          : String(error);
+
+      logger.error('Failed to save conversation', {
+        error: errorMessage,
+        id: conversation?.id,
+        errorType: error?.constructor?.name,
+      });
+
+      throw new ConfigurationError(
+        `Failed to save conversation: ${errorMessage}`,
+        ERROR_CODES.CONVERSATION_SAVE_FAILED,
+        error
+      );
     }
   });
 
