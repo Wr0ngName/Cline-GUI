@@ -222,14 +222,11 @@ export class SDKMessageHandler {
       // Mark query as succeeded - used to handle process exit errors gracefully
       this.querySucceeded = true;
 
-      // Emit the result text if present - this contains slash command output!
-      // The result field contains the final response text from slash commands like /help, /cost, etc.
-      if (resultMessage.result && resultMessage.result.trim()) {
-        logger.debug('Emitting result text from success message', {
-          resultLength: resultMessage.result.length,
-        });
-        this.callbacks.onChunk(resultMessage.result);
-      }
+      // NOTE: Do NOT emit result text here for regular messages!
+      // Regular messages are already streamed via content_block_delta events.
+      // Emitting result.text would cause duplication.
+      // Slash command output is handled separately via lastMessageWasSlashCommand flag
+      // in processAssistantMessage.
     } else {
       logger.warn('Query ended with non-success', { subtype: message.subtype });
     }

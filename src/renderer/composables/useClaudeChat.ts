@@ -194,11 +194,6 @@ export function useClaudeChat() {
       } else if (streamingConvId) {
         // User switched conversations at some point - buffer ALL remaining chunks
         chatStore.appendToStreamingBuffer(chunk, streamingConvId, streamingMsgId || 'unknown');
-        logger.debug('Buffering chunk for original conversation', {
-          streamingConvId,
-          streamingMsgId,
-          chunkLength: chunk.length,
-        });
       }
     });
 
@@ -227,7 +222,6 @@ export function useClaudeChat() {
         logger.info('Applying buffered streaming content to original conversation', {
           conversationId: buffer.conversationId,
           contentLength: buffer.content.length,
-          userIsBackInOriginal: buffer.conversationId === currentConvId,
         });
 
         // Load the original conversation, apply the buffer, and save
@@ -245,13 +239,10 @@ export function useClaudeChat() {
                 conversationId: buffer.conversationId,
               });
 
-              // If user switched back to the original conversation, update the in-memory messages too
+              // If user is currently viewing the original conversation, reload it to show updated content
               if (buffer.conversationId === currentConvId) {
-                const currentLastMsg = chatStore.lastMessage;
-                if (currentLastMsg && currentLastMsg.role === 'assistant') {
-                  currentLastMsg.content += buffer.content;
-                  currentLastMsg.isStreaming = false;
-                }
+                // Replace in-memory messages with the saved version to avoid duplication
+                chatStore.loadMessages(originalConv.messages);
               }
             }
           }
@@ -263,8 +254,6 @@ export function useClaudeChat() {
       chatStore.setLoading(false);
       chatStore.finishStreaming();
       chatStore.clearStreamingState();
-      // Note: Conversation is saved automatically by the conversations store watcher
-      // when isLoading transitions from true to false (but we've already saved the buffered content)
     });
 
     // Handle slash commands updates from SDK
