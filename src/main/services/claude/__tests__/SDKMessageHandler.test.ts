@@ -176,6 +176,9 @@ describe('SDKMessageHandler', () => {
     });
 
     it('should emit merged commands to callback', async () => {
+      // Clear mock calls from constructor
+      vi.clearAllMocks();
+
       await handler.handleMessage({
         type: 'system',
         subtype: 'init',
@@ -184,13 +187,15 @@ describe('SDKMessageHandler', () => {
       } as never);
 
       expect(callbacks.onSlashCommands).toHaveBeenCalled();
-      const emittedCommands = (callbacks.onSlashCommands as ReturnType<typeof vi.fn>).mock.calls[0][0];
+      const mockFn = callbacks.onSlashCommands as ReturnType<typeof vi.fn>;
+      // Get the last call (after init message)
+      const emittedCommands = mockFn.mock.calls[mockFn.mock.calls.length - 1][0];
       // Should include both built-in and SDK commands
       expect(emittedCommands.find((c: SlashCommandInfo) => c.name === 'help')).toBeDefined();
       expect(emittedCommands.find((c: SlashCommandInfo) => c.name === 'custom-skill')).toBeDefined();
     });
 
-    it('should NOT overwrite commands when descriptions already exist', async () => {
+    it('should add new SDK commands while preserving existing descriptions', async () => {
       // First set commands with descriptions via updateSlashCommands
       handler.updateSlashCommands([
         { name: 'custom', description: 'Custom desc', argumentHint: '' },
@@ -199,7 +204,7 @@ describe('SDKMessageHandler', () => {
       const commandsBefore = handler.getSlashCommands();
       const countBefore = commandsBefore.length;
 
-      // Then receive init message (should be ignored - we already have descriptions)
+      // Then receive init message with a NEW skill (should be added)
       await handler.handleMessage({
         type: 'system',
         subtype: 'init',
@@ -207,9 +212,17 @@ describe('SDKMessageHandler', () => {
         model: 'claude-3',
       } as never);
 
-      // Should still have same commands (init was ignored)
+      // Should have one more command (new-skill was added)
       const commandsAfter = handler.getSlashCommands();
-      expect(commandsAfter.length).toBe(countBefore);
+      expect(commandsAfter.length).toBe(countBefore + 1);
+
+      // Existing descriptions should be preserved
+      const customCmd = commandsAfter.find(c => c.name === 'custom');
+      expect(customCmd?.description).toBe('Custom desc');
+
+      // New skill should be added (with empty description from init)
+      const newSkill = commandsAfter.find(c => c.name === 'new-skill');
+      expect(newSkill).toBeDefined();
     });
   });
 

@@ -7,6 +7,8 @@ import path from 'node:path';
 
 import { BrowserWindow, shell } from 'electron';
 
+import type { LogLevel } from '../shared/types';
+
 import { MAIN_CONSTANTS } from './constants/app';
 import { debugLog as debugLogBase } from './utils/debugLog';
 import logger from './utils/logger';
@@ -22,16 +24,24 @@ let mainWindow: BrowserWindow | null = null;
 declare const MAIN_WINDOW_VITE_DEV_SERVER_URL: string | undefined;
 declare const MAIN_WINDOW_VITE_NAME: string;
 
+export interface WindowOptions {
+  logLevel?: LogLevel;
+}
+
 /**
  * Create the main application window
  */
-export async function createWindow(): Promise<BrowserWindow> {
+export async function createWindow(options: WindowOptions = {}): Promise<BrowserWindow> {
   debugLog('createWindow() called');
   logger.info('Creating main window');
 
   const preloadPath = path.join(__dirname, 'preload.js');
   debugLog(`Preload path: ${preloadPath}`);
   debugLog(`Preload exists: ${fs.existsSync(preloadPath)}`);
+
+  // Show title bar and menu bar only in debug mode
+  const isDebugMode = options.logLevel === 'debug';
+  debugLog(`Debug mode: ${isDebugMode}, logLevel: ${options.logLevel}`);
 
   mainWindow = new BrowserWindow({
     width: MAIN_CONSTANTS.WINDOW.DEFAULT_WIDTH,
@@ -41,6 +51,9 @@ export async function createWindow(): Promise<BrowserWindow> {
     title: 'Cline GUI',
     backgroundColor: '#fafafa',
     show: false, // Don't show until ready
+    frame: isDebugMode, // Hide title bar unless debug mode
+    autoHideMenuBar: !isDebugMode, // Hide menu bar unless debug mode
+    titleBarStyle: isDebugMode ? 'default' : 'hidden',
     webPreferences: {
       preload: preloadPath,
       contextIsolation: true,
@@ -95,9 +108,9 @@ export async function createWindow(): Promise<BrowserWindow> {
     return { action: 'deny' };
   });
 
-  // Open DevTools in development
-  if (process.env.NODE_ENV === 'development' || MAIN_WINDOW_VITE_DEV_SERVER_URL) {
-    debugLog('Opening DevTools (development mode)');
+  // Open DevTools in debug mode
+  if (isDebugMode) {
+    debugLog('Opening DevTools (debug mode)');
     mainWindow.webContents.openDevTools();
   }
 

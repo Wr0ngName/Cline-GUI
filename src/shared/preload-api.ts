@@ -33,6 +33,7 @@ export interface ElectronAPI {
     onError: (callback: (error: string) => void) => () => void;
     onDone: (callback: () => void) => () => void;
     onSlashCommands: (callback: (commands: SlashCommandInfo[]) => void) => () => void;
+    onCommandAction: (callback: (action: string) => void) => () => void;
   };
 
   // File operations

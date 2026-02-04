@@ -39,6 +39,7 @@ import {
   SDKMessageHandler,
   AuthValidator,
   ErrorHandler,
+  BuiltinCommandHandler,
 } from './claude';
 
 export class ClaudeCodeService {
@@ -46,6 +47,7 @@ export class ClaudeCodeService {
   private messageHandler: SDKMessageHandler;
   private authValidator: AuthValidator;
   private errorHandler: ErrorHandler;
+  private builtinCommandHandler: BuiltinCommandHandler;
   private abortController: AbortController | null = null;
   private currentQuery: Query | null = null;
   // Bound sender function for DRY IPC communication
@@ -66,6 +68,11 @@ export class ClaudeCodeService {
       onChunk: (chunk: string) => this.emitChunk(chunk),
       onSlashCommands: (commands: SlashCommandInfo[]) => this.emitSlashCommands(commands),
     });
+    this.builtinCommandHandler = new BuiltinCommandHandler({
+      getSlashCommands: () => this.messageHandler.getSlashCommands(),
+      onChunk: (chunk: string) => this.emitChunk(chunk),
+      onDone: () => this.emitDone(),
+    });
 
     logger.info('ClaudeCodeService initialized');
   }
@@ -83,6 +90,27 @@ export class ClaudeCodeService {
   async sendMessage(message: string, workingDirectory: string): Promise<void> {
     // Reset state for new query
     this.messageHandler.reset();
+
+    // Check if this is a built-in command that must be handled locally
+    // (SDK doesn't support built-in CLI commands like /help, /clear, etc.)
+    if (this.builtinCommandHandler.isBuiltinCommand(message)) {
+      const result = this.builtinCommandHandler.handleCommand(message);
+      if (result.handled) {
+        logger.info('Handled built-in command locally', {
+          command: message.trim().split(' ')[0],
+          hasAction: !!result.action,
+        });
+        if (result.response) {
+          this.emitChunk(result.response);
+        }
+        // Emit special action if needed (e.g., clear conversation)
+        if (result.action) {
+          this.send(IPC_CHANNELS.CLAUDE_COMMAND_ACTION, result.action);
+        }
+        this.emitDone();
+        return;
+      }
+    }
 
     // Check if this is a slash command (starts with /)
     const isSlashCommand = message.trim().startsWith('/');
@@ -171,13 +199,15 @@ export class ClaudeCodeService {
     try {
       const commands = await this.fetchSlashCommandDetails();
       if (commands.length > 0) {
-        // Always update with whatever supportedCommands() returns
-        // This provides the authoritative list with descriptions
+        // Update handler with SDK commands (merges with built-in commands)
         this.messageHandler.updateSlashCommands(commands);
-        this.emitSlashCommands(commands);
+        // Emit the MERGED commands (built-in + SDK), not just SDK commands
+        const mergedCommands = this.messageHandler.getSlashCommands();
+        this.emitSlashCommands(mergedCommands);
         logger.info('Emitted full slash command details', {
-          count: commands.length,
-          commands: commands.map(c => ({ name: c.name, hasDesc: !!c.description })),
+          sdkCount: commands.length,
+          mergedCount: mergedCommands.length,
+          commands: mergedCommands.map(c => ({ name: c.name, hasDesc: !!c.description })),
         });
       }
     } catch (error) {

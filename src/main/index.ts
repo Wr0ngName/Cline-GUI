@@ -108,7 +108,8 @@ async function main(): Promise<void> {
       debugLog('IPC setup complete');
 
       debugLog('Creating window...');
-      const mainWindow = await createWindow();
+      const config = await configService.getConfig();
+      const mainWindow = await createWindow({ logLevel: config.logLevel });
       debugLog(`Window created: ${mainWindow ? 'success' : 'null'}`);
 
       const lastWorkingDir = await configService.getWorkingDirectory();

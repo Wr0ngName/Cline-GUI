@@ -255,6 +255,15 @@ export interface AuthStatus {
 export type ThemeMode = 'light' | 'dark' | 'system';
 
 /**
+ * Log level for application logging
+ * - error: Only errors
+ * - warn: Warnings and errors
+ * - info: Info, warnings, and errors
+ * - debug: All log messages including debug
+ */
+export type LogLevel = 'error' | 'warn' | 'info' | 'debug';
+
+/**
  * Application configuration settings
  */
 export interface AppConfig {
@@ -274,6 +283,8 @@ export interface AppConfig {
   fontSize: number;
   /** Whether to automatically approve read-file actions */
   autoApproveReads: boolean;
+  /** Log level for application logging */
+  logLevel: LogLevel;
 }
 
 /**
@@ -288,6 +299,7 @@ export const DEFAULT_CONFIG: AppConfig = {
   theme: 'system',
   fontSize: 14,
   autoApproveReads: true,
+  logLevel: 'warn',
 };
 
 // Conversation types
@@ -403,6 +415,8 @@ export const IPC_CHANNELS = {
   CLAUDE_SLASH_COMMANDS: 'claude:slash-commands',
   /** Get available slash commands */
   CLAUDE_GET_COMMANDS: 'claude:get-commands',
+  /** Built-in command action (clear, compact, etc.) */
+  CLAUDE_COMMAND_ACTION: 'claude:command-action',
 
   // File operations
   /** Open directory picker dialog */

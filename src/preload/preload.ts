@@ -63,6 +63,15 @@ const electronAPI: ElectronAPI = {
       ipcRenderer.on(IPC_CHANNELS.CLAUDE_SLASH_COMMANDS, handler);
       return () => ipcRenderer.removeListener(IPC_CHANNELS.CLAUDE_SLASH_COMMANDS, handler);
     },
+
+    onCommandAction: (callback) => {
+      const handler = (
+        _event: Electron.IpcRendererEvent,
+        action: Parameters<typeof callback>[0]
+      ) => callback(action);
+      ipcRenderer.on(IPC_CHANNELS.CLAUDE_COMMAND_ACTION, handler);
+      return () => ipcRenderer.removeListener(IPC_CHANNELS.CLAUDE_COMMAND_ACTION, handler);
+    },
   },
 
   // File operations

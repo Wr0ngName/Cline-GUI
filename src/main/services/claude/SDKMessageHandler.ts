@@ -11,30 +11,10 @@ import type {
   SDKResultMessage,
 } from '@anthropic-ai/claude-agent-sdk';
 
-import { SlashCommandInfo } from '../../../shared/types';
+import type { SlashCommandInfo } from '../../../shared/types';
 import logger from '../../utils/logger';
 
-/**
- * Built-in CLI commands that are not exposed via SDK's supportedCommands()
- * These are interactive mode commands from the Claude Code CLI.
- * @see https://code.claude.com/docs/en/slash-commands
- */
-const BUILTIN_COMMANDS: SlashCommandInfo[] = [
-  { name: 'help', description: 'Show all available slash commands', argumentHint: '' },
-  { name: 'clear', description: 'Clear conversation history and context', argumentHint: '' },
-  { name: 'compact', description: 'Compress context by summarizing conversation', argumentHint: '[focus area]' },
-  { name: 'context', description: 'View current context window usage', argumentHint: '' },
-  { name: 'cost', description: 'Show token usage and cost information', argumentHint: '' },
-  { name: 'memory', description: 'Edit CLAUDE.md memory file', argumentHint: '' },
-  { name: 'permissions', description: 'Manage tool permissions', argumentHint: '' },
-  { name: 'status', description: 'View current session status', argumentHint: '' },
-  { name: 'doctor', description: 'Run diagnostics on your setup', argumentHint: '' },
-  { name: 'login', description: 'Switch accounts or re-authenticate', argumentHint: '' },
-  { name: 'logout', description: 'Log out of current account', argumentHint: '' },
-  { name: 'bug', description: 'Report a bug to Anthropic', argumentHint: '' },
-  { name: 'model', description: 'Switch AI model', argumentHint: '[model name]' },
-  { name: 'vim', description: 'Toggle vim mode for input', argumentHint: '' },
-];
+import { BUILTIN_COMMANDS } from './BuiltinCommandHandler';
 
 /**
  * Callbacks for emitting events to the renderer
@@ -60,12 +40,18 @@ export interface MessageProcessingResult {
 export class SDKMessageHandler {
   private callbacks: MessageHandlerCallbacks;
   private querySucceeded = false;
-  private cachedSlashCommands: SlashCommandInfo[] = [];
+  // Initialize with built-in commands so they're available immediately at startup
+  private cachedSlashCommands: SlashCommandInfo[] = [...BUILTIN_COMMANDS];
   /** Tracks when the last user message was a slash command for output handling */
   private lastMessageWasSlashCommand = false;
 
   constructor(callbacks: MessageHandlerCallbacks) {
     this.callbacks = callbacks;
+    // Emit built-in commands immediately so renderer has them at startup
+    this.callbacks.onSlashCommands(this.cachedSlashCommands);
+    logger.info('SDKMessageHandler initialized with built-in commands', {
+      count: this.cachedSlashCommands.length,
+    });
   }
 
   /**
@@ -286,37 +272,29 @@ export class SDKMessageHandler {
         model: systemMsg.model,
       });
 
-      // Only update if we don't already have commands with descriptions
-      // (supportedCommands() may have already provided full details)
-      const hasDescriptions = this.cachedSlashCommands.some(cmd => cmd.description);
-      if (!hasDescriptions) {
-        // Merge built-in commands with SDK-provided commands
-        const commandMap = new Map<string, SlashCommandInfo>();
+      // Always merge SDK commands with existing cache (built-in + any previous SDK commands)
+      // This preserves descriptions from built-in commands and supportedCommands()
+      const commandMap = new Map<string, SlashCommandInfo>();
 
-        // Add built-in commands first (with descriptions)
-        for (const cmd of BUILTIN_COMMANDS) {
-          commandMap.set(cmd.name, cmd);
-        }
-
-        // Add SDK commands (may override built-ins if same name)
-        for (const name of systemMsg.slash_commands) {
-          // Only add if not already in map (preserve built-in descriptions)
-          if (!commandMap.has(name)) {
-            commandMap.set(name, { name, description: '', argumentHint: '' });
-          }
-        }
-
-        this.cachedSlashCommands = Array.from(commandMap.values());
-        logger.info('Merged built-in and SDK commands', {
-          total: this.cachedSlashCommands.length,
-          builtinCount: BUILTIN_COMMANDS.length,
-          sdkCount: systemMsg.slash_commands.length,
-        });
-        // Emit slash commands to renderer
-        this.callbacks.onSlashCommands(this.cachedSlashCommands);
-      } else {
-        logger.debug('Skipping init commands - already have descriptions');
+      // Add existing cached commands first (preserves descriptions)
+      for (const cmd of this.cachedSlashCommands) {
+        commandMap.set(cmd.name, cmd);
       }
+
+      // Add new SDK commands (only if not already present - preserve existing descriptions)
+      for (const name of systemMsg.slash_commands) {
+        if (!commandMap.has(name)) {
+          commandMap.set(name, { name, description: '', argumentHint: '' });
+        }
+      }
+
+      this.cachedSlashCommands = Array.from(commandMap.values());
+      logger.info('Merged built-in and SDK commands from init', {
+        total: this.cachedSlashCommands.length,
+        sdkCount: systemMsg.slash_commands.length,
+      });
+      // Emit slash commands to renderer
+      this.callbacks.onSlashCommands(this.cachedSlashCommands);
     }
 
     // Handle status messages (like compacting)

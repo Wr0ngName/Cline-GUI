@@ -12,3 +12,4 @@ export { PermissionManager } from './PermissionManager';
 export { SDKMessageHandler } from './SDKMessageHandler';
 export { AuthValidator } from './AuthValidator';
 export { ErrorHandler } from './ErrorHandler';
+export { BuiltinCommandHandler } from './BuiltinCommandHandler';

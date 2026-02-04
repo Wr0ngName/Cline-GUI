@@ -288,11 +288,14 @@ describe('ClaudeCodeService', () => {
     });
 
     it('should handle init message with slash commands', async () => {
+      // Clear the initial emit from constructor
+      mockSend.mockClear();
+
       const mockIterator = createMockQueryIterator([
         {
           type: 'system',
           subtype: 'init',
-          slash_commands: ['/help', '/clear', '/compact'],
+          slash_commands: ['custom-skill', 'another-skill'],
           model: 'claude-3-opus',
         },
         { type: 'result', subtype: 'success' },
@@ -301,12 +304,17 @@ describe('ClaudeCodeService', () => {
 
       await service.sendMessage('Hi', '/home/user');
 
+      // Should emit merged commands (built-in + SDK skills)
       expect(mockSend).toHaveBeenCalledWith(
         IPC_CHANNELS.CLAUDE_SLASH_COMMANDS,
         expect.arrayContaining([
-          expect.objectContaining({ name: '/help' }),
-          expect.objectContaining({ name: '/clear' }),
-          expect.objectContaining({ name: '/compact' }),
+          // Built-in commands
+          expect.objectContaining({ name: 'help' }),
+          expect.objectContaining({ name: 'clear' }),
+          expect.objectContaining({ name: 'compact' }),
+          // SDK skills from init
+          expect.objectContaining({ name: 'custom-skill' }),
+          expect.objectContaining({ name: 'another-skill' }),
         ])
       );
     });

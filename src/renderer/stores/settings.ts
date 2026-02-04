@@ -2,7 +2,7 @@
  * Settings store - manages app configuration
  */
 
-import type { AppConfig } from '@shared/types';
+import type { AppConfig, LogLevel } from '@shared/types';
 import { DEFAULT_CONFIG } from '@shared/types';
 import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
@@ -81,6 +81,17 @@ export const useSettingsStore = defineStore('settings', () => {
 
   async function setFontSize(fontSize: number): Promise<void> {
     await saveConfig({ fontSize });
+    applyFontSize(fontSize);
+  }
+
+  async function setLogLevel(logLevel: LogLevel): Promise<void> {
+    await saveConfig({ logLevel });
+  }
+
+  function applyFontSize(size: number): void {
+    if (typeof document !== 'undefined' && document.documentElement?.style) {
+      document.documentElement.style.setProperty('--chat-font-size', `${size}px`);
+    }
   }
 
   function applyTheme(themeToApply: 'light' | 'dark' | 'system'): void {
@@ -108,6 +119,7 @@ export const useSettingsStore = defineStore('settings', () => {
   function initialize(): void {
     loadConfig().then(() => {
       applyTheme(config.value.theme);
+      applyFontSize(config.value.fontSize);
     });
 
     // Listen for config changes from main process
@@ -115,6 +127,9 @@ export const useSettingsStore = defineStore('settings', () => {
       Object.assign(config.value, updates);
       if (updates.theme) {
         applyTheme(updates.theme);
+      }
+      if (updates.fontSize !== undefined) {
+        applyFontSize(updates.fontSize);
       }
     }));
 
@@ -153,7 +168,9 @@ export const useSettingsStore = defineStore('settings', () => {
     setWorkingDirectory,
     setTheme,
     setFontSize,
+    setLogLevel,
     applyTheme,
+    applyFontSize,
     clearError,
     initialize,
     cleanup,

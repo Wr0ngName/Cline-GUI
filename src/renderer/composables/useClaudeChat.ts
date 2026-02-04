@@ -22,6 +22,7 @@ let cleanupToolUse: (() => void) | null = null;
 let cleanupError: (() => void) | null = null;
 let cleanupDone: (() => void) | null = null;
 let cleanupSlashCommands: (() => void) | null = null;
+let cleanupCommandAction: (() => void) | null = null;
 
 // Shared slash commands state (singleton)
 const sharedSlashCommands = shallowRef<SlashCommandInfo[]>([]);
@@ -205,6 +206,19 @@ export function useClaudeChat() {
       sharedSlashCommands.value = commands;
       logger.debug('Received slash commands from SDK', { count: commands.length });
     });
+
+    // Handle command actions (clear, compact, etc.)
+    cleanupCommandAction = window.electron.claude.onCommandAction((action) => {
+      logger.info('Received command action', { action });
+      if (action === 'clear') {
+        // Clear the chat messages (keep the /clear response visible briefly)
+        setTimeout(() => {
+          chatStore.clearMessages();
+          logger.info('Chat cleared via /clear command');
+        }, 500);
+      }
+      // Other actions like 'compact', 'login', 'logout' can be handled here
+    });
   }
 
   /**
@@ -243,6 +257,10 @@ export function useClaudeChat() {
     if (cleanupSlashCommands) {
       cleanupSlashCommands();
       cleanupSlashCommands = null;
+    }
+    if (cleanupCommandAction) {
+      cleanupCommandAction();
+      cleanupCommandAction = null;
     }
   }
 

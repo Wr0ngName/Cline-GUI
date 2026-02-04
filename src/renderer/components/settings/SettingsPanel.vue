@@ -3,6 +3,7 @@
  * Settings panel component with OAuth login support
  */
 
+import type { LogLevel } from '@shared/types';
 import { ref, watch } from 'vue';
 import { storeToRefs } from 'pinia';
 
@@ -27,7 +28,16 @@ const { config, isSaving } = storeToRefs(settingsStore);
 // Local form state
 const localTheme = ref<'light' | 'dark' | 'system'>('system');
 const localFontSize = ref(14);
+const localLogLevel = ref<LogLevel>('info');
 const authFormRef = ref<InstanceType<typeof AuthForm>>();
+
+// Log level options for the selector
+const logLevelOptions: { value: LogLevel; label: string; description: string }[] = [
+  { value: 'error', label: 'Error', description: 'Only errors' },
+  { value: 'warn', label: 'Warning', description: 'Warnings and errors' },
+  { value: 'info', label: 'Info', description: 'General information' },
+  { value: 'debug', label: 'Debug', description: 'Detailed debugging' },
+];
 
 // Sync with store when modal opens
 watch(
@@ -35,6 +45,7 @@ watch(
   (newConfig) => {
     localTheme.value = newConfig.theme;
     localFontSize.value = newConfig.fontSize;
+    localLogLevel.value = newConfig.logLevel;
   },
   { immediate: true }
 );
@@ -51,9 +62,10 @@ watch(
 );
 
 async function saveSettings() {
-  // Save theme (also applies it) and font size
+  // Save theme (also applies it), font size, and log level
   await settingsStore.setTheme(localTheme.value);
   await settingsStore.setFontSize(localFontSize.value);
+  await settingsStore.setLogLevel(localLogLevel.value);
 
   emit('close');
 }
@@ -62,6 +74,7 @@ function cancel() {
   // Reset local state
   localTheme.value = config.value.theme;
   localFontSize.value = config.value.fontSize;
+  localLogLevel.value = config.value.logLevel;
   authFormRef.value?.resetState();
   emit('close');
 }
@@ -123,6 +136,29 @@ function cancel() {
         <div class="flex justify-between text-xs text-surface-400 mt-1">
           <span>12px</span>
           <span>20px</span>
+        </div>
+      </div>
+
+      <!-- Log Level -->
+      <div>
+        <label class="block text-sm font-medium text-surface-700 dark:text-surface-300 mb-2">
+          Log Level
+        </label>
+        <div class="grid grid-cols-2 gap-2">
+          <button
+            v-for="option in logLevelOptions"
+            :key="option.value"
+            :class="[
+              'px-3 py-2 rounded-lg border text-sm font-medium transition-colors text-left',
+              localLogLevel === option.value
+                ? 'border-primary-500 bg-primary-50 dark:bg-primary-900/20 text-primary-700 dark:text-primary-300'
+                : 'border-surface-300 dark:border-surface-600 text-surface-600 dark:text-surface-400 hover:bg-surface-100 dark:hover:bg-surface-700',
+            ]"
+            @click="localLogLevel = option.value"
+          >
+            <div class="font-medium">{{ option.label }}</div>
+            <div class="text-xs opacity-75">{{ option.description }}</div>
+          </button>
         </div>
       </div>
     </div>

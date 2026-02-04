@@ -85,6 +85,7 @@ vi.mock('../../utils/logger', () => ({
     warn: vi.fn(),
     error: vi.fn(),
   },
+  setLogLevel: vi.fn(),
 }));
 
 // Import after mocks are set up

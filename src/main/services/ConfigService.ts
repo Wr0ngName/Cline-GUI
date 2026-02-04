@@ -5,10 +5,10 @@
 
 import { safeStorage, dialog } from 'electron';
 
-import { AppConfig, AuthMethod, DEFAULT_CONFIG } from '../../shared/types';
+import { AppConfig, AuthMethod, DEFAULT_CONFIG, LogLevel } from '../../shared/types';
 import { MAIN_CONSTANTS } from '../constants/app';
 import { ConfigurationError, ERROR_CODES } from '../errors';
-import logger from '../utils/logger';
+import logger, { setLogLevel } from '../utils/logger';
 
 /**
  * Configuration values stored by electron-store.
@@ -23,6 +23,7 @@ interface StoredConfig {
   theme: 'light' | 'dark' | 'system';
   fontSize: number;
   autoApproveReads: boolean;
+  logLevel: LogLevel;
 }
 
 /**
@@ -70,10 +71,16 @@ export class ConfigService {
           theme: 'system',
           fontSize: 14,
           autoApproveReads: true,
+          logLevel: 'warn',
         },
       }) as unknown as TypedStore;
       this.isInitialized = true;
       // Note: Don't clear initPromise here - keep it so concurrent callers can await it
+
+      // Apply log level from config on startup
+      const storedLogLevel = this.store.get('logLevel', 'info') as LogLevel;
+      setLogLevel(storedLogLevel);
+
       logger.info('ConfigService initialized');
     } catch (error) {
       // Clear promise on failure so retry is possible
@@ -142,6 +149,11 @@ export class ConfigService {
         this.store!.set(key as keyof StoredConfig, value as StoredConfig[keyof StoredConfig]);
       }
     });
+
+    // Apply log level change immediately
+    if (rest.logLevel !== undefined) {
+      setLogLevel(rest.logLevel);
+    }
 
     logger.info('Config updated', { keys: Object.keys(config) });
   }
