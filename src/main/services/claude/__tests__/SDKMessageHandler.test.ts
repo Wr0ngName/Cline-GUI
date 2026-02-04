@@ -221,6 +221,30 @@ describe('SDKMessageHandler', () => {
       expect(handler.didQuerySucceed()).toBe(true);
     });
 
+    it('should emit result text on success (slash command output)', async () => {
+      await handler.handleMessage({
+        type: 'result',
+        subtype: 'success',
+        num_turns: 1,
+        duration_ms: 100,
+        result: 'Help output from /help command',
+      } as never);
+
+      expect(callbacks.onChunk).toHaveBeenCalledWith('Help output from /help command');
+    });
+
+    it('should not emit empty result text', async () => {
+      await handler.handleMessage({
+        type: 'result',
+        subtype: 'success',
+        num_turns: 1,
+        duration_ms: 100,
+        result: '   ',
+      } as never);
+
+      expect(callbacks.onChunk).not.toHaveBeenCalled();
+    });
+
     it('should not set querySucceeded on non-success', async () => {
       await handler.handleMessage({
         type: 'result',

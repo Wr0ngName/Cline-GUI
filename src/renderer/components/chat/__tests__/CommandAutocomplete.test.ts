@@ -269,7 +269,7 @@ describe('CommandAutocomplete', () => {
       expect(wrapper.emitted('select')).toBeTruthy();
     });
 
-    it('should handle Enter key for selection', () => {
+    it('should NOT handle Enter key (allows form submission)', () => {
       const wrapper = mount(CommandAutocomplete, {
         props: {
           commands: mockCommands,
@@ -279,9 +279,11 @@ describe('CommandAutocomplete', () => {
       });
 
       const event = new KeyboardEvent('keydown', { key: 'Enter' });
-      wrapper.vm.handleKeydown(event);
+      const handled = wrapper.vm.handleKeydown(event);
 
-      expect(wrapper.emitted('select')).toBeTruthy();
+      // Enter should not be handled - let it bubble up for form submission
+      expect(handled).toBe(false);
+      expect(wrapper.emitted('select')).toBeFalsy();
     });
 
     it('should not handle keys when hidden', () => {

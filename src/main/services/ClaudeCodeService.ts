@@ -170,11 +170,15 @@ export class ClaudeCodeService {
   private async fetchAndEmitSlashCommandDetails(): Promise<void> {
     try {
       const commands = await this.fetchSlashCommandDetails();
-      if (commands.length > 0 && commands[0].description) {
-        // Only update if we got full details (not stub commands)
+      if (commands.length > 0) {
+        // Always update with whatever supportedCommands() returns
+        // This provides the authoritative list with descriptions
         this.messageHandler.updateSlashCommands(commands);
         this.emitSlashCommands(commands);
-        logger.info('Emitted full slash command details', { count: commands.length });
+        logger.info('Emitted full slash command details', {
+          count: commands.length,
+          commands: commands.map(c => ({ name: c.name, hasDesc: !!c.description })),
+        });
       }
     } catch (error) {
       logger.warn('Failed to fetch and emit slash command details', error);

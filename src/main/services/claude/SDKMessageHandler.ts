@@ -172,18 +172,37 @@ export class SDKMessageHandler {
    * Process result message
    */
   private processResultMessage(message: SDKResultMessage): void {
+    // Extract result text if present (this is where slash command output lives!)
+    const resultMessage = message as {
+      subtype?: string;
+      result?: string;
+      error?: string;
+      num_turns?: number;
+      duration_ms?: number;
+    };
+
     // Log full result details for debugging
     logger.info('SDK result message', {
-      subtype: message.subtype,
-      numTurns: message.num_turns,
-      duration: message.duration_ms,
-      // Include any error info if present
-      error: (message as { error?: string }).error,
+      subtype: resultMessage.subtype,
+      numTurns: resultMessage.num_turns,
+      duration: resultMessage.duration_ms,
+      hasResult: !!resultMessage.result,
+      resultPreview: resultMessage.result?.slice(0, 200),
+      error: resultMessage.error,
     });
 
     if (message.subtype === 'success') {
       // Mark query as succeeded - used to handle process exit errors gracefully
       this.querySucceeded = true;
+
+      // Emit the result text if present - this contains slash command output!
+      // The result field contains the final response text from slash commands like /help, /cost, etc.
+      if (resultMessage.result && resultMessage.result.trim()) {
+        logger.debug('Emitting result text from success message', {
+          resultLength: resultMessage.result.length,
+        });
+        this.callbacks.onChunk(resultMessage.result);
+      }
     } else {
       logger.warn('Query ended with non-success', { subtype: message.subtype });
     }

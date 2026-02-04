@@ -74,7 +74,8 @@ function handleKeydown(e: KeyboardEvent): boolean {
     e.preventDefault();
     selectedIndex.value = Math.max(selectedIndex.value - 1, 0);
     return true;
-  } else if (e.key === 'Tab' || (e.key === 'Enter' && filteredCommands.value.length > 0)) {
+  } else if (e.key === 'Tab') {
+    // Only Tab completes - Enter should submit the message normally
     const selected = filteredCommands.value[selectedIndex.value];
     if (selected) {
       e.preventDefault();
