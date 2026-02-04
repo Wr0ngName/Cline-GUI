@@ -58,6 +58,14 @@ export default [
     },
   },
 
+  // Test files configuration - relax rules for test mocks
+  {
+    files: ['**/__tests__/**/*.ts', '**/*.test.ts', '**/*.spec.ts'],
+    rules: {
+      '@typescript-eslint/no-explicit-any': 'off', // Test mocks often require partial implementations
+    },
+  },
+
   // Vue files configuration
   {
     files: ['**/*.vue'],
@@ -87,6 +95,15 @@ export default [
       'vue/multi-word-component-names': 'off',
       'vue/no-v-html': 'warn',
       'no-undef': 'off', // TypeScript handles this
+    },
+  },
+
+  // Specific files with intentional v-html usage (content is sanitized with DOMPurify)
+  // Must come AFTER Vue config to override vue/no-v-html rule
+  {
+    files: ['src/renderer/components/chat/MessageItem.vue'],
+    rules: {
+      'vue/no-v-html': 'off', // Content is sanitized with DOMPurify - XSS safe
     },
   },
 ];

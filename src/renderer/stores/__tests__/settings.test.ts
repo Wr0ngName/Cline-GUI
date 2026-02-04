@@ -29,7 +29,7 @@ const mockElectron = {
 const mockMatchMedia = vi.fn();
 
 // Store the callbacks
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
+ 
 let configChangeCallback: ((updates: any) => void) | null = null;
 
 // Mock MediaQueryList

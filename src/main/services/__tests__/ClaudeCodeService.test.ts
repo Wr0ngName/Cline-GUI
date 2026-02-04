@@ -814,7 +814,7 @@ describe('ClaudeCodeService', () => {
 /**
  * Create a mock async iterator for SDK query results
  */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
+ 
 function createMockQueryIterator(messages: any[]) {
   return {
     [Symbol.asyncIterator]: async function* () {

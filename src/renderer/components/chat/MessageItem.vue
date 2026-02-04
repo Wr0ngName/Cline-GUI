@@ -1,6 +1,7 @@
 <script setup lang="ts">
 /**
  * Single message display component
+ * Note: v-html usage is safe - content is sanitized with DOMPurify
  */
 
 import DOMPurify from 'dompurify';

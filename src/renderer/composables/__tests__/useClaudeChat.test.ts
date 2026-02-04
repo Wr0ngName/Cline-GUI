@@ -50,7 +50,7 @@ const mockElectron = {
 
 // Store event callbacks
 let chunkCallback: ((chunk: string) => void) | null = null;
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
+ 
 let toolUseCallback: ((action: any) => void) | null = null;
 let errorCallback: ((error: string) => void) | null = null;
 let doneCallback: (() => void) | null = null;
