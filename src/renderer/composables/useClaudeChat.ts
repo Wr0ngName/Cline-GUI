@@ -183,22 +183,20 @@ export function useClaudeChat() {
     cleanupChunk = window.electron.claude.onChunk((chunk) => {
       const streamingConvId = chatStore.getStreamingConversationId();
       const streamingMsgId = chatStore.getStreamingMessageId();
-      const currentConvId = conversationsStore.currentConversationId;
 
-      // Check if user has initiated a switch OR if conversation IDs don't match
-      const shouldBuffer = chatStore.shouldBufferChunks() ||
-        (streamingConvId && streamingConvId !== currentConvId);
+      // Once buffering has started, KEEP buffering until stream completes
+      // This handles the case where user switches away and then back
+      const shouldBuffer = chatStore.shouldBufferChunks();
 
       if (!shouldBuffer) {
-        // Still in the same conversation, append normally
+        // Still in the same conversation and never switched away, append normally
         chatStore.appendToLastMessage(chunk);
       } else if (streamingConvId) {
-        // User switched conversations - buffer the chunk for the original conversation
+        // User switched conversations at some point - buffer ALL remaining chunks
         chatStore.appendToStreamingBuffer(chunk, streamingConvId, streamingMsgId || 'unknown');
         logger.debug('Buffering chunk for original conversation', {
           streamingConvId,
           streamingMsgId,
-          currentConvId,
           chunkLength: chunk.length,
         });
       }
@@ -225,10 +223,11 @@ export function useClaudeChat() {
       const buffer = chatStore.getAndClearStreamingBuffer();
 
       // If there's buffered content from when user switched away, we need to save it
-      if (buffer && buffer.conversationId && buffer.conversationId !== currentConvId) {
+      if (buffer && buffer.conversationId) {
         logger.info('Applying buffered streaming content to original conversation', {
           conversationId: buffer.conversationId,
           contentLength: buffer.content.length,
+          userIsBackInOriginal: buffer.conversationId === currentConvId,
         });
 
         // Load the original conversation, apply the buffer, and save
@@ -245,6 +244,15 @@ export function useClaudeChat() {
               logger.info('Saved buffered content to original conversation', {
                 conversationId: buffer.conversationId,
               });
+
+              // If user switched back to the original conversation, update the in-memory messages too
+              if (buffer.conversationId === currentConvId) {
+                const currentLastMsg = chatStore.lastMessage;
+                if (currentLastMsg && currentLastMsg.role === 'assistant') {
+                  currentLastMsg.content += buffer.content;
+                  currentLastMsg.isStreaming = false;
+                }
+              }
             }
           }
         } catch (err) {
@@ -256,7 +264,7 @@ export function useClaudeChat() {
       chatStore.finishStreaming();
       chatStore.clearStreamingState();
       // Note: Conversation is saved automatically by the conversations store watcher
-      // when isLoading transitions from true to false
+      // when isLoading transitions from true to false (but we've already saved the buffered content)
     });
 
     // Handle slash commands updates from SDK
