@@ -44,6 +44,8 @@ export class SDKMessageHandler {
   private cachedSlashCommands: SlashCommandInfo[] = [...BUILTIN_COMMANDS];
   /** Tracks when the last user message was a slash command for output handling */
   private lastMessageWasSlashCommand = false;
+  /** Tracks if content was streamed via content_block_delta events */
+  private hasStreamedContent = false;
 
   constructor(callbacks: MessageHandlerCallbacks) {
     this.callbacks = callbacks;
@@ -60,6 +62,7 @@ export class SDKMessageHandler {
   reset(): void {
     this.querySucceeded = false;
     this.lastMessageWasSlashCommand = false;
+    this.hasStreamedContent = false;
   }
 
   /**
@@ -222,11 +225,15 @@ export class SDKMessageHandler {
       // Mark query as succeeded - used to handle process exit errors gracefully
       this.querySucceeded = true;
 
-      // NOTE: Do NOT emit result text here for regular messages!
-      // Regular messages are already streamed via content_block_delta events.
-      // Emitting result.text would cause duplication.
-      // Slash command output is handled separately via lastMessageWasSlashCommand flag
-      // in processAssistantMessage.
+      // Only emit result text if content wasn't already streamed.
+      // Regular messages stream via content_block_delta events - emitting result would duplicate.
+      // Slash commands and other non-streaming responses need the result text emitted here.
+      if (!this.hasStreamedContent && resultMessage.result?.trim()) {
+        logger.debug('Emitting result text (no streamed content)', {
+          resultLength: resultMessage.result.length,
+        });
+        this.callbacks.onChunk(resultMessage.result);
+      }
     } else {
       logger.warn('Query ended with non-success', { subtype: message.subtype });
     }
@@ -238,6 +245,7 @@ export class SDKMessageHandler {
   private processStreamEvent(message: SDKMessage): void {
     const event = (message as { event?: { type?: string; delta?: { type?: string; text?: string } } }).event;
     if (event?.type === 'content_block_delta' && event?.delta?.type === 'text_delta') {
+      this.hasStreamedContent = true;
       this.callbacks.onChunk(event.delta.text || '');
     }
   }
