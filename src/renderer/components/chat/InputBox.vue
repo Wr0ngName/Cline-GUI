@@ -6,6 +6,8 @@
 import { ref, computed } from 'vue';
 import { storeToRefs } from 'pinia';
 
+import type { SlashCommandInfo } from '@shared/types';
+
 import { CONSTANTS } from '../../constants/app';
 import { useClaudeChat } from '../../composables/useClaudeChat';
 import { useChatStore } from '../../stores/chat';
@@ -13,6 +15,7 @@ import { useFilesStore } from '../../stores/files';
 import { useSettingsStore } from '../../stores/settings';
 import Button from '../shared/Button.vue';
 import Icon from '../shared/Icon.vue';
+import CommandAutocomplete from './CommandAutocomplete.vue';
 
 const emit = defineEmits<{
   (e: 'send', message: string): void;
@@ -29,6 +32,7 @@ const { hasAuth } = storeToRefs(settingsStore);
 const { hasWorkingDirectory } = storeToRefs(filesStore);
 
 const inputRef = ref<HTMLTextAreaElement | null>(null);
+const autocompleteRef = ref<InstanceType<typeof CommandAutocomplete> | null>(null);
 const message = ref('');
 
 const canSend = computed(() => {
@@ -50,7 +54,12 @@ const isTypingCommand = computed(() => {
   return message.value.trim().startsWith('/');
 });
 
-function handleSubmit() {
+// Show autocomplete when typing a command and commands are available
+const showAutocomplete = computed(() => {
+  return isTypingCommand.value && slashCommands.value.length > 0 && !isLoading.value;
+});
+
+function handleSubmit(): void {
   if (canSend.value) {
     emit('send', message.value.trim());
     message.value = '';
@@ -61,10 +70,34 @@ function handleSubmit() {
   }
 }
 
-function handleKeydown(event: KeyboardEvent) {
+function handleKeydown(event: KeyboardEvent): void {
+  // Let autocomplete handle navigation when shown
+  if (showAutocomplete.value && autocompleteRef.value) {
+    const handled = autocompleteRef.value.handleKeydown(event);
+    if (handled) return;
+  }
+
   if (event.key === 'Enter' && !event.shiftKey) {
     event.preventDefault();
     handleSubmit();
+  }
+}
+
+/**
+ * Handle command selection from autocomplete
+ */
+function handleCommandSelect(command: SlashCommandInfo): void {
+  // Replace input with selected command
+  message.value = `/${command.name} `;
+  // Focus input and move cursor to end
+  if (inputRef.value) {
+    inputRef.value.focus();
+    // Use setTimeout to ensure the value is updated first
+    setTimeout(() => {
+      if (inputRef.value) {
+        inputRef.value.selectionStart = inputRef.value.selectionEnd = message.value.length;
+      }
+    }, 0);
   }
 }
 
@@ -84,6 +117,15 @@ function handleInput(event: Event) {
   <div class="border-t border-surface-200 dark:border-surface-700 p-4 bg-white dark:bg-surface-800">
     <div class="flex gap-3 items-end">
       <div class="flex-1 relative">
+        <!-- Command autocomplete dropdown -->
+        <CommandAutocomplete
+          ref="autocompleteRef"
+          :commands="slashCommands"
+          :input-value="message"
+          :show="showAutocomplete"
+          @select="handleCommandSelect"
+        />
+
         <textarea
           ref="inputRef"
           v-model="message"
@@ -130,11 +172,11 @@ function handleInput(event: Event) {
 
     <!-- Hints -->
     <div class="flex items-center justify-between mt-2 text-xs text-surface-400 dark:text-surface-500">
-      <span v-if="isTypingCommand && slashCommands.length > 0" class="text-primary-500 dark:text-primary-400 truncate max-w-[70%]">
-        Commands: {{ slashCommands.slice(0, 8).map(c => '/' + c.name).join(', ') }}{{ slashCommands.length > 8 ? '...' : '' }}
+      <span v-if="showAutocomplete" class="text-primary-500 dark:text-primary-400">
+        Use ↑↓ to navigate, Tab/Enter to select
       </span>
       <span v-else-if="isTypingCommand" class="text-primary-500 dark:text-primary-400">
-        Slash command detected
+        Type a command name...
       </span>
       <span v-else>Press Enter to send, Shift+Enter for new line</span>
       <span v-if="message.length > 0">{{ message.length }} characters</span>

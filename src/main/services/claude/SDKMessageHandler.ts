@@ -39,6 +39,8 @@ export class SDKMessageHandler {
   private callbacks: MessageHandlerCallbacks;
   private querySucceeded = false;
   private cachedSlashCommands: SlashCommandInfo[] = [];
+  /** Tracks when the last user message was a slash command for output handling */
+  private lastMessageWasSlashCommand = false;
 
   constructor(callbacks: MessageHandlerCallbacks) {
     this.callbacks = callbacks;
@@ -49,6 +51,25 @@ export class SDKMessageHandler {
    */
   reset(): void {
     this.querySucceeded = false;
+    this.lastMessageWasSlashCommand = false;
+  }
+
+  /**
+   * Mark that the last message sent was a slash command.
+   * Used to handle command output specially since it may come as assistant messages.
+   */
+  markSlashCommandSent(): void {
+    this.lastMessageWasSlashCommand = true;
+    logger.debug('Marked last message as slash command');
+  }
+
+  /**
+   * Update cached slash commands with full details (descriptions, argument hints).
+   * Called after fetching details via supportedCommands().
+   */
+  updateSlashCommands(commands: SlashCommandInfo[]): void {
+    this.cachedSlashCommands = commands;
+    logger.info('Updated slash commands with full details', { count: commands.length });
   }
 
   /**
@@ -103,7 +124,9 @@ export class SDKMessageHandler {
    * Note: Text content is streamed via handleStreamEvent's content_block_delta events.
    * We do NOT emit text here because with includePartialMessages:true we get multiple
    * assistant messages (partial and final) which would cause duplication.
-   * For slash commands that don't stream, their output comes through system messages.
+   *
+   * EXCEPTION: Slash command responses may come as assistant messages without streaming,
+   * so we emit those directly when lastMessageWasSlashCommand is true.
    */
   private async processAssistantMessage(message: SDKAssistantMessage): Promise<void> {
     const content = message.message.content;
@@ -112,7 +135,24 @@ export class SDKMessageHandler {
     logger.debug('Assistant message content', {
       blockCount: content.length,
       blockTypes: content.map(b => b.type),
+      isSlashCommandResponse: this.lastMessageWasSlashCommand,
     });
+
+    // Special handling for slash command responses
+    // These may not stream, so we emit the text directly
+    if (this.lastMessageWasSlashCommand) {
+      for (const block of content) {
+        if (block.type === 'text' && block.text.trim()) {
+          logger.debug('Emitting slash command response', {
+            textLength: block.text.length,
+            preview: block.text.slice(0, 100),
+          });
+          this.callbacks.onChunk(block.text);
+        }
+      }
+      this.lastMessageWasSlashCommand = false;
+      return;
+    }
 
     for (const block of content) {
       if (block.type === 'text') {

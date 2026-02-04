@@ -84,6 +84,13 @@ export class ClaudeCodeService {
     // Reset state for new query
     this.messageHandler.reset();
 
+    // Check if this is a slash command (starts with /)
+    const isSlashCommand = message.trim().startsWith('/');
+    if (isSlashCommand) {
+      this.messageHandler.markSlashCommandSent();
+      logger.debug('Detected slash command', { command: message.trim().split(' ')[0] });
+    }
+
     // Check if auth is configured
     if (!(await this.authValidator.hasAuth())) {
       this.emitError('Not authenticated. Please login with your Claude account or add an API key in Settings.');
@@ -100,6 +107,7 @@ export class ClaudeCodeService {
       logger.info('Sending message to Claude Code SDK', {
         messageLength: message.length,
         workingDirectory,
+        isSlashCommand,
       });
 
       // Set up authentication environment
@@ -136,6 +144,10 @@ export class ClaudeCodeService {
 
       this.currentQuery = queryIterator;
 
+      // Fetch full slash command details now that we have a query object
+      // This runs asynchronously and emits updates when ready
+      this.fetchAndEmitSlashCommandDetails();
+
       // Process the async generator
       for await (const sdkMessage of queryIterator) {
         await this.messageHandler.handleMessage(sdkMessage);
@@ -148,6 +160,24 @@ export class ClaudeCodeService {
       this.handleQueryError(error as Error);
     } finally {
       this.cleanupQuery(originalEnv);
+    }
+  }
+
+  /**
+   * Fetch full slash command details and emit to renderer.
+   * Called after query initialization when currentQuery is available.
+   */
+  private async fetchAndEmitSlashCommandDetails(): Promise<void> {
+    try {
+      const commands = await this.fetchSlashCommandDetails();
+      if (commands.length > 0 && commands[0].description) {
+        // Only update if we got full details (not stub commands)
+        this.messageHandler.updateSlashCommands(commands);
+        this.emitSlashCommands(commands);
+        logger.info('Emitted full slash command details', { count: commands.length });
+      }
+    } catch (error) {
+      logger.warn('Failed to fetch and emit slash command details', error);
     }
   }
 
