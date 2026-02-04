@@ -16,6 +16,14 @@ export const useChatStore = defineStore('chat', () => {
   const isLoading = ref(false);
   const error = ref<string | null>(null);
   const currentStreamingContent = ref('');
+  // Track which conversation owns the current streaming session
+  const streamingConversationId = ref<string | null>(null);
+  // Track the message ID being streamed
+  const streamingMessageId = ref<string | null>(null);
+  // Flag to indicate user is switching away from a streaming conversation
+  const isSwitchingFromStreaming = ref(false);
+  // Buffer for streaming content when user switches away from the streaming conversation
+  const streamingBuffer = ref<{ conversationId: string; messageId: string; content: string } | null>(null);
 
   // Getters
   const hasMessages = computed(() => messages.value.length > 0);
@@ -46,7 +54,7 @@ export const useChatStore = defineStore('chat', () => {
     return message;
   }
 
-  function startAssistantMessage(): ChatMessage {
+  function startAssistantMessage(conversationId?: string): ChatMessage {
     const message: ChatMessage = {
       id: generateId('msg'),
       role: 'assistant',
@@ -56,6 +64,12 @@ export const useChatStore = defineStore('chat', () => {
     };
     addMessage(message);
     currentStreamingContent.value = '';
+    // Track which conversation and message this streaming belongs to
+    streamingMessageId.value = message.id;
+    if (conversationId) {
+      streamingConversationId.value = conversationId;
+      streamingBuffer.value = null; // Clear any previous buffer
+    }
     return message;
   }
 
@@ -67,12 +81,81 @@ export const useChatStore = defineStore('chat', () => {
     }
   }
 
+  /**
+   * Append chunk to streaming buffer (used when user switched away from streaming conversation)
+   */
+  function appendToStreamingBuffer(chunk: string, conversationId: string, messageId: string): void {
+    if (!streamingBuffer.value || streamingBuffer.value.conversationId !== conversationId) {
+      // Initialize buffer for this conversation
+      streamingBuffer.value = {
+        conversationId,
+        messageId,
+        content: chunk,
+      };
+    } else {
+      // Append to existing buffer
+      streamingBuffer.value.content += chunk;
+    }
+  }
+
+  /**
+   * Get and clear the streaming buffer
+   */
+  function getAndClearStreamingBuffer(): { conversationId: string; messageId: string; content: string } | null {
+    const buffer = streamingBuffer.value;
+    streamingBuffer.value = null;
+    return buffer;
+  }
+
+  /**
+   * Get current streaming conversation ID
+   */
+  function getStreamingConversationId(): string | null {
+    return streamingConversationId.value;
+  }
+
+  /**
+   * Get current streaming message ID
+   */
+  function getStreamingMessageId(): string | null {
+    return streamingMessageId.value;
+  }
+
+  /**
+   * Mark that user is switching away from a streaming conversation
+   * This triggers immediate buffering of incoming chunks
+   */
+  function startSwitchingFromStreaming(): void {
+    if (streamingConversationId.value && isLoading.value) {
+      isSwitchingFromStreaming.value = true;
+    }
+  }
+
+  /**
+   * Check if we should buffer chunks (user switched away from streaming conversation)
+   */
+  function shouldBufferChunks(): boolean {
+    return isSwitchingFromStreaming.value;
+  }
+
+  /**
+   * Clear streaming state
+   */
+  function clearStreamingState(): void {
+    streamingConversationId.value = null;
+    streamingMessageId.value = null;
+    streamingBuffer.value = null;
+    isSwitchingFromStreaming.value = false;
+  }
+
   function finishStreaming(): void {
     const last = messages.value[messages.value.length - 1];
     if (last && last.role === 'assistant') {
       last.isStreaming = false;
     }
     currentStreamingContent.value = '';
+    // Note: Don't clear streamingConversationId here - it's needed for proper buffer handling
+    // It will be cleared when the conversation is saved or a new stream starts
   }
 
   function addPendingAction(action: PendingAction): void {
@@ -123,6 +206,10 @@ export const useChatStore = defineStore('chat', () => {
     isLoading,
     error,
     currentStreamingContent,
+    streamingConversationId,
+    streamingMessageId,
+    streamingBuffer,
+    isSwitchingFromStreaming,
 
     // Getters
     hasMessages,
@@ -134,6 +221,13 @@ export const useChatStore = defineStore('chat', () => {
     addUserMessage,
     startAssistantMessage,
     appendToLastMessage,
+    appendToStreamingBuffer,
+    getAndClearStreamingBuffer,
+    getStreamingConversationId,
+    getStreamingMessageId,
+    startSwitchingFromStreaming,
+    shouldBufferChunks,
+    clearStreamingState,
     finishStreaming,
     addPendingAction,
     removePendingAction,

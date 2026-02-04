@@ -7,18 +7,21 @@
 import { storeToRefs } from 'pinia';
 import { ref, nextTick } from 'vue';
 
+import { useChatStore } from '../../stores/chat';
 import { useConversationsStore } from '../../stores/conversations';
 import { formatRelativeDate } from '../../utils/date';
 import Spinner from '../shared/Spinner.vue';
 import Icon from '../shared/Icon.vue';
 
 const conversationsStore = useConversationsStore();
+const chatStore = useChatStore();
 const {
   sortedConversations,
   currentConversationId,
   isLoading,
   isSaving,
 } = storeToRefs(conversationsStore);
+const { isLoading: isStreaming } = storeToRefs(chatStore);
 
 const deletingId = ref<string | null>(null);
 const confirmDeleteId = ref<string | null>(null);
@@ -27,6 +30,10 @@ const renameValue = ref('');
 const renameInputRef = ref<HTMLInputElement | null>(null);
 
 async function handleNewConversation() {
+  // If streaming, start buffering chunks BEFORE we save (to avoid race condition)
+  if (isStreaming.value) {
+    chatStore.startSwitchingFromStreaming();
+  }
   // Save current conversation before creating new one
   await conversationsStore.saveCurrentConversation();
   conversationsStore.createNewConversation();
@@ -35,6 +42,11 @@ async function handleNewConversation() {
 async function handleLoadConversation(id: string) {
   if (id === currentConversationId.value) {
     return;
+  }
+  // If streaming, start buffering chunks BEFORE we save (to avoid race condition)
+  // This ensures chunks arriving during save go to the buffer, not the message
+  if (isStreaming.value) {
+    chatStore.startSwitchingFromStreaming();
   }
   // Save current conversation before switching
   await conversationsStore.saveCurrentConversation();

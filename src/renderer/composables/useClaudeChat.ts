@@ -9,6 +9,7 @@ import type { SlashCommandInfo } from '@shared/types';
 import { onMounted, onUnmounted, shallowRef } from 'vue';
 
 import { useChatStore } from '../stores/chat';
+import { useConversationsStore } from '../stores/conversations';
 import { useFilesStore } from '../stores/files';
 import { useSettingsStore } from '../stores/settings';
 import { logger } from '../utils/logger';
@@ -29,6 +30,7 @@ const sharedSlashCommands = shallowRef<SlashCommandInfo[]>([]);
 
 export function useClaudeChat() {
   const chatStore = useChatStore();
+  const conversationsStore = useConversationsStore();
   const filesStore = useFilesStore();
   const settingsStore = useSettingsStore();
 
@@ -98,8 +100,9 @@ export function useClaudeChat() {
       });
     }
 
-    // Start assistant message for streaming
-    chatStore.startAssistantMessage();
+    // Start assistant message for streaming - pass conversation ID for proper tracking
+    const currentConvId = conversationsStore.currentConversationId;
+    chatStore.startAssistantMessage(currentConvId || undefined);
     chatStore.setLoading(true);
 
     try {
@@ -150,6 +153,7 @@ export function useClaudeChat() {
       await window.electron.claude.abort();
       chatStore.setLoading(false);
       chatStore.finishStreaming();
+      chatStore.clearStreamingState();
     } catch (err) {
       logger.error('Failed to abort', err);
     }
@@ -175,9 +179,29 @@ export function useClaudeChat() {
     logger.info('Registering IPC listeners for Claude chat');
     listenersRegistered = true;
 
-    // Handle streaming chunks
+    // Handle streaming chunks - route to correct conversation
     cleanupChunk = window.electron.claude.onChunk((chunk) => {
-      chatStore.appendToLastMessage(chunk);
+      const streamingConvId = chatStore.getStreamingConversationId();
+      const streamingMsgId = chatStore.getStreamingMessageId();
+      const currentConvId = conversationsStore.currentConversationId;
+
+      // Check if user has initiated a switch OR if conversation IDs don't match
+      const shouldBuffer = chatStore.shouldBufferChunks() ||
+        (streamingConvId && streamingConvId !== currentConvId);
+
+      if (!shouldBuffer) {
+        // Still in the same conversation, append normally
+        chatStore.appendToLastMessage(chunk);
+      } else if (streamingConvId) {
+        // User switched conversations - buffer the chunk for the original conversation
+        chatStore.appendToStreamingBuffer(chunk, streamingConvId, streamingMsgId || 'unknown');
+        logger.debug('Buffering chunk for original conversation', {
+          streamingConvId,
+          streamingMsgId,
+          currentConvId,
+          chunkLength: chunk.length,
+        });
+      }
     });
 
     // Handle tool use requests
@@ -190,13 +214,47 @@ export function useClaudeChat() {
       chatStore.setError(error);
       chatStore.setLoading(false);
       chatStore.finishStreaming();
+      chatStore.clearStreamingState();
     });
 
     // Handle completion
-    cleanupDone = window.electron.claude.onDone(() => {
+    cleanupDone = window.electron.claude.onDone(async () => {
       logger.info('Claude done event received, finishing streaming');
+
+      const currentConvId = conversationsStore.currentConversationId;
+      const buffer = chatStore.getAndClearStreamingBuffer();
+
+      // If there's buffered content from when user switched away, we need to save it
+      if (buffer && buffer.conversationId && buffer.conversationId !== currentConvId) {
+        logger.info('Applying buffered streaming content to original conversation', {
+          conversationId: buffer.conversationId,
+          contentLength: buffer.content.length,
+        });
+
+        // Load the original conversation, apply the buffer, and save
+        try {
+          const originalConv = await window.electron.conversation.get(buffer.conversationId);
+          if (originalConv && originalConv.messages.length > 0) {
+            // Find the assistant message that was being streamed and update it
+            const lastMsg = originalConv.messages[originalConv.messages.length - 1];
+            if (lastMsg && lastMsg.role === 'assistant') {
+              lastMsg.content += buffer.content;
+              lastMsg.isStreaming = false;
+              originalConv.updatedAt = Date.now();
+              await window.electron.conversation.save(originalConv);
+              logger.info('Saved buffered content to original conversation', {
+                conversationId: buffer.conversationId,
+              });
+            }
+          }
+        } catch (err) {
+          logger.error('Failed to save buffered content to original conversation', err);
+        }
+      }
+
       chatStore.setLoading(false);
       chatStore.finishStreaming();
+      chatStore.clearStreamingState();
       // Note: Conversation is saved automatically by the conversations store watcher
       // when isLoading transitions from true to false
     });
