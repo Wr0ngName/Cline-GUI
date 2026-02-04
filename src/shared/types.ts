@@ -443,6 +443,8 @@ export const IPC_CHANNELS = {
   CONVERSATION_GET: 'conversation:get',
   /** Save a conversation */
   CONVERSATION_SAVE: 'conversation:save',
+  /** Rename a conversation */
+  CONVERSATION_RENAME: 'conversation:rename',
   /** Delete a conversation */
   CONVERSATION_DELETE: 'conversation:delete',
 

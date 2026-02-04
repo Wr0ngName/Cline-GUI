@@ -120,6 +120,25 @@ export function setupConversationIPC(conversationService: ConversationService): 
     }
   });
 
+  // Rename a conversation
+  ipcMain.handle(IPC_CHANNELS.CONVERSATION_RENAME, async (_event, id: string, newTitle: string) => {
+    try {
+      logger.debug('IPC: conversation:rename', { id, newTitle: newTitle?.slice(0, 30) });
+
+      // Validate service
+      ensureService(conversationService, 'ConversationService');
+
+      // Validate inputs
+      validateString(id, 'Conversation ID');
+      validateString(newTitle, 'New title');
+
+      await conversationService.rename(id, newTitle);
+    } catch (error) {
+      logger.error('Failed to rename conversation', { error, id });
+      throw new ConfigurationError(formatErrorMessage('Failed to rename conversation', error), ERROR_CODES.CONVERSATION_SAVE_FAILED, error);
+    }
+  });
+
   // Delete a conversation
   ipcMain.handle(IPC_CHANNELS.CONVERSATION_DELETE, async (_event, id: string) => {
     try {

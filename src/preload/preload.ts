@@ -131,6 +131,9 @@ const electronAPI: ElectronAPI = {
     save: (conversation) =>
       ipcRenderer.invoke(IPC_CHANNELS.CONVERSATION_SAVE, conversation),
 
+    rename: (id: string, newTitle: string) =>
+      ipcRenderer.invoke(IPC_CHANNELS.CONVERSATION_RENAME, id, newTitle),
+
     delete: (id: string) =>
       ipcRenderer.invoke(IPC_CHANNELS.CONVERSATION_DELETE, id),
   },

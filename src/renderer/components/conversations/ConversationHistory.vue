@@ -1,11 +1,11 @@
 <script setup lang="ts">
 /**
  * Conversation history sidebar component
- * Displays list of past conversations with load/delete functionality
+ * Displays list of past conversations with load/delete/rename functionality
  */
 
 import { storeToRefs } from 'pinia';
-import { ref } from 'vue';
+import { ref, nextTick } from 'vue';
 
 import { useConversationsStore } from '../../stores/conversations';
 import { formatRelativeDate } from '../../utils/date';
@@ -22,6 +22,9 @@ const {
 
 const deletingId = ref<string | null>(null);
 const confirmDeleteId = ref<string | null>(null);
+const renamingId = ref<string | null>(null);
+const renameValue = ref('');
+const renameInputRef = ref<HTMLInputElement | null>(null);
 
 async function handleNewConversation() {
   // Save current conversation before creating new one
@@ -52,6 +55,40 @@ async function handleConfirmDelete(id: string) {
 
 function handleCancelDelete() {
   confirmDeleteId.value = null;
+}
+
+function handleRenameClick(id: string, currentTitle: string, event: Event) {
+  event.stopPropagation();
+  renamingId.value = id;
+  renameValue.value = currentTitle || '';
+  // Focus input after it's rendered
+  nextTick(() => {
+    renameInputRef.value?.focus();
+    renameInputRef.value?.select();
+  });
+}
+
+async function handleRenameSubmit(id: string) {
+  if (renameValue.value.trim()) {
+    await conversationsStore.renameConversation(id, renameValue.value.trim());
+  }
+  renamingId.value = null;
+  renameValue.value = '';
+}
+
+function handleRenameCancel() {
+  renamingId.value = null;
+  renameValue.value = '';
+}
+
+function handleRenameKeydown(event: KeyboardEvent, id: string) {
+  if (event.key === 'Enter') {
+    event.preventDefault();
+    handleRenameSubmit(id);
+  } else if (event.key === 'Escape') {
+    event.preventDefault();
+    handleRenameCancel();
+  }
 }
 </script>
 
@@ -143,6 +180,22 @@ function handleCancelDelete() {
             </button>
           </div>
 
+          <!-- Rename overlay -->
+          <div
+            v-if="renamingId === conversation.id"
+            class="absolute inset-0 bg-white dark:bg-surface-800 flex items-center px-3 z-10"
+          >
+            <input
+              ref="renameInputRef"
+              v-model="renameValue"
+              type="text"
+              class="flex-1 px-2 py-1 text-sm border border-primary-300 dark:border-primary-600 rounded bg-white dark:bg-surface-700 text-surface-800 dark:text-surface-200 focus:outline-none focus:ring-1 focus:ring-primary-500"
+              placeholder="Enter title..."
+              @keydown="handleRenameKeydown($event, conversation.id)"
+              @blur="handleRenameSubmit(conversation.id)"
+            >
+          </div>
+
           <!-- Conversation item -->
           <button
             class="w-full text-left px-3 py-2.5 hover:bg-surface-50 dark:hover:bg-surface-800 transition-colors"
@@ -171,6 +224,17 @@ function handleCancelDelete() {
                 <span class="text-xs text-surface-400 dark:text-surface-500 whitespace-nowrap">
                   {{ formatRelativeDate(conversation.updatedAt) }}
                 </span>
+                <!-- Rename button -->
+                <button
+                  class="p-1 rounded opacity-0 group-hover:opacity-100 hover:bg-surface-200 dark:hover:bg-surface-600 text-surface-400 hover:text-primary-500 dark:hover:text-primary-400 transition-all"
+                  title="Rename conversation"
+                  @click="handleRenameClick(conversation.id, conversation.title, $event)"
+                >
+                  <Icon
+                    name="edit"
+                    size="xs"
+                  />
+                </button>
                 <!-- Delete button -->
                 <button
                   class="p-1 rounded opacity-0 group-hover:opacity-100 hover:bg-surface-200 dark:hover:bg-surface-600 text-surface-400 hover:text-red-500 dark:hover:text-red-400 transition-all"

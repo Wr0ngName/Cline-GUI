@@ -262,6 +262,32 @@ export const useConversationsStore = defineStore('conversations', () => {
   }
 
   /**
+   * Rename a conversation
+   */
+  async function renameConversation(id: string, newTitle: string): Promise<boolean> {
+    try {
+      await window.electron.conversation.rename(id, newTitle);
+
+      // Update in local list
+      const index = conversations.value.findIndex((c) => c.id === id);
+      if (index !== -1) {
+        conversations.value[index] = {
+          ...conversations.value[index],
+          title: newTitle.trim(),
+          updatedAt: Date.now(),
+        };
+      }
+
+      logger.info('Renamed conversation', { id, newTitle: newTitle.slice(0, 30) });
+      return true;
+    } catch (err) {
+      logger.error('Failed to rename conversation', err);
+      error.value = 'Failed to rename conversation';
+      return false;
+    }
+  }
+
+  /**
    * Delete a conversation
    */
   async function deleteConversation(id: string): Promise<void> {
@@ -366,6 +392,7 @@ export const useConversationsStore = defineStore('conversations', () => {
     loadConversation,
     saveCurrentConversation,
     createNewConversation,
+    renameConversation,
     deleteConversation,
     clearError,
     initialize,

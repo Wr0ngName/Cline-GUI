@@ -64,6 +64,7 @@ export interface ElectronAPI {
     list: () => Promise<Conversation[]>;
     get: (id: string) => Promise<Conversation | null>;
     save: (conversation: Conversation) => Promise<void>;
+    rename: (id: string, newTitle: string) => Promise<void>;
     delete: (id: string) => Promise<void>;
   };
 

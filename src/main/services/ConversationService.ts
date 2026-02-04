@@ -210,6 +210,23 @@ export class ConversationService {
   }
 
   /**
+   * Rename a conversation (updates the title)
+   */
+  async rename(id: string, newTitle: string): Promise<void> {
+    const conversation = await this.get(id);
+    if (!conversation) {
+      throw new Error(`Conversation not found: ${id}`);
+    }
+
+    // Update title and save
+    conversation.title = newTitle.trim();
+    conversation.updatedAt = Date.now();
+    await this.save(conversation);
+
+    logger.info('Conversation renamed', { id, newTitle: newTitle.slice(0, 30) });
+  }
+
+  /**
    * Delete a conversation
    */
   async delete(id: string): Promise<void> {
