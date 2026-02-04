@@ -12,6 +12,7 @@ import type {
   ModelInfo,
   PendingAction,
   SlashCommandInfo,
+  TaskNotification,
   UpdateInfo,
   UpdateProgress,
 } from './types';
@@ -37,6 +38,7 @@ export interface ElectronAPI {
     onSlashCommands: (callback: (commands: SlashCommandInfo[]) => void) => () => void;
     onCommandAction: (callback: (action: string) => void) => () => void;
     onModelsChanged: (callback: (models: ModelInfo[]) => void) => () => void;
+    onTaskNotification: (callback: (notification: TaskNotification) => void) => () => void;
   };
 
   // File operations

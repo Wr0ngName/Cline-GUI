@@ -339,6 +339,65 @@ export interface Conversation {
 
 // Update types
 
+// Background Task types
+
+/**
+ * Status of a background task
+ * - running: Task is currently executing
+ * - completed: Task finished successfully
+ * - failed: Task execution failed
+ * - stopped: Task was manually stopped/aborted
+ */
+export type BackgroundTaskStatus = 'running' | 'completed' | 'failed' | 'stopped';
+
+/**
+ * Represents a background task (subagent or background command)
+ */
+export interface BackgroundTask {
+  /** Unique identifier for the task */
+  id: string;
+  /** Short description of the task */
+  description: string;
+  /** Current status of the task */
+  status: BackgroundTaskStatus;
+  /** Unix timestamp when the task started */
+  startedAt: number;
+  /** Unix timestamp when the task completed (if finished) */
+  completedAt?: number;
+  /** Summary of the task result (if completed) */
+  summary?: string;
+  /** Output file path (if applicable) */
+  outputFile?: string;
+  /** Session ID the task belongs to */
+  sessionId?: string;
+  /** Error message if task failed */
+  error?: string;
+}
+
+/**
+ * Notification from the SDK about a background task status change
+ */
+export interface TaskNotification {
+  /** Task identifier */
+  taskId: string;
+  /** New status of the task */
+  status: BackgroundTaskStatus;
+  /** Task description */
+  description?: string;
+  /** Summary of the result */
+  summary?: string;
+  /** Output file path */
+  outputFile?: string;
+  /** Session ID */
+  sessionId?: string;
+  /** Error message if failed */
+  error?: string;
+  /** UUID of the task */
+  uuid?: string;
+}
+
+// Update types
+
 /**
  * Information about an available application update
  */
@@ -390,6 +449,8 @@ export type IpcMainEvents = {
   'update:progress': (progress: UpdateProgress) => void;
   /** Update has been downloaded and is ready to install */
   'update:downloaded': () => void;
+  /** Background task notification from Claude */
+  'claude:task-notification': (notification: TaskNotification) => void;
 };
 
 /**
@@ -436,6 +497,8 @@ export const IPC_CHANNELS = {
   CLAUDE_GET_MODELS: 'claude:get-models',
   /** Model changed event */
   CLAUDE_MODEL_CHANGED: 'claude:model-changed',
+  /** Background task notification */
+  CLAUDE_TASK_NOTIFICATION: 'claude:task-notification',
 
   // File operations
   /** Open directory picker dialog */

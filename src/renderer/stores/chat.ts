@@ -2,7 +2,7 @@
  * Chat store - manages chat messages and Claude interactions
  */
 
-import type { ChatMessage, PendingAction } from '@shared/types';
+import type { ChatMessage, PendingAction, BackgroundTask, TaskNotification } from '@shared/types';
 import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
 
@@ -24,6 +24,8 @@ export const useChatStore = defineStore('chat', () => {
   const isSwitchingFromStreaming = ref(false);
   // Buffer for streaming content when user switches away from the streaming conversation
   const streamingBuffer = ref<{ conversationId: string; messageId: string; content: string } | null>(null);
+  // Background tasks (subagents, background commands)
+  const backgroundTasks = ref<Map<string, BackgroundTask>>(new Map());
 
   // Getters
   const hasMessages = computed(() => messages.value.length > 0);
@@ -31,6 +33,11 @@ export const useChatStore = defineStore('chat', () => {
   const lastMessage = computed(() =>
     messages.value.length > 0 ? messages.value[messages.value.length - 1] : null
   );
+  const hasBackgroundTasks = computed(() => backgroundTasks.value.size > 0);
+  const runningTasksCount = computed(() =>
+    Array.from(backgroundTasks.value.values()).filter(t => t.status === 'running').length
+  );
+  const backgroundTasksList = computed(() => Array.from(backgroundTasks.value.values()));
 
   // Actions
   function addMessage(message: ChatMessage): void {
@@ -199,6 +206,72 @@ export const useChatStore = defineStore('chat', () => {
     messages.value = loadedMessages;
   }
 
+  /**
+   * Handle a task notification from the SDK
+   * Updates or creates a background task based on the notification
+   */
+  function handleTaskNotification(notification: TaskNotification): void {
+    const existingTask = backgroundTasks.value.get(notification.taskId);
+
+    if (existingTask) {
+      // Update existing task
+      existingTask.status = notification.status;
+      if (notification.description) {
+        existingTask.description = notification.description;
+      }
+      if (notification.summary) {
+        existingTask.summary = notification.summary;
+      }
+      if (notification.error) {
+        existingTask.error = notification.error;
+      }
+      if (notification.status !== 'running') {
+        existingTask.completedAt = Date.now();
+      }
+    } else {
+      // Create new task
+      const task: BackgroundTask = {
+        id: notification.taskId,
+        description: notification.description || 'Background task',
+        status: notification.status,
+        startedAt: Date.now(),
+        summary: notification.summary,
+        outputFile: notification.outputFile,
+        sessionId: notification.sessionId,
+        error: notification.error,
+      };
+      if (notification.status !== 'running') {
+        task.completedAt = Date.now();
+      }
+      backgroundTasks.value.set(notification.taskId, task);
+    }
+  }
+
+  /**
+   * Remove a background task by ID
+   */
+  function removeBackgroundTask(taskId: string): void {
+    backgroundTasks.value.delete(taskId);
+  }
+
+  /**
+   * Clear all completed background tasks
+   */
+  function clearCompletedTasks(): void {
+    for (const [taskId, task] of backgroundTasks.value.entries()) {
+      if (task.status !== 'running') {
+        backgroundTasks.value.delete(taskId);
+      }
+    }
+  }
+
+  /**
+   * Clear all background tasks
+   */
+  function clearAllBackgroundTasks(): void {
+    backgroundTasks.value.clear();
+  }
+
   return {
     // State
     messages,
@@ -210,11 +283,15 @@ export const useChatStore = defineStore('chat', () => {
     streamingMessageId,
     streamingBuffer,
     isSwitchingFromStreaming,
+    backgroundTasks,
 
     // Getters
     hasMessages,
     hasPendingActions,
     lastMessage,
+    hasBackgroundTasks,
+    runningTasksCount,
+    backgroundTasksList,
 
     // Actions
     addMessage,
@@ -237,5 +314,9 @@ export const useChatStore = defineStore('chat', () => {
     clearError,
     clearMessages,
     loadMessages,
+    handleTaskNotification,
+    removeBackgroundTask,
+    clearCompletedTasks,
+    clearAllBackgroundTasks,
   };
 });

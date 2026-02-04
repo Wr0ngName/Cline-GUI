@@ -24,6 +24,7 @@ let cleanupError: (() => void) | null = null;
 let cleanupDone: (() => void) | null = null;
 let cleanupSlashCommands: (() => void) | null = null;
 let cleanupCommandAction: (() => void) | null = null;
+let cleanupTaskNotification: (() => void) | null = null;
 
 // Shared slash commands state (singleton)
 const sharedSlashCommands = shallowRef<SlashCommandInfo[]>([]);
@@ -274,6 +275,16 @@ export function useClaudeChat() {
       }
       // Other actions like 'compact', 'login', 'logout' can be handled here
     });
+
+    // Handle background task notifications
+    cleanupTaskNotification = window.electron.claude.onTaskNotification((notification) => {
+      logger.info('Received task notification', {
+        taskId: notification.taskId,
+        status: notification.status,
+        description: notification.description,
+      });
+      chatStore.handleTaskNotification(notification);
+    });
   }
 
   /**
@@ -316,6 +327,10 @@ export function useClaudeChat() {
     if (cleanupCommandAction) {
       cleanupCommandAction();
       cleanupCommandAction = null;
+    }
+    if (cleanupTaskNotification) {
+      cleanupTaskNotification();
+      cleanupTaskNotification = null;
     }
   }
 

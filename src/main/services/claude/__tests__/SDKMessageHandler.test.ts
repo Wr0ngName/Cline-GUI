@@ -24,6 +24,7 @@ describe('SDKMessageHandler', () => {
     callbacks = {
       onChunk: vi.fn(),
       onSlashCommands: vi.fn(),
+      onTaskNotification: vi.fn(),
     };
     handler = new SDKMessageHandler(callbacks);
   });

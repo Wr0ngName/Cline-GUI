@@ -11,7 +11,7 @@ import type {
   SDKResultMessage,
 } from '@anthropic-ai/claude-agent-sdk';
 
-import type { SlashCommandInfo } from '../../../shared/types';
+import type { SlashCommandInfo, TaskNotification, BackgroundTaskStatus } from '../../../shared/types';
 import logger from '../../utils/logger';
 
 import { BUILTIN_COMMANDS } from './BuiltinCommandHandler';
@@ -22,6 +22,7 @@ import { BUILTIN_COMMANDS } from './BuiltinCommandHandler';
 export interface MessageHandlerCallbacks {
   onChunk: (chunk: string) => void;
   onSlashCommands: (commands: SlashCommandInfo[]) => void;
+  onTaskNotification: (notification: TaskNotification) => void;
 }
 
 /**
@@ -251,7 +252,7 @@ export class SDKMessageHandler {
   }
 
   /**
-   * Process system messages (init, status, etc.)
+   * Process system messages (init, status, task_notification, etc.)
    */
   private processSystemMessage(message: SDKMessage): void {
     const systemMsg = message as {
@@ -261,6 +262,15 @@ export class SDKMessageHandler {
       tools?: string[];
       model?: string;
       status?: string;
+      // Task notification fields
+      taskId?: string;
+      task_status?: string;
+      description?: string;
+      summary?: string;
+      outputFile?: string;
+      sessionId?: string;
+      error?: string;
+      uuid?: string;
     };
 
     logger.debug('System message', {
@@ -305,6 +315,42 @@ export class SDKMessageHandler {
     // Handle status messages (like compacting)
     if (systemMsg.subtype === 'status' && systemMsg.status) {
       this.callbacks.onChunk(`\n_${systemMsg.status}_\n`);
+    }
+
+    // Handle task notifications (background tasks/agents)
+    if (systemMsg.subtype === 'task_notification' && systemMsg.taskId) {
+      logger.info('Task notification received', {
+        taskId: systemMsg.taskId,
+        status: systemMsg.task_status,
+        description: systemMsg.description,
+      });
+
+      // Map SDK status to our BackgroundTaskStatus type
+      const statusMap: Record<string, BackgroundTaskStatus> = {
+        'running': 'running',
+        'completed': 'completed',
+        'failed': 'failed',
+        'stopped': 'stopped',
+        // Handle potential variations
+        'started': 'running',
+        'success': 'completed',
+        'error': 'failed',
+        'cancelled': 'stopped',
+        'aborted': 'stopped',
+      };
+
+      const notification: TaskNotification = {
+        taskId: systemMsg.taskId,
+        status: statusMap[systemMsg.task_status || 'running'] || 'running',
+        description: systemMsg.description,
+        summary: systemMsg.summary,
+        outputFile: systemMsg.outputFile,
+        sessionId: systemMsg.sessionId,
+        error: systemMsg.error,
+        uuid: systemMsg.uuid,
+      };
+
+      this.callbacks.onTaskNotification(notification);
     }
 
     // Emit other system messages to the UI

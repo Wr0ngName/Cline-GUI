@@ -83,6 +83,15 @@ const electronAPI: ElectronAPI = {
       ipcRenderer.on(IPC_CHANNELS.CLAUDE_MODEL_CHANGED, handler);
       return () => ipcRenderer.removeListener(IPC_CHANNELS.CLAUDE_MODEL_CHANGED, handler);
     },
+
+    onTaskNotification: (callback) => {
+      const handler = (
+        _event: Electron.IpcRendererEvent,
+        notification: Parameters<typeof callback>[0]
+      ) => callback(notification);
+      ipcRenderer.on(IPC_CHANNELS.CLAUDE_TASK_NOTIFICATION, handler);
+      return () => ipcRenderer.removeListener(IPC_CHANNELS.CLAUDE_TASK_NOTIFICATION, handler);
+    },
   },
 
   // File operations

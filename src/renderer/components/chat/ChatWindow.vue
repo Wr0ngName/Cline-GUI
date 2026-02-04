@@ -7,13 +7,14 @@ import { storeToRefs } from 'pinia';
 
 import { useChatStore } from '../../stores/chat';
 import { useClaudeChat } from '../../composables/useClaudeChat';
-import MessageList from './MessageList.vue';
-import InputBox from './InputBox.vue';
 import ActionApproval from './ActionApproval.vue';
+import BackgroundTaskPanel from './BackgroundTaskPanel.vue';
+import InputBox from './InputBox.vue';
+import MessageList from './MessageList.vue';
 import Toast from '../shared/Toast.vue';
 
 const chatStore = useChatStore();
-const { pendingActions, error, hasPendingActions } = storeToRefs(chatStore);
+const { pendingActions, error, hasPendingActions, hasBackgroundTasks, backgroundTasksList } = storeToRefs(chatStore);
 
 const { sendMessage, approveAction, rejectAction, abort } = useClaudeChat();
 
@@ -35,6 +36,14 @@ function handleReject(actionId: string) {
 
 function clearError() {
   chatStore.clearError();
+}
+
+function handleDismissTask(taskId: string) {
+  chatStore.removeBackgroundTask(taskId);
+}
+
+function handleClearCompletedTasks() {
+  chatStore.clearCompletedTasks();
 }
 </script>
 
@@ -63,6 +72,27 @@ function clearError() {
 
     <!-- Messages -->
     <MessageList />
+
+    <!-- Background tasks panel -->
+    <Transition
+      enter-active-class="transition ease-out duration-200"
+      enter-from-class="opacity-0 translate-y-2"
+      enter-to-class="opacity-100 translate-y-0"
+      leave-active-class="transition ease-in duration-150"
+      leave-from-class="opacity-100 translate-y-0"
+      leave-to-class="opacity-0 translate-y-2"
+    >
+      <div
+        v-if="hasBackgroundTasks"
+        class="px-4 pt-2"
+      >
+        <BackgroundTaskPanel
+          :tasks="backgroundTasksList"
+          @dismiss="handleDismissTask"
+          @clear-completed="handleClearCompletedTasks"
+        />
+      </div>
+    </Transition>
 
     <!-- Pending actions -->
     <div
