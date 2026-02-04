@@ -5,6 +5,11 @@
  * for custom permission UI integration.
  * Supports both OAuth tokens (Pro/Max) and API keys.
  *
+ * MULTI-INSTANCE SUPPORT:
+ * This service supports multiple concurrent SDK queries, one per conversation.
+ * Each conversation gets its own Query instance, AbortController, and message handler.
+ * Resource limits prevent memory exhaustion (default: 5 concurrent queries).
+ *
  * This service orchestrates the following modules:
  * - PermissionManager: Handles tool permission requests
  * - SDKMessageHandler: Processes SDK messages
@@ -32,6 +37,7 @@ import {
   ModelInfo,
   TaskNotification,
   SessionUsage,
+  MAX_CONCURRENT_QUERIES,
 } from '../../shared/types';
 import { createSender } from '../utils/ipc-helpers';
 import logger from '../utils/logger';
@@ -45,18 +51,35 @@ import {
   BuiltinCommandHandler,
 } from './claude';
 
+/**
+ * Represents an active query instance for a specific conversation
+ */
+interface QueryInstance {
+  conversationId: string;
+  query: Query;
+  abortController: AbortController;
+  messageHandler: SDKMessageHandler;
+  permissionManager: PermissionManager;
+  workingDirectory: string;
+  startedAt: number;
+  originalEnv: Record<string, string | undefined>;
+}
+
 export class ClaudeCodeService {
-  private permissionManager: PermissionManager;
-  private messageHandler: SDKMessageHandler;
   private authValidator: AuthValidator;
   private errorHandler: ErrorHandler;
   private builtinCommandHandler: BuiltinCommandHandler;
-  private abortController: AbortController | null = null;
-  private currentQuery: Query | null = null;
+
+  // Multi-instance support: Map of conversation ID to active query
+  private activeQueries: Map<string, QueryInstance> = new Map();
+  private maxConcurrentQueries: number = MAX_CONCURRENT_QUERIES;
+
   // Bound sender function for DRY IPC communication
   private send: (channel: string, ...args: unknown[]) => boolean;
-  // Cached models list
+  // Cached models list (shared across all queries)
   private cachedModels: ModelInfo[] = [];
+  // Cached slash commands (shared across all queries)
+  private cachedSlashCommands: SlashCommandInfo[] = [];
   private configService: ConfigService;
 
   constructor(configService: ConfigService, getMainWindow: () => BrowserWindow | null) {
@@ -66,41 +89,99 @@ export class ClaudeCodeService {
     // Store config service reference for model selection
     this.configService = configService;
 
-    // Initialize modules
+    // Initialize shared modules (not per-query)
     this.authValidator = new AuthValidator(configService);
     this.errorHandler = new ErrorHandler();
-    this.permissionManager = new PermissionManager(
-      configService,
-      (action: PendingAction) => this.emitToolUse(action)
-    );
-    this.messageHandler = new SDKMessageHandler({
-      onChunk: (chunk: string) => this.emitChunk(chunk),
-      onSlashCommands: (commands: SlashCommandInfo[]) => this.emitSlashCommands(commands),
-      onTaskNotification: (notification: TaskNotification) => this.emitTaskNotification(notification),
-      onUsageUpdate: (usage: SessionUsage) => this.emitUsageUpdate(usage),
-    });
+
+    // Builtin command handler is shared (for /help, /clear, etc.)
     this.builtinCommandHandler = new BuiltinCommandHandler({
-      getSlashCommands: () => this.messageHandler.getSlashCommands(),
-      onChunk: (chunk: string) => this.emitChunk(chunk),
-      onDone: () => this.emitDone(),
+      getSlashCommands: () => this.cachedSlashCommands,
+      // Note: builtin commands need conversationId, handled in sendMessage
+      onChunk: () => {}, // Will be overridden per-call
+      onDone: () => {},  // Will be overridden per-call
     });
 
-    logger.info('ClaudeCodeService initialized');
+    logger.info('ClaudeCodeService initialized with multi-instance support', {
+      maxConcurrentQueries: this.maxConcurrentQueries,
+    });
   }
 
   /**
    * Handle action response from renderer (approve/reject)
+   * Routes to the correct conversation's permission manager
    */
-  handleActionResponse(response: ActionResponse): void {
-    this.permissionManager.handleActionResponse(response);
+  handleActionResponse(conversationId: string, response: ActionResponse): void {
+    const instance = this.activeQueries.get(conversationId);
+    if (instance) {
+      instance.permissionManager.handleActionResponse(response);
+    } else {
+      logger.warn('Cannot handle action response - no active query for conversation', {
+        conversationId,
+        actionId: response.actionId,
+      });
+    }
+  }
+
+  /**
+   * Get the count of active queries
+   */
+  getActiveQueryCount(): number {
+    return this.activeQueries.size;
+  }
+
+  /**
+   * Check if a specific conversation has an active query
+   */
+  isConversationActive(conversationId: string): boolean {
+    return this.activeQueries.has(conversationId);
+  }
+
+  /**
+   * Get list of active conversation IDs
+   */
+  getActiveConversationIds(): string[] {
+    return Array.from(this.activeQueries.keys());
+  }
+
+  /**
+   * Get maximum concurrent queries limit
+   */
+  getMaxConcurrentQueries(): number {
+    return this.maxConcurrentQueries;
+  }
+
+  /**
+   * Emit active query count to renderer
+   */
+  private emitActiveQueryCount(): void {
+    this.send(IPC_CHANNELS.CLAUDE_ACTIVE_QUERIES, this.activeQueries.size, this.maxConcurrentQueries);
   }
 
   /**
    * Send a message to Claude using the Claude Code SDK
+   * @param conversationId - The conversation this message belongs to
+   * @param message - The message content
+   * @param workingDirectory - The working directory for file operations
    */
-  async sendMessage(message: string, workingDirectory: string): Promise<void> {
-    // Reset state for new query
-    this.messageHandler.reset();
+  async sendMessage(conversationId: string, message: string, workingDirectory: string): Promise<void> {
+    // Check resource limits
+    if (this.activeQueries.size >= this.maxConcurrentQueries && !this.activeQueries.has(conversationId)) {
+      const errorMsg = `Maximum concurrent conversations (${this.maxConcurrentQueries}) reached. ` +
+        `Please wait for another conversation to complete or cancel it.`;
+      logger.warn('Resource limit reached', {
+        currentCount: this.activeQueries.size,
+        maxCount: this.maxConcurrentQueries,
+        conversationId,
+      });
+      this.emitError(conversationId, errorMsg);
+      return;
+    }
+
+    // If this conversation already has an active query, abort it first
+    if (this.activeQueries.has(conversationId)) {
+      logger.info('Aborting existing query for conversation before starting new one', { conversationId });
+      await this.abort(conversationId);
+    }
 
     // Check if this is a built-in command that must be handled locally
     // (SDK doesn't support built-in CLI commands like /help, /clear, etc.)
@@ -108,38 +189,57 @@ export class ClaudeCodeService {
       const result = this.builtinCommandHandler.handleCommand(message);
       if (result.handled) {
         logger.info('Handled built-in command locally', {
+          conversationId,
           command: message.trim().split(' ')[0],
           hasAction: !!result.action,
         });
         if (result.response) {
-          this.emitChunk(result.response);
+          this.emitChunk(conversationId, result.response);
         }
         // Emit special action if needed (e.g., clear conversation)
         if (result.action) {
           this.send(IPC_CHANNELS.CLAUDE_COMMAND_ACTION, result.action);
         }
-        this.emitDone();
+        this.emitDone(conversationId);
         return;
       }
     }
 
     // Check if this is a slash command (starts with /)
     const isSlashCommand = message.trim().startsWith('/');
-    if (isSlashCommand) {
-      this.messageHandler.markSlashCommandSent();
-      logger.debug('Detected slash command', { command: message.trim().split(' ')[0] });
-    }
 
     // Check if auth is configured
     if (!(await this.authValidator.hasAuth())) {
-      this.emitError('Not authenticated. Please login with your Claude account or add an API key in Settings.');
+      this.emitError(conversationId, 'Not authenticated. Please login with your Claude account or add an API key in Settings.');
       return;
     }
 
     // Create abort controller for this request
-    this.abortController = new AbortController();
+    const abortController = new AbortController();
 
-    // Track original env values for cleanup - must be outside try block for finally access
+    // Create per-conversation permission manager
+    const permissionManager = new PermissionManager(
+      this.configService,
+      (action: PendingAction) => this.emitToolUse(conversationId, action)
+    );
+
+    // Create per-conversation message handler
+    const messageHandler = new SDKMessageHandler({
+      onChunk: (chunk: string) => this.emitChunk(conversationId, chunk),
+      onSlashCommands: (commands: SlashCommandInfo[]) => {
+        this.cachedSlashCommands = commands;
+        this.emitSlashCommands(conversationId, commands);
+      },
+      onTaskNotification: (notification: TaskNotification) => this.emitTaskNotification(conversationId, notification),
+      onUsageUpdate: (usage: SessionUsage) => this.emitUsageUpdate(conversationId, usage),
+    });
+
+    if (isSlashCommand) {
+      messageHandler.markSlashCommandSent();
+      logger.debug('Detected slash command', { conversationId, command: message.trim().split(' ')[0] });
+    }
+
+    // Track original env values for cleanup
     const originalEnv: Record<string, string | undefined> = {};
 
     try {
@@ -147,22 +247,21 @@ export class ClaudeCodeService {
       const selectedModel = await this.configService.getSelectedModel();
 
       logger.info('Sending message to Claude Code SDK', {
+        conversationId,
         messageLength: message.length,
         workingDirectory,
         isSlashCommand,
         model: selectedModel || '(SDK default)',
+        activeQueries: this.activeQueries.size,
       });
 
       // Set up authentication environment
       const authEnv = await this.authValidator.setupAuthEnv();
 
       // CRITICAL: Set auth env vars in actual process.env BEFORE calling query()
-      // This matches the mautrix-claude pattern that works.
-      // The SDK may check process.env for authentication before our spawn callback runs.
       Object.entries(authEnv).forEach(([key, value]) => {
         originalEnv[key] = process.env[key];
         process.env[key] = value;
-        logger.debug('Set process.env for SDK', { key, valueLength: value.length });
       });
 
       // Use Claude Code SDK query function with canUseTool callback
@@ -170,80 +269,92 @@ export class ClaudeCodeService {
         prompt: message,
         options: {
           cwd: workingDirectory,
-          abortController: this.abortController,
-          // Note: We set env vars in process.env above, but also pass via options
-          // for completeness - the SDK should see them either way now
+          abortController,
           env: authEnv,
-          // Use canUseTool for custom permission UI
-          canUseTool: this.permissionManager.createCanUseToolCallback(),
-          // Stream partial messages for real-time updates
+          canUseTool: permissionManager.createCanUseToolCallback(),
           includePartialMessages: true,
-          // Use selected model if configured (empty string = SDK default)
           ...(selectedModel ? { model: selectedModel } : {}),
-          // Use Electron as Node.js runtime (with Windows bundled Node.js support)
           spawnClaudeCodeProcess: (options: SpawnOptions): SpawnedProcess => {
-            return this.spawnSDKProcess(options);
+            return this.spawnSDKProcess(options, conversationId);
           },
         },
       });
 
-      this.currentQuery = queryIterator;
+      // Create and store the query instance
+      const instance: QueryInstance = {
+        conversationId,
+        query: queryIterator,
+        abortController,
+        messageHandler,
+        permissionManager,
+        workingDirectory,
+        startedAt: Date.now(),
+        originalEnv,
+      };
+      this.activeQueries.set(conversationId, instance);
+      this.emitActiveQueryCount();
 
-      // Fetch full slash command details and available models now that we have a query object
-      // These run asynchronously and emit updates when ready
-      this.fetchAndEmitSlashCommandDetails();
-      this.fetchAndCacheModels();
+      // Fetch full slash command details and available models
+      this.fetchAndEmitSlashCommandDetails(conversationId, queryIterator);
+      this.fetchAndCacheModels(queryIterator);
 
       // Process the async generator
       for await (const sdkMessage of queryIterator) {
-        await this.messageHandler.handleMessage(sdkMessage);
+        // Check if query was aborted while processing
+        if (!this.activeQueries.has(conversationId)) {
+          logger.debug('Query was aborted, stopping message processing', { conversationId });
+          break;
+        }
+        await messageHandler.handleMessage(sdkMessage);
       }
 
-      // Signal completion
-      this.emitDone();
-      logger.info('Message completed');
+      // Signal completion (only if not already cleaned up)
+      if (this.activeQueries.has(conversationId)) {
+        this.emitDone(conversationId);
+        logger.info('Message completed', { conversationId });
+      }
     } catch (error) {
-      this.handleQueryError(error as Error);
+      this.handleQueryError(conversationId, error as Error, messageHandler);
     } finally {
-      this.cleanupQuery(originalEnv);
+      this.cleanupQuery(conversationId);
     }
   }
 
   /**
    * Fetch full slash command details and emit to renderer.
-   * Called after query initialization when currentQuery is available.
    */
-  private async fetchAndEmitSlashCommandDetails(): Promise<void> {
+  private async fetchAndEmitSlashCommandDetails(conversationId: string, queryIterator: Query): Promise<void> {
     try {
-      const commands = await this.fetchSlashCommandDetails();
-      if (commands.length > 0) {
-        // Update handler with SDK commands (merges with built-in commands)
-        this.messageHandler.updateSlashCommands(commands);
-        // Emit the MERGED commands (built-in + SDK), not just SDK commands
-        const mergedCommands = this.messageHandler.getSlashCommands();
-        this.emitSlashCommands(mergedCommands);
-        logger.info('Emitted full slash command details', {
-          sdkCount: commands.length,
-          mergedCount: mergedCommands.length,
-          commands: mergedCommands.map(c => ({ name: c.name, hasDesc: !!c.description })),
-        });
-      }
+      const commands = await queryIterator.supportedCommands();
+      const slashCommands = commands.map((cmd) => ({
+        name: cmd.name,
+        description: cmd.description,
+        argumentHint: cmd.argumentHint,
+      }));
+
+      // Update cached commands
+      this.cachedSlashCommands = slashCommands;
+
+      // Emit to renderer
+      this.emitSlashCommands(conversationId, slashCommands);
+      logger.info('Emitted full slash command details', {
+        conversationId,
+        count: slashCommands.length,
+      });
     } catch (error) {
-      logger.warn('Failed to fetch and emit slash command details', error);
+      logger.warn('Failed to fetch and emit slash command details', { conversationId, error });
     }
   }
 
   /**
    * Spawn the SDK process with platform-specific handling
    */
-  private spawnSDKProcess(options: SpawnOptions): SpawnedProcess {
+  private spawnSDKProcess(options: SpawnOptions, conversationId: string): SpawnedProcess {
     let spawnFile: string = process.execPath;
     let spawnArgs: string[] = options.args;
     let extraEnv: Record<string, string> = { ELECTRON_RUN_AS_NODE: '1' };
 
     // On Windows, use bundled Node.js executable instead of ELECTRON_RUN_AS_NODE
-    // Windows GUI apps (like Electron) have known stdout capture issues
-    // See: https://github.com/electron/electron/issues/4552
     if (process.platform === 'win32') {
       const result = this.getWindowsSpawnConfig(options, spawnArgs);
       spawnFile = result.spawnFile;
@@ -252,29 +363,26 @@ export class ClaudeCodeService {
     }
 
     logger.debug('Spawning SDK process', {
+      conversationId,
       argsCount: spawnArgs.length,
       cwd: options.cwd,
       hasOAuthToken: !!options.env?.CLAUDE_CODE_OAUTH_TOKEN,
       hasApiKey: !!options.env?.ANTHROPIC_API_KEY,
     });
 
-    // CRITICAL: Inherit process.env so child has PATH, HOME, certs, etc.
-    // Then overlay SDK-provided env (includes CLAUDE_CODE_OAUTH_TOKEN)
-    // Then our additions (ELECTRON_RUN_AS_NODE on non-Windows)
     const childProcess: ChildProcess = spawn(spawnFile, spawnArgs, {
       cwd: options.cwd,
       env: {
-        ...process.env,  // Inherit parent environment (mautrix-claude does this)
-        ...options.env,  // SDK-provided env vars
-        ...extraEnv,     // Our additions
+        ...process.env,
+        ...options.env,
+        ...extraEnv,
       },
       stdio: ['pipe', 'pipe', 'pipe'],
       signal: options.signal,
     });
 
-    this.setupProcessLogging(childProcess);
+    this.setupProcessLogging(childProcess, conversationId);
 
-    // ChildProcess satisfies SpawnedProcess interface
     return childProcess as SpawnedProcess;
   }
 
@@ -291,19 +399,9 @@ export class ClaudeCodeService {
     if (fs.existsSync(bundledNodeExe)) {
       logger.info('Windows: using bundled Node.js for SDK spawn', { bundledNodeExe });
 
-      // CRITICAL: Vanilla Node.js cannot read from .asar archives.
-      // Files are unpacked to app.asar.unpacked/ via forge's asar.unpack config.
-      // We must rewrite paths from app.asar to app.asar.unpacked for the SDK's cli.js
       const spawnArgs = originalArgs.map(arg => {
         if (typeof arg === 'string' && arg.includes('app.asar') && !arg.includes('app.asar.unpacked')) {
-          const rewrittenArg = arg.replace(/app\.asar([/\\])/g, 'app.asar.unpacked$1');
-          if (rewrittenArg !== arg) {
-            logger.debug('Windows: rewrote asar path to unpacked', {
-              original: arg.slice(0, 100),
-              rewritten: rewrittenArg.slice(0, 100),
-            });
-          }
-          return rewrittenArg;
+          return arg.replace(/app\.asar([/\\])/g, 'app.asar.unpacked$1');
         }
         return arg;
       });
@@ -311,7 +409,7 @@ export class ClaudeCodeService {
       return {
         spawnFile: bundledNodeExe,
         spawnArgs,
-        extraEnv: {}, // No ELECTRON_RUN_AS_NODE needed with real Node.js
+        extraEnv: {},
       };
     }
 
@@ -329,24 +427,22 @@ export class ClaudeCodeService {
   /**
    * Set up logging for the spawned process
    */
-  private setupProcessLogging(childProcess: ChildProcess): void {
-    // Capture stderr for debugging failed spawns
+  private setupProcessLogging(childProcess: ChildProcess, conversationId: string): void {
     let stderrData = '';
     if (childProcess.stderr) {
       childProcess.stderr.on('data', (data) => {
         stderrData += data.toString();
-        // Log stderr in real-time for debugging
-        logger.debug('SDK process stderr', { data: data.toString().slice(0, 500) });
+        logger.debug('SDK process stderr', { conversationId, data: data.toString().slice(0, 500) });
       });
     }
 
-    // Add process lifecycle event handlers for better error handling
     childProcess.on('spawn', () => {
-      logger.debug('SDK process spawned successfully', { pid: childProcess.pid });
+      logger.debug('SDK process spawned successfully', { conversationId, pid: childProcess.pid });
     });
 
     childProcess.on('error', (error) => {
       logger.error('SDK process spawn error', {
+        conversationId,
         error: error.message,
         code: (error as NodeJS.ErrnoException).code,
       });
@@ -355,13 +451,14 @@ export class ClaudeCodeService {
     childProcess.on('exit', (code, signal) => {
       if (code !== 0 && code !== null && signal !== 'SIGTERM' && signal !== 'SIGINT') {
         logger.warn('SDK process exited unexpectedly', {
+          conversationId,
           code,
           signal,
           pid: childProcess.pid,
-          stderr: stderrData.slice(0, 1000), // Include stderr for debugging
+          stderr: stderrData.slice(0, 1000),
         });
       } else {
-        logger.debug('SDK process exited', { code, signal });
+        logger.debug('SDK process exited', { conversationId, code, signal });
       }
     });
   }
@@ -369,100 +466,139 @@ export class ClaudeCodeService {
   /**
    * Handle query errors
    */
-  private handleQueryError(error: Error): void {
+  private handleQueryError(conversationId: string, error: Error, messageHandler: SDKMessageHandler): void {
     if (this.errorHandler.isAbortError(error)) {
-      logger.info('Request aborted');
+      logger.info('Request aborted', { conversationId });
       return;
     }
 
     const errorMessage = error.message || '';
 
     // Handle process exit errors that occur after successful query completion
-    // The SDK throws when the underlying process exits with non-zero code,
-    // even if the query completed successfully. This is a known issue.
-    if (this.errorHandler.isPostSuccessProcessExitError(errorMessage, this.messageHandler.didQuerySucceed())) {
+    if (this.errorHandler.isPostSuccessProcessExitError(errorMessage, messageHandler.didQuerySucceed())) {
       logger.warn('Process exit error after successful query (ignoring)', {
+        conversationId,
         error: errorMessage,
       });
-      // Query succeeded, so emit done instead of error
-      this.emitDone();
+      this.emitDone(conversationId);
       return;
     }
 
-    logger.error('Failed to send message', error);
+    logger.error('Failed to send message', { conversationId, error });
 
-    // Provide user-friendly error messages based on error type
     const userMessage = this.errorHandler.getHumanReadableError(errorMessage);
-    this.emitError(userMessage);
+    this.emitError(conversationId, userMessage);
   }
 
   /**
    * Clean up after query completion
    */
-  private cleanupQuery(originalEnv: Record<string, string | undefined>): void {
-    this.abortController = null;
-    this.currentQuery = null;
+  private cleanupQuery(conversationId: string): void {
+    const instance = this.activeQueries.get(conversationId);
+    if (!instance) {
+      return;
+    }
 
-    // Clear any pending permissions
-    this.permissionManager.clearPendingPermissions();
+    // Clear pending permissions
+    instance.permissionManager.clearPendingPermissions();
 
-    // CRITICAL: Restore original process.env values
-    // This prevents credential leakage between queries if they somehow differ
-    Object.entries(originalEnv).forEach(([key, value]) => {
+    // Restore original process.env values
+    Object.entries(instance.originalEnv).forEach(([key, value]) => {
       if (value === undefined) {
         delete process.env[key];
       } else {
         process.env[key] = value;
       }
     });
-    logger.debug('Restored original process.env');
+
+    // Remove from active queries
+    this.activeQueries.delete(conversationId);
+    this.emitActiveQueryCount();
+
+    logger.debug('Cleaned up query', {
+      conversationId,
+      remainingQueries: this.activeQueries.size,
+    });
   }
 
   /**
    * Approve a pending action (called from IPC handler)
    */
   async approveAction(
+    conversationId: string,
     actionId: string,
     updatedInput?: Record<string, unknown>,
     alwaysAllow?: boolean
   ): Promise<void> {
-    this.permissionManager.handleActionResponse({
-      actionId,
-      approved: true,
-      updatedInput,
-      alwaysAllow,
-    });
+    const instance = this.activeQueries.get(conversationId);
+    if (instance) {
+      instance.permissionManager.handleActionResponse({
+        conversationId,
+        actionId,
+        approved: true,
+        updatedInput,
+        alwaysAllow,
+      });
+    } else {
+      logger.warn('Cannot approve action - no active query for conversation', { conversationId, actionId });
+    }
   }
 
   /**
    * Reject a pending action (called from IPC handler)
    */
-  async rejectAction(actionId: string, message?: string): Promise<void> {
-    this.permissionManager.handleActionResponse({
-      actionId,
-      approved: false,
-      denyMessage: message,
-    });
+  async rejectAction(conversationId: string, actionId: string, message?: string): Promise<void> {
+    const instance = this.activeQueries.get(conversationId);
+    if (instance) {
+      instance.permissionManager.handleActionResponse({
+        conversationId,
+        actionId,
+        approved: false,
+        denyMessage: message,
+      });
+    } else {
+      logger.warn('Cannot reject action - no active query for conversation', { conversationId, actionId });
+    }
   }
 
   /**
-   * Abort the current request
+   * Abort a specific conversation's request
    */
-  async abort(): Promise<void> {
-    if (this.currentQuery) {
-      try {
-        await this.currentQuery.interrupt();
-        logger.info('Query interrupted via SDK');
-      } catch (error) {
-        logger.debug('Could not interrupt query', error);
-      }
+  async abort(conversationId: string): Promise<void> {
+    const instance = this.activeQueries.get(conversationId);
+    if (!instance) {
+      logger.debug('No active query to abort', { conversationId });
+      return;
     }
-    if (this.abortController) {
-      this.abortController.abort();
-      logger.info('Request abort requested');
+
+    try {
+      await instance.query.interrupt();
+      logger.info('Query interrupted via SDK', { conversationId });
+    } catch (error) {
+      logger.debug('Could not interrupt query', { conversationId, error });
     }
+
+    instance.abortController.abort();
+    logger.info('Request abort requested', { conversationId });
+
     // Clear pending permissions
-    this.permissionManager.clearPendingPermissions();
+    instance.permissionManager.clearPendingPermissions();
+
+    // Clean up immediately
+    this.cleanupQuery(conversationId);
+
+    // Emit done to signal abort completion
+    this.emitDone(conversationId);
+  }
+
+  /**
+   * Abort all active queries (e.g., when app is closing)
+   */
+  async abortAll(): Promise<void> {
+    const conversationIds = Array.from(this.activeQueries.keys());
+    logger.info('Aborting all active queries', { count: conversationIds.length });
+
+    await Promise.all(conversationIds.map(id => this.abort(id)));
   }
 
   /**
@@ -473,52 +609,52 @@ export class ClaudeCodeService {
   }
 
   /**
-   * Emit a text chunk to the renderer
+   * Emit a text chunk to the renderer for a specific conversation
    */
-  private emitChunk(chunk: string): void {
-    this.send(IPC_CHANNELS.CLAUDE_CHUNK, chunk);
+  private emitChunk(conversationId: string, chunk: string): void {
+    this.send(IPC_CHANNELS.CLAUDE_CHUNK, conversationId, chunk);
   }
 
   /**
    * Emit a tool use event to the renderer for permission request
    */
-  private emitToolUse(action: PendingAction): void {
-    this.send(IPC_CHANNELS.CLAUDE_TOOL_USE, action);
+  private emitToolUse(conversationId: string, action: PendingAction): void {
+    this.send(IPC_CHANNELS.CLAUDE_TOOL_USE, conversationId, action);
   }
 
   /**
-   * Emit an error to the renderer
+   * Emit an error to the renderer for a specific conversation
    */
-  private emitError(error: string): void {
-    this.send(IPC_CHANNELS.CLAUDE_ERROR, error);
+  private emitError(conversationId: string, error: string): void {
+    this.send(IPC_CHANNELS.CLAUDE_ERROR, conversationId, error);
   }
 
   /**
-   * Emit done event to the renderer
+   * Emit done event to the renderer for a specific conversation
    */
-  private emitDone(): void {
-    this.send(IPC_CHANNELS.CLAUDE_DONE);
+  private emitDone(conversationId: string): void {
+    this.send(IPC_CHANNELS.CLAUDE_DONE, conversationId);
   }
 
   /**
    * Emit slash commands to the renderer
    */
-  private emitSlashCommands(commands: SlashCommandInfo[]): void {
-    this.send(IPC_CHANNELS.CLAUDE_SLASH_COMMANDS, commands);
+  private emitSlashCommands(conversationId: string, commands: SlashCommandInfo[]): void {
+    this.send(IPC_CHANNELS.CLAUDE_SLASH_COMMANDS, conversationId, commands);
   }
 
   /**
    * Emit task notification to the renderer
    */
-  private emitTaskNotification(notification: TaskNotification): void {
-    this.send(IPC_CHANNELS.CLAUDE_TASK_NOTIFICATION, notification);
+  private emitTaskNotification(conversationId: string, notification: TaskNotification): void {
+    this.send(IPC_CHANNELS.CLAUDE_TASK_NOTIFICATION, conversationId, notification);
   }
 
   /**
    * Emit usage update to the renderer
    */
-  private emitUsageUpdate(usage: SessionUsage): void {
-    this.send(IPC_CHANNELS.CLAUDE_USAGE_UPDATE, usage);
+  private emitUsageUpdate(conversationId: string, usage: SessionUsage): void {
+    this.send(IPC_CHANNELS.CLAUDE_USAGE_UPDATE, conversationId, usage);
   }
 
   /**
@@ -526,47 +662,22 @@ export class ClaudeCodeService {
    * Returns cached commands from the last SDK init message
    */
   getSlashCommands(): SlashCommandInfo[] {
-    return this.messageHandler.getSlashCommands();
-  }
-
-  /**
-   * Fetch full slash command details from the SDK
-   * This provides descriptions and argument hints
-   */
-  async fetchSlashCommandDetails(): Promise<SlashCommandInfo[]> {
-    if (!this.currentQuery) {
-      return this.messageHandler.getSlashCommands();
-    }
-
-    try {
-      const commands = await this.currentQuery.supportedCommands();
-      const slashCommands = commands.map((cmd) => ({
-        name: cmd.name,
-        description: cmd.description,
-        argumentHint: cmd.argumentHint,
-      }));
-      logger.info('Fetched slash command details', { count: commands.length });
-      return slashCommands;
-    } catch (error) {
-      logger.warn('Failed to fetch slash command details', error);
-      return this.messageHandler.getSlashCommands();
-    }
+    return this.cachedSlashCommands;
   }
 
   /**
    * Get available models from the SDK
-   * Returns cached models if available, otherwise fetches from current query
+   * Returns cached models if available
    */
   async getModels(): Promise<ModelInfo[]> {
-    // Return cached models if available
     if (this.cachedModels.length > 0) {
       return this.cachedModels;
     }
 
-    // Try to fetch from current query
-    if (this.currentQuery) {
+    // Try to fetch from any active query
+    for (const instance of this.activeQueries.values()) {
       try {
-        const models = await this.currentQuery.supportedModels();
+        const models = await instance.query.supportedModels();
         this.cachedModels = models.map((m) => ({
           value: m.value,
           displayName: m.displayName,
@@ -575,23 +686,19 @@ export class ClaudeCodeService {
         logger.info('Fetched models from SDK', { count: this.cachedModels.length });
         return this.cachedModels;
       } catch (error) {
-        logger.warn('Failed to fetch models from current query', error);
+        logger.warn('Failed to fetch models from query', { error });
       }
     }
 
-    // Return empty list if no models available yet
-    // The renderer should retry after a query is made
     return [];
   }
 
   /**
    * Update cached models from SDK (called after query init)
    */
-  private async fetchAndCacheModels(): Promise<void> {
-    if (!this.currentQuery) return;
-
+  private async fetchAndCacheModels(queryIterator: Query): Promise<void> {
     try {
-      const models = await this.currentQuery.supportedModels();
+      const models = await queryIterator.supportedModels();
       this.cachedModels = models.map((m) => ({
         value: m.value,
         displayName: m.displayName,
@@ -601,7 +708,6 @@ export class ClaudeCodeService {
         count: this.cachedModels.length,
         models: this.cachedModels.map(m => m.displayName),
       });
-      // Emit models to renderer
       this.send(IPC_CHANNELS.CLAUDE_MODEL_CHANGED, this.cachedModels);
     } catch (error) {
       logger.warn('Failed to fetch models for caching', error);

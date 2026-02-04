@@ -195,6 +195,8 @@ export type PendingAction = FileEditAction | FileCreateAction | FileDeleteAction
  * Response from renderer for action approval
  */
 export interface ActionResponse {
+  /** Conversation ID this action belongs to */
+  conversationId: string;
   /** ID of the action being responded to */
   actionId: string;
   /** Whether the user approved the action */
@@ -327,6 +329,8 @@ export interface Conversation {
   id: string;
   /** User-facing title of the conversation */
   title: string;
+  /** Whether the title was manually set by the user (vs auto-generated) */
+  customTitle?: boolean;
   /** Working directory context for this conversation */
   workingDirectory: string;
   /** All messages in the conversation */
@@ -481,18 +485,25 @@ export interface UpdateProgress {
 // IPC Event types
 
 /**
+ * Maximum number of concurrent SDK queries allowed
+ * Each query spawns a Node.js child process (~50-100MB RAM)
+ */
+export const MAX_CONCURRENT_QUERIES = 5;
+
+/**
  * Map of IPC event names to their handler signatures
  * These events are sent from main process to renderer process
+ * All Claude events include conversationId for multi-conversation support
  */
 export type IpcMainEvents = {
   /** Streaming chunk of text from Claude */
-  'claude:chunk': (chunk: string) => void;
+  'claude:chunk': (conversationId: string, chunk: string) => void;
   /** Claude is requesting approval for a tool use action */
-  'claude:tool-use': (action: PendingAction) => void;
+  'claude:tool-use': (conversationId: string, action: PendingAction) => void;
   /** An error occurred during Claude interaction */
-  'claude:error': (error: string) => void;
+  'claude:error': (conversationId: string, error: string) => void;
   /** Claude has finished processing the current request */
-  'claude:done': () => void;
+  'claude:done': (conversationId: string) => void;
   /** File system changes detected */
   'files:changed': (changes: FileChange[]) => void;
   /** Application configuration has changed */
@@ -504,9 +515,13 @@ export type IpcMainEvents = {
   /** Update has been downloaded and is ready to install */
   'update:downloaded': () => void;
   /** Background task notification from Claude */
-  'claude:task-notification': (notification: TaskNotification) => void;
+  'claude:task-notification': (conversationId: string, notification: TaskNotification) => void;
   /** Session usage update (tokens, cost) */
-  'claude:usage-update': (usage: SessionUsage) => void;
+  'claude:usage-update': (conversationId: string, usage: SessionUsage) => void;
+  /** Slash commands available from SDK */
+  'claude:slash-commands': (conversationId: string, commands: SlashCommandInfo[]) => void;
+  /** Active query count changed */
+  'claude:active-queries': (count: number, maxCount: number) => void;
 };
 
 /**
@@ -557,6 +572,10 @@ export const IPC_CHANNELS = {
   CLAUDE_TASK_NOTIFICATION: 'claude:task-notification',
   /** Session usage update (token counts, cost) */
   CLAUDE_USAGE_UPDATE: 'claude:usage-update',
+  /** Active query count changed */
+  CLAUDE_ACTIVE_QUERIES: 'claude:active-queries',
+  /** Get current active query status */
+  CLAUDE_GET_ACTIVE_QUERIES: 'claude:get-active-queries',
 
   // File operations
   /** Open directory picker dialog */

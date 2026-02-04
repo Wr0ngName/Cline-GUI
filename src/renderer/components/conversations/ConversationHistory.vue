@@ -7,34 +7,29 @@
 import { storeToRefs } from 'pinia';
 import { ref, nextTick } from 'vue';
 
-import { useChatStore } from '../../stores/chat';
 import { useConversationsStore } from '../../stores/conversations';
 import { formatRelativeDate } from '../../utils/date';
 import Spinner from '../shared/Spinner.vue';
 import Icon from '../shared/Icon.vue';
 
 const conversationsStore = useConversationsStore();
-const chatStore = useChatStore();
 const {
   sortedConversations,
   currentConversationId,
   isLoading,
   isSaving,
 } = storeToRefs(conversationsStore);
-const { isLoading: isStreaming } = storeToRefs(chatStore);
 
 const deletingId = ref<string | null>(null);
 const confirmDeleteId = ref<string | null>(null);
 const renamingId = ref<string | null>(null);
 const renameValue = ref('');
-const renameInputRef = ref<HTMLInputElement | null>(null);
+// Store refs for rename inputs by conversation id
+const renameInputRefs = ref<Map<string, HTMLInputElement>>(new Map());
 
 async function handleNewConversation() {
-  // If streaming, start buffering chunks BEFORE we save (to avoid race condition)
-  if (isStreaming.value) {
-    chatStore.startSwitchingFromStreaming();
-  }
   // Save current conversation before creating new one
+  // Note: With multi-conversation support, streaming continues in background
   await conversationsStore.saveCurrentConversation();
   conversationsStore.createNewConversation();
 }
@@ -43,14 +38,9 @@ async function handleLoadConversation(id: string) {
   if (id === currentConversationId.value) {
     return;
   }
-  // If streaming, start buffering chunks BEFORE we save (to avoid race condition)
-  // This ensures chunks arriving during save go to the buffer, not the message
-  if (isStreaming.value) {
-    chatStore.startSwitchingFromStreaming();
-  }
-  // Save current conversation before switching
-  await conversationsStore.saveCurrentConversation();
-  await conversationsStore.loadConversation(id);
+  // Use switchConversation which handles saving and loading properly
+  // With multi-conversation support, streaming continues in background
+  await conversationsStore.switchConversation(id);
 }
 
 function handleDeleteClick(id: string, event: Event) {
@@ -75,9 +65,20 @@ function handleRenameClick(id: string, currentTitle: string, event: Event) {
   renameValue.value = currentTitle || '';
   // Focus input after it's rendered
   nextTick(() => {
-    renameInputRef.value?.focus();
-    renameInputRef.value?.select();
+    const input = renameInputRefs.value.get(id);
+    if (input) {
+      input.focus();
+      input.select();
+    }
   });
+}
+
+function setRenameInputRef(id: string, el: HTMLInputElement | null) {
+  if (el) {
+    renameInputRefs.value.set(id, el);
+  } else {
+    renameInputRefs.value.delete(id);
+  }
 }
 
 async function handleRenameSubmit(id: string) {
@@ -198,7 +199,7 @@ function handleRenameKeydown(event: KeyboardEvent, id: string) {
             class="absolute inset-0 bg-white dark:bg-surface-800 flex items-center px-3 z-10"
           >
             <input
-              ref="renameInputRef"
+              :ref="(el) => setRenameInputRef(conversation.id, el as HTMLInputElement)"
               v-model="renameValue"
               type="text"
               class="flex-1 px-2 py-1 text-sm border border-primary-300 dark:border-primary-600 rounded bg-white dark:bg-surface-700 text-surface-800 dark:text-surface-200 focus:outline-none focus:ring-1 focus:ring-primary-500"
@@ -233,31 +234,35 @@ function handleRenameKeydown(event: KeyboardEvent, id: string) {
                 </p>
               </div>
               <div class="flex items-center gap-1">
-                <span class="text-xs text-surface-400 dark:text-surface-500 whitespace-nowrap">
+                <!-- DateTime - visible by default, hidden on hover -->
+                <span class="text-xs text-surface-400 dark:text-surface-500 whitespace-nowrap group-hover:hidden">
                   {{ formatRelativeDate(conversation.updatedAt) }}
                 </span>
-                <!-- Rename button -->
-                <button
-                  class="p-1 rounded opacity-0 group-hover:opacity-100 hover:bg-surface-200 dark:hover:bg-surface-600 text-surface-400 hover:text-primary-500 dark:hover:text-primary-400 transition-all"
-                  title="Rename conversation"
-                  @click="handleRenameClick(conversation.id, conversation.title, $event)"
-                >
-                  <Icon
-                    name="edit"
-                    size="xs"
-                  />
-                </button>
-                <!-- Delete button -->
-                <button
-                  class="p-1 rounded opacity-0 group-hover:opacity-100 hover:bg-surface-200 dark:hover:bg-surface-600 text-surface-400 hover:text-red-500 dark:hover:text-red-400 transition-all"
-                  title="Delete conversation"
-                  @click="handleDeleteClick(conversation.id, $event)"
-                >
-                  <Icon
-                    name="trash"
-                    size="xs"
-                  />
-                </button>
+                <!-- Action buttons - hidden by default, visible on hover -->
+                <div class="hidden group-hover:flex items-center gap-1">
+                  <!-- Rename button -->
+                  <button
+                    class="p-1 rounded hover:bg-surface-200 dark:hover:bg-surface-600 text-surface-400 hover:text-primary-500 dark:hover:text-primary-400 transition-colors"
+                    title="Rename conversation"
+                    @click="handleRenameClick(conversation.id, conversation.title, $event)"
+                  >
+                    <Icon
+                      name="edit"
+                      size="xs"
+                    />
+                  </button>
+                  <!-- Delete button -->
+                  <button
+                    class="p-1 rounded hover:bg-surface-200 dark:hover:bg-surface-600 text-surface-400 hover:text-red-500 dark:hover:text-red-400 transition-colors"
+                    title="Delete conversation"
+                    @click="handleDeleteClick(conversation.id, $event)"
+                  >
+                    <Icon
+                      name="trash"
+                      size="xs"
+                    />
+                  </button>
+                </div>
               </div>
             </div>
           </button>

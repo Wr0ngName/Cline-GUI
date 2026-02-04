@@ -218,8 +218,9 @@ export class ConversationService {
       throw new Error(`Conversation not found: ${id}`);
     }
 
-    // Update title and save
+    // Update title and mark as custom (manually set)
     conversation.title = newTitle.trim();
+    conversation.customTitle = true;  // Mark as manually renamed
     conversation.updatedAt = Date.now();
     await this.save(conversation);
 

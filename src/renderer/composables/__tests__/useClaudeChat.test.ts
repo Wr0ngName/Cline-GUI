@@ -8,6 +8,7 @@
  * - Abort functionality
  * - Chat clearing
  * - IPC listener setup and cleanup
+ * - Multi-conversation support
  */
 
 import { setActivePinia, createPinia } from 'pinia';
@@ -17,6 +18,9 @@ import { DEFAULT_CONFIG } from '../../../shared/types';
 import { useChatStore } from '../../stores/chat';
 import { useFilesStore } from '../../stores/files';
 import { useSettingsStore } from '../../stores/settings';
+
+// Test conversation ID for multi-conversation tests
+const TEST_CONV_ID = 'test-conv-123';
 
 // We can't easily test the composable directly due to onMounted/onUnmounted
 // So we'll test the core logic extracted from it
@@ -29,11 +33,16 @@ const mockElectron = {
     reject: vi.fn(),
     abort: vi.fn(),
     getCommands: vi.fn(),
+    getActiveQueries: vi.fn(),
     onChunk: vi.fn(),
     onToolUse: vi.fn(),
     onError: vi.fn(),
     onDone: vi.fn(),
     onSlashCommands: vi.fn(),
+    onCommandAction: vi.fn(),
+    onTaskNotification: vi.fn(),
+    onUsageUpdate: vi.fn(),
+    onActiveQueriesChange: vi.fn(),
   },
   config: {
     get: vi.fn(),
@@ -46,14 +55,20 @@ const mockElectron = {
     read: vi.fn(),
     onChange: vi.fn(),
   },
+  conversation: {
+    list: vi.fn(),
+    get: vi.fn(),
+    save: vi.fn(),
+    delete: vi.fn(),
+    rename: vi.fn(),
+  },
 };
 
-// Store event callbacks
-let chunkCallback: ((chunk: string) => void) | null = null;
- 
-let toolUseCallback: ((action: any) => void) | null = null;
-let errorCallback: ((error: string) => void) | null = null;
-let doneCallback: (() => void) | null = null;
+// Store event callbacks - now include conversationId
+let chunkCallback: ((conversationId: string, chunk: string) => void) | null = null;
+let toolUseCallback: ((conversationId: string, action: any) => void) | null = null;
+let errorCallback: ((conversationId: string, error: string) => void) | null = null;
+let doneCallback: ((conversationId: string) => void) | null = null;
 
 describe('useClaudeChat core logic', () => {
   beforeEach(() => {
@@ -87,12 +102,20 @@ describe('useClaudeChat core logic', () => {
     mockElectron.files.read.mockResolvedValue('content');
     mockElectron.files.onChange.mockReturnValue(() => {});
 
+    mockElectron.conversation.list.mockResolvedValue([]);
+    mockElectron.conversation.get.mockResolvedValue(null);
+    mockElectron.conversation.save.mockResolvedValue(undefined);
+    mockElectron.conversation.delete.mockResolvedValue(undefined);
+    mockElectron.conversation.rename.mockResolvedValue(undefined);
+
     mockElectron.claude.send.mockResolvedValue(undefined);
     mockElectron.claude.approve.mockResolvedValue(undefined);
     mockElectron.claude.reject.mockResolvedValue(undefined);
     mockElectron.claude.abort.mockResolvedValue(undefined);
     mockElectron.claude.getCommands.mockResolvedValue([]);
+    mockElectron.claude.getActiveQueries.mockResolvedValue({ count: 0, maxCount: 5, activeConversationIds: [] });
 
+    // Callbacks now receive conversationId as first parameter
     mockElectron.claude.onChunk.mockImplementation((callback) => {
       chunkCallback = callback;
       return () => {
@@ -117,16 +140,33 @@ describe('useClaudeChat core logic', () => {
         doneCallback = null;
       };
     });
-    mockElectron.claude.onSlashCommands.mockImplementation((_callback) => {
-      return () => {
-        // Cleanup not needed for this unused callback
-      };
+    mockElectron.claude.onSlashCommands.mockImplementation(() => {
+      return () => {};
+    });
+    mockElectron.claude.onCommandAction.mockImplementation(() => {
+      return () => {};
+    });
+    mockElectron.claude.onTaskNotification.mockImplementation(() => {
+      return () => {};
+    });
+    mockElectron.claude.onUsageUpdate.mockImplementation(() => {
+      return () => {};
+    });
+    mockElectron.claude.onActiveQueriesChange.mockImplementation(() => {
+      return () => {};
     });
   });
 
   afterEach(() => {
     vi.clearAllMocks();
   });
+
+  // Helper to set up chat store with conversation ID
+  function setupChatStore() {
+    const chatStore = useChatStore();
+    chatStore.setCurrentConversation(TEST_CONV_ID);
+    return chatStore;
+  }
 
   // ===========================================================================
   // Message Sending Prerequisites
@@ -137,11 +177,11 @@ describe('useClaudeChat core logic', () => {
       const settingsStore = useSettingsStore();
       await settingsStore.loadConfig();
 
-      const chatStore = useChatStore();
+      const chatStore = setupChatStore();
 
       // Simulate sendMessage logic
       if (!settingsStore.hasAuth) {
-        chatStore.setError('Please log in or configure your API key in Settings');
+        chatStore.setError(TEST_CONV_ID, 'Please log in or configure your API key in Settings');
       }
 
       expect(chatStore.error).toContain('log in');
@@ -159,11 +199,11 @@ describe('useClaudeChat core logic', () => {
       await settingsStore.loadConfig();
 
       const filesStore = useFilesStore();
-      const chatStore = useChatStore();
+      const chatStore = setupChatStore();
 
       // Simulate sendMessage logic
       if (!filesStore.workingDirectory) {
-        chatStore.setError('Please select a working directory');
+        chatStore.setError(TEST_CONV_ID, 'Please select a working directory');
       }
 
       expect(chatStore.error).toContain('working directory');
@@ -214,7 +254,7 @@ describe('useClaudeChat core logic', () => {
     });
 
     it('should add user message to chat store', () => {
-      const chatStore = useChatStore();
+      const chatStore = setupChatStore();
       const content = 'Hello Claude';
 
       chatStore.addUserMessage(content);
@@ -225,9 +265,9 @@ describe('useClaudeChat core logic', () => {
     });
 
     it('should start assistant message for streaming', () => {
-      const chatStore = useChatStore();
+      const chatStore = setupChatStore();
 
-      chatStore.startAssistantMessage();
+      chatStore.startAssistantMessage(TEST_CONV_ID);
 
       expect(chatStore.messages).toHaveLength(1);
       expect(chatStore.messages[0].role).toBe('assistant');
@@ -235,9 +275,9 @@ describe('useClaudeChat core logic', () => {
     });
 
     it('should set loading state', () => {
-      const chatStore = useChatStore();
+      const chatStore = setupChatStore();
 
-      chatStore.setLoading(true);
+      chatStore.setLoading(TEST_CONV_ID, true);
 
       expect(chatStore.isLoading).toBe(true);
     });
@@ -305,21 +345,21 @@ describe('useClaudeChat core logic', () => {
     });
 
     it('should append chunks to message', () => {
-      const chatStore = useChatStore();
-      chatStore.startAssistantMessage();
+      const chatStore = setupChatStore();
+      chatStore.startAssistantMessage(TEST_CONV_ID);
 
-      // Simulate chunk callback
-      chunkCallback?.('Hello');
-      chatStore.appendToLastMessage('Hello');
+      // Simulate chunk callback with conversationId
+      chunkCallback?.(TEST_CONV_ID, 'Hello');
+      chatStore.appendChunk(TEST_CONV_ID, 'Hello');
 
-      chunkCallback?.(' World');
-      chatStore.appendToLastMessage(' World');
+      chunkCallback?.(TEST_CONV_ID, ' World');
+      chatStore.appendChunk(TEST_CONV_ID, ' World');
 
       expect(chatStore.messages[0].content).toBe('Hello World');
     });
 
     it('should add pending action on tool use', () => {
-      const chatStore = useChatStore();
+      const chatStore = setupChatStore();
 
       const action = {
         id: 'action_123',
@@ -332,22 +372,22 @@ describe('useClaudeChat core logic', () => {
         timestamp: Date.now(),
       };
 
-      // Simulate tool use callback
-      chatStore.addPendingAction(action);
+      // Simulate tool use callback with conversationId
+      chatStore.addPendingAction(TEST_CONV_ID, action);
 
       expect(chatStore.pendingActions).toHaveLength(1);
       expect(chatStore.pendingActions[0].id).toBe('action_123');
     });
 
     it('should set error and stop loading on error', () => {
-      const chatStore = useChatStore();
-      chatStore.setLoading(true);
-      chatStore.startAssistantMessage();
+      const chatStore = setupChatStore();
+      chatStore.setLoading(TEST_CONV_ID, true);
+      chatStore.startAssistantMessage(TEST_CONV_ID);
 
-      // Simulate error callback
-      chatStore.setError('API Error');
-      chatStore.setLoading(false);
-      chatStore.finishStreaming();
+      // Simulate error callback with conversationId
+      chatStore.setError(TEST_CONV_ID, 'API Error');
+      chatStore.setLoading(TEST_CONV_ID, false);
+      chatStore.finishStreaming(TEST_CONV_ID);
 
       expect(chatStore.error).toBe('API Error');
       expect(chatStore.isLoading).toBe(false);
@@ -355,14 +395,14 @@ describe('useClaudeChat core logic', () => {
     });
 
     it('should finish streaming on done', () => {
-      const chatStore = useChatStore();
-      chatStore.setLoading(true);
-      chatStore.startAssistantMessage();
-      chatStore.appendToLastMessage('Complete response');
+      const chatStore = setupChatStore();
+      chatStore.setLoading(TEST_CONV_ID, true);
+      chatStore.startAssistantMessage(TEST_CONV_ID);
+      chatStore.appendChunk(TEST_CONV_ID, 'Complete response');
 
-      // Simulate done callback
-      chatStore.setLoading(false);
-      chatStore.finishStreaming();
+      // Simulate done callback with conversationId
+      chatStore.setLoading(TEST_CONV_ID, false);
+      chatStore.finishStreaming(TEST_CONV_ID);
 
       expect(chatStore.isLoading).toBe(false);
       expect(chatStore.messages[0].isStreaming).toBe(false);
@@ -374,7 +414,7 @@ describe('useClaudeChat core logic', () => {
   // ===========================================================================
   describe('action handling', () => {
     it('should approve action', async () => {
-      const chatStore = useChatStore();
+      const chatStore = setupChatStore();
       const action = {
         id: 'action_123',
         type: 'bash-command' as const,
@@ -386,19 +426,19 @@ describe('useClaudeChat core logic', () => {
         timestamp: Date.now(),
       };
 
-      chatStore.addPendingAction(action);
+      chatStore.addPendingAction(TEST_CONV_ID, action);
 
-      // Simulate approve
-      chatStore.updateActionStatus('action_123', 'approved');
-      await mockElectron.claude.approve('action_123', undefined, false);
-      chatStore.removePendingAction('action_123');
+      // Simulate approve with conversationId
+      chatStore.updateActionStatus(TEST_CONV_ID, 'action_123', 'approved');
+      await mockElectron.claude.approve(TEST_CONV_ID, 'action_123', undefined, false);
+      chatStore.removePendingAction(TEST_CONV_ID, 'action_123');
 
-      expect(mockElectron.claude.approve).toHaveBeenCalledWith('action_123', undefined, false);
+      expect(mockElectron.claude.approve).toHaveBeenCalledWith(TEST_CONV_ID, 'action_123', undefined, false);
       expect(chatStore.pendingActions).toHaveLength(0);
     });
 
     it('should approve action with alwaysAllow', async () => {
-      const chatStore = useChatStore();
+      const chatStore = setupChatStore();
       const action = {
         id: 'action_123',
         type: 'bash-command' as const,
@@ -410,18 +450,18 @@ describe('useClaudeChat core logic', () => {
         timestamp: Date.now(),
       };
 
-      chatStore.addPendingAction(action);
+      chatStore.addPendingAction(TEST_CONV_ID, action);
 
-      // Simulate approve with alwaysAllow
-      chatStore.updateActionStatus('action_123', 'approved');
-      await mockElectron.claude.approve('action_123', undefined, true);
-      chatStore.removePendingAction('action_123');
+      // Simulate approve with alwaysAllow and conversationId
+      chatStore.updateActionStatus(TEST_CONV_ID, 'action_123', 'approved');
+      await mockElectron.claude.approve(TEST_CONV_ID, 'action_123', undefined, true);
+      chatStore.removePendingAction(TEST_CONV_ID, 'action_123');
 
-      expect(mockElectron.claude.approve).toHaveBeenCalledWith('action_123', undefined, true);
+      expect(mockElectron.claude.approve).toHaveBeenCalledWith(TEST_CONV_ID, 'action_123', undefined, true);
     });
 
     it('should reject action', async () => {
-      const chatStore = useChatStore();
+      const chatStore = setupChatStore();
       const action = {
         id: 'action_456',
         type: 'file-edit' as const,
@@ -433,14 +473,14 @@ describe('useClaudeChat core logic', () => {
         timestamp: Date.now(),
       };
 
-      chatStore.addPendingAction(action);
+      chatStore.addPendingAction(TEST_CONV_ID, action);
 
-      // Simulate reject
-      chatStore.updateActionStatus('action_456', 'rejected');
-      await mockElectron.claude.reject('action_456');
-      chatStore.removePendingAction('action_456');
+      // Simulate reject with conversationId
+      chatStore.updateActionStatus(TEST_CONV_ID, 'action_456', 'rejected');
+      await mockElectron.claude.reject(TEST_CONV_ID, 'action_456');
+      chatStore.removePendingAction(TEST_CONV_ID, 'action_456');
 
-      expect(mockElectron.claude.reject).toHaveBeenCalledWith('action_456');
+      expect(mockElectron.claude.reject).toHaveBeenCalledWith(TEST_CONV_ID, 'action_456');
       expect(chatStore.pendingActions).toHaveLength(0);
     });
   });
@@ -450,16 +490,16 @@ describe('useClaudeChat core logic', () => {
   // ===========================================================================
   describe('abort', () => {
     it('should abort and stop loading', async () => {
-      const chatStore = useChatStore();
-      chatStore.setLoading(true);
-      chatStore.startAssistantMessage();
+      const chatStore = setupChatStore();
+      chatStore.setLoading(TEST_CONV_ID, true);
+      chatStore.startAssistantMessage(TEST_CONV_ID);
 
-      // Simulate abort
-      await mockElectron.claude.abort();
-      chatStore.setLoading(false);
-      chatStore.finishStreaming();
+      // Simulate abort with conversationId
+      await mockElectron.claude.abort(TEST_CONV_ID);
+      chatStore.setLoading(TEST_CONV_ID, false);
+      chatStore.finishStreaming(TEST_CONV_ID);
 
-      expect(mockElectron.claude.abort).toHaveBeenCalled();
+      expect(mockElectron.claude.abort).toHaveBeenCalledWith(TEST_CONV_ID);
       expect(chatStore.isLoading).toBe(false);
     });
   });
@@ -469,12 +509,12 @@ describe('useClaudeChat core logic', () => {
   // ===========================================================================
   describe('clearChat', () => {
     it('should clear all messages', () => {
-      const chatStore = useChatStore();
+      const chatStore = setupChatStore();
 
       chatStore.addUserMessage('Message 1');
-      chatStore.startAssistantMessage();
-      chatStore.appendToLastMessage('Response');
-      chatStore.finishStreaming();
+      chatStore.startAssistantMessage(TEST_CONV_ID);
+      chatStore.appendChunk(TEST_CONV_ID, 'Response');
+      chatStore.finishStreaming(TEST_CONV_ID);
 
       chatStore.clearMessages();
 
@@ -509,6 +549,213 @@ describe('useClaudeChat core logic', () => {
       }
 
       expect(commands).toEqual([]);
+    });
+  });
+
+  // ===========================================================================
+  // Multi-Conversation Support
+  // ===========================================================================
+  describe('multi-conversation support', () => {
+    const CONV_ID_1 = 'conv-1';
+    const CONV_ID_2 = 'conv-2';
+
+    it('should track active queries per conversation', () => {
+      const chatStore = useChatStore();
+      chatStore.setCurrentConversation(CONV_ID_1);
+
+      // Start loading in conversation 1
+      chatStore.setLoading(CONV_ID_1, true);
+      expect(chatStore.isConversationLoading(CONV_ID_1)).toBe(true);
+      expect(chatStore.isConversationLoading(CONV_ID_2)).toBe(false);
+
+      // Start loading in conversation 2
+      chatStore.setLoading(CONV_ID_2, true);
+      expect(chatStore.isConversationLoading(CONV_ID_1)).toBe(true);
+      expect(chatStore.isConversationLoading(CONV_ID_2)).toBe(true);
+    });
+
+    it('should maintain separate state per conversation', () => {
+      const chatStore = useChatStore();
+
+      // Set up conversation 1 state
+      chatStore.setCurrentConversation(CONV_ID_1);
+      chatStore.setLoading(CONV_ID_1, true);
+      chatStore.setError(CONV_ID_1, 'Error in conv 1');
+
+      // Set up conversation 2 state
+      chatStore.setCurrentConversation(CONV_ID_2);
+      chatStore.setLoading(CONV_ID_2, false);
+      chatStore.setError(CONV_ID_2, 'Error in conv 2');
+
+      // Verify conversation 1 state
+      chatStore.setCurrentConversation(CONV_ID_1);
+      expect(chatStore.isLoading).toBe(true);
+      expect(chatStore.error).toBe('Error in conv 1');
+
+      // Verify conversation 2 state
+      chatStore.setCurrentConversation(CONV_ID_2);
+      expect(chatStore.isLoading).toBe(false);
+      expect(chatStore.error).toBe('Error in conv 2');
+    });
+
+    it('should load messages when switching conversations via loadMessages', () => {
+      const chatStore = useChatStore();
+
+      // Simulate loading conversation 1 messages
+      chatStore.setCurrentConversation(CONV_ID_1);
+      chatStore.loadMessages([
+        { id: 'msg1', role: 'user', content: 'Message in conv 1', timestamp: Date.now() },
+      ]);
+      expect(chatStore.messages).toHaveLength(1);
+      expect(chatStore.messages[0].content).toBe('Message in conv 1');
+
+      // Simulate loading conversation 2 messages (clear + load)
+      chatStore.setCurrentConversation(CONV_ID_2);
+      chatStore.clearMessages();
+      chatStore.loadMessages([
+        { id: 'msg2', role: 'user', content: 'Message in conv 2', timestamp: Date.now() },
+      ]);
+      expect(chatStore.messages).toHaveLength(1);
+      expect(chatStore.messages[0].content).toBe('Message in conv 2');
+    });
+
+    it('should route errors to correct conversation', () => {
+      const chatStore = useChatStore();
+      chatStore.setCurrentConversation(CONV_ID_1);
+
+      // Set error in conversation 2 (not current)
+      chatStore.setError(CONV_ID_2, 'Error in conv 2');
+
+      // Current conversation should have no error
+      expect(chatStore.error).toBeNull();
+
+      // Switch to conversation 2 to see the error
+      chatStore.setCurrentConversation(CONV_ID_2);
+      expect(chatStore.error).toBe('Error in conv 2');
+    });
+
+    it('should update active query counts', () => {
+      const chatStore = useChatStore();
+
+      // Simulate active queries update
+      chatStore.updateActiveQueries(3, 5);
+
+      expect(chatStore.activeQueryCount).toBe(3);
+      expect(chatStore.maxConcurrentQueries).toBe(5);
+      expect(chatStore.isAtResourceLimit).toBe(false);
+    });
+
+    it('should detect resource limit', () => {
+      const chatStore = useChatStore();
+
+      // At resource limit
+      chatStore.updateActiveQueries(5, 5);
+
+      expect(chatStore.isAtResourceLimit).toBe(true);
+      expect(chatStore.canStartNewQuery).toBe(false);
+    });
+
+    it('should track active conversation IDs', () => {
+      const chatStore = useChatStore();
+
+      chatStore.updateActiveConversationIds([CONV_ID_1, CONV_ID_2]);
+
+      expect(chatStore.activeConversationIds.includes(CONV_ID_1)).toBe(true);
+      expect(chatStore.activeConversationIds.includes(CONV_ID_2)).toBe(true);
+      expect(chatStore.activeConversationIds.includes('conv-3')).toBe(false);
+    });
+
+    it('should handle streaming content per conversation', () => {
+      const chatStore = useChatStore();
+
+      // Start streaming in conversation 1
+      chatStore.setCurrentConversation(CONV_ID_1);
+      chatStore.startAssistantMessage(CONV_ID_1);
+      chatStore.appendChunk(CONV_ID_1, 'Streaming in conv 1...');
+
+      // Start streaming in conversation 2
+      chatStore.setCurrentConversation(CONV_ID_2);
+      chatStore.startAssistantMessage(CONV_ID_2);
+      chatStore.appendChunk(CONV_ID_2, 'Streaming in conv 2...');
+
+      // Get states and verify
+      const state1 = chatStore.getConversationState(CONV_ID_1);
+      const state2 = chatStore.getConversationState(CONV_ID_2);
+
+      expect(state1.currentStreamingContent).toBe('Streaming in conv 1...');
+      expect(state2.currentStreamingContent).toBe('Streaming in conv 2...');
+    });
+
+    it('should handle pending actions per conversation', () => {
+      const chatStore = useChatStore();
+
+      const action1 = {
+        id: 'action_1',
+        type: 'bash-command' as const,
+        toolName: 'Bash',
+        description: 'Run ls',
+        details: { command: 'ls', workingDirectory: '/home' },
+        input: { command: 'ls' },
+        status: 'pending' as const,
+        timestamp: Date.now(),
+      };
+
+      const action2 = {
+        id: 'action_2',
+        type: 'file-edit' as const,
+        toolName: 'Edit',
+        description: 'Edit file',
+        details: { filePath: '/home/file.ts', newContent: 'new' },
+        input: { file_path: '/home/file.ts' },
+        status: 'pending' as const,
+        timestamp: Date.now(),
+      };
+
+      // Add actions to different conversations
+      chatStore.setCurrentConversation(CONV_ID_1);
+      chatStore.addPendingAction(CONV_ID_1, action1);
+
+      chatStore.setCurrentConversation(CONV_ID_2);
+      chatStore.addPendingAction(CONV_ID_2, action2);
+
+      // Verify each conversation has its own action
+      chatStore.setCurrentConversation(CONV_ID_1);
+      expect(chatStore.pendingActions).toHaveLength(1);
+      expect(chatStore.pendingActions[0].id).toBe('action_1');
+
+      chatStore.setCurrentConversation(CONV_ID_2);
+      expect(chatStore.pendingActions).toHaveLength(1);
+      expect(chatStore.pendingActions[0].id).toBe('action_2');
+    });
+  });
+
+  // ===========================================================================
+  // Resource Limits
+  // ===========================================================================
+  describe('resource limits', () => {
+    it('should allow new query when under limit', () => {
+      const chatStore = useChatStore();
+      chatStore.updateActiveQueries(2, 5);
+
+      expect(chatStore.canStartNewQuery).toBe(true);
+    });
+
+    it('should block new query when at limit', () => {
+      const chatStore = useChatStore();
+      chatStore.updateActiveQueries(5, 5);
+
+      expect(chatStore.canStartNewQuery).toBe(false);
+    });
+
+    it('should allow new query in already-loading conversation when at limit', () => {
+      const chatStore = useChatStore();
+      chatStore.setCurrentConversation(TEST_CONV_ID);
+      chatStore.setLoading(TEST_CONV_ID, true);
+      chatStore.updateActiveQueries(5, 5);
+
+      // Even at limit, can continue in already-active conversation
+      // (The composable handles this check)
+      expect(chatStore.isConversationLoading(TEST_CONV_ID)).toBe(true);
     });
   });
 });

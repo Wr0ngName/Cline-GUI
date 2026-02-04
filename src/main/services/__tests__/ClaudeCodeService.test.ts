@@ -10,6 +10,7 @@
  * - Authentication validation
  * - Error handling and recovery
  * - Slash commands caching
+ * - Multi-conversation support
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
@@ -51,6 +52,9 @@ vi.mock('../../utils/ipc-helpers', () => ({
 import { IPC_CHANNELS } from '../../../shared/types';
 import { createMockBrowserWindow } from '../../__tests__/setup';
 import ClaudeCodeService from '../ClaudeCodeService';
+
+// Test conversation ID for multi-conversation tests
+const TEST_CONV_ID = 'test-conv-123';
 
 describe('ClaudeCodeService', () => {
   let service: ClaudeCodeService;
@@ -119,10 +123,11 @@ describe('ClaudeCodeService', () => {
     it('should emit error when not authenticated', async () => {
       mockConfigService.hasAuth.mockResolvedValue(false);
 
-      await service.sendMessage('Hello', '/home/user/project');
+      await service.sendMessage(TEST_CONV_ID, 'Hello', '/home/user/project');
 
       expect(mockSend).toHaveBeenCalledWith(
         IPC_CHANNELS.CLAUDE_ERROR,
+        TEST_CONV_ID,
         expect.stringContaining('Not authenticated')
       );
       expect(mockQuery).not.toHaveBeenCalled();
@@ -131,10 +136,11 @@ describe('ClaudeCodeService', () => {
     it('should validate OAuth token format', async () => {
       mockConfigService.getOAuthToken.mockResolvedValue('short');
 
-      await service.sendMessage('Hello', '/home/user');
+      await service.sendMessage(TEST_CONV_ID, 'Hello', '/home/user');
 
       expect(mockSend).toHaveBeenCalledWith(
         IPC_CHANNELS.CLAUDE_ERROR,
+        TEST_CONV_ID,
         expect.stringContaining('Invalid OAuth token')
       );
     });
@@ -147,7 +153,7 @@ describe('ClaudeCodeService', () => {
       const mockIterator = createMockQueryIterator([]);
       mockQuery.mockReturnValue(mockIterator);
 
-      await service.sendMessage('Hello', '/home/user');
+      await service.sendMessage(TEST_CONV_ID, 'Hello', '/home/user');
 
       // Should have called query (proceeds despite wrong prefix)
       expect(mockQuery).toHaveBeenCalled();
@@ -157,10 +163,11 @@ describe('ClaudeCodeService', () => {
       mockConfigService.getOAuthToken.mockResolvedValue('');
       mockConfigService.getApiKey.mockResolvedValue('invalid-key');
 
-      await service.sendMessage('Hello', '/home/user');
+      await service.sendMessage(TEST_CONV_ID, 'Hello', '/home/user');
 
       expect(mockSend).toHaveBeenCalledWith(
         IPC_CHANNELS.CLAUDE_ERROR,
+        TEST_CONV_ID,
         expect.stringContaining('Invalid API key')
       );
     });
@@ -172,7 +179,7 @@ describe('ClaudeCodeService', () => {
       const mockIterator = createMockQueryIterator([]);
       mockQuery.mockReturnValue(mockIterator);
 
-      await service.sendMessage('Hello', '/home/user');
+      await service.sendMessage(TEST_CONV_ID, 'Hello', '/home/user');
 
       expect(mockQuery).toHaveBeenCalled();
     });
@@ -192,7 +199,7 @@ describe('ClaudeCodeService', () => {
       const mockIterator = createMockQueryIterator([]);
       mockQuery.mockReturnValue(mockIterator);
 
-      await service.sendMessage('Hello Claude', '/home/user/project');
+      await service.sendMessage(TEST_CONV_ID, 'Hello Claude', '/home/user/project');
 
       expect(mockQuery).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -213,9 +220,9 @@ describe('ClaudeCodeService', () => {
       ]);
       mockQuery.mockReturnValue(mockIterator);
 
-      await service.sendMessage('Hello', '/home/user');
+      await service.sendMessage(TEST_CONV_ID, 'Hello', '/home/user');
 
-      expect(mockSend).toHaveBeenCalledWith(IPC_CHANNELS.CLAUDE_DONE);
+      expect(mockSend).toHaveBeenCalledWith(IPC_CHANNELS.CLAUDE_DONE, TEST_CONV_ID);
     });
 
     it('should handle SDK throwing an error', async () => {
@@ -223,10 +230,11 @@ describe('ClaudeCodeService', () => {
         throw new Error('SDK initialization failed');
       });
 
-      await service.sendMessage('Hello', '/home/user');
+      await service.sendMessage(TEST_CONV_ID, 'Hello', '/home/user');
 
       expect(mockSend).toHaveBeenCalledWith(
         IPC_CHANNELS.CLAUDE_ERROR,
+        TEST_CONV_ID,
         expect.any(String)
       );
     });
@@ -235,10 +243,11 @@ describe('ClaudeCodeService', () => {
       const mockIterator = createThrowingIterator(new Error('Stream error'));
       mockQuery.mockReturnValue(mockIterator);
 
-      await service.sendMessage('Hello', '/home/user');
+      await service.sendMessage(TEST_CONV_ID, 'Hello', '/home/user');
 
       expect(mockSend).toHaveBeenCalledWith(
         IPC_CHANNELS.CLAUDE_ERROR,
+        TEST_CONV_ID,
         expect.any(String)
       );
     });
@@ -268,10 +277,10 @@ describe('ClaudeCodeService', () => {
       ]);
       mockQuery.mockReturnValue(mockIterator);
 
-      await service.sendMessage('Hi', '/home/user');
+      await service.sendMessage(TEST_CONV_ID, 'Hi', '/home/user');
 
-      expect(mockSend).toHaveBeenCalledWith(IPC_CHANNELS.CLAUDE_CHUNK, 'Hello ');
-      expect(mockSend).toHaveBeenCalledWith(IPC_CHANNELS.CLAUDE_CHUNK, 'World');
+      expect(mockSend).toHaveBeenCalledWith(IPC_CHANNELS.CLAUDE_CHUNK, TEST_CONV_ID, 'Hello ');
+      expect(mockSend).toHaveBeenCalledWith(IPC_CHANNELS.CLAUDE_CHUNK, TEST_CONV_ID, 'World');
     });
 
     it('should handle system messages', async () => {
@@ -281,10 +290,11 @@ describe('ClaudeCodeService', () => {
       ]);
       mockQuery.mockReturnValue(mockIterator);
 
-      await service.sendMessage('Hi', '/home/user');
+      await service.sendMessage(TEST_CONV_ID, 'Hi', '/home/user');
 
       expect(mockSend).toHaveBeenCalledWith(
         IPC_CHANNELS.CLAUDE_CHUNK,
+        TEST_CONV_ID,
         expect.stringContaining('Compacting context')
       );
     });
@@ -304,11 +314,12 @@ describe('ClaudeCodeService', () => {
       ]);
       mockQuery.mockReturnValue(mockIterator);
 
-      await service.sendMessage('Hi', '/home/user');
+      await service.sendMessage(TEST_CONV_ID, 'Hi', '/home/user');
 
       // Should emit merged commands (built-in + SDK skills)
       expect(mockSend).toHaveBeenCalledWith(
         IPC_CHANNELS.CLAUDE_SLASH_COMMANDS,
+        TEST_CONV_ID,
         expect.arrayContaining([
           // Built-in commands
           expect.objectContaining({ name: 'help' }),
@@ -327,6 +338,8 @@ describe('ClaudeCodeService', () => {
   // ===========================================================================
   describe('tool permission handling', () => {
     let capturedCanUseTool: (...args: unknown[]) => unknown;
+    let finishIterator: () => void;
+    let sendMessagePromise: Promise<void>;
 
     beforeEach(() => {
       mockConfigService.getOAuthToken.mockResolvedValue(
@@ -334,14 +347,31 @@ describe('ClaudeCodeService', () => {
       );
       mockConfigService.getConfig.mockResolvedValue({ autoApproveReads: false });
 
+      // Create an iterator that waits for our signal before completing
       mockQuery.mockImplementation(({ options }) => {
         capturedCanUseTool = options.canUseTool;
-        return createMockQueryIterator([{ type: 'result', subtype: 'success' }]);
+        return createPendingIterator((resolve) => {
+          finishIterator = resolve;
+        });
       });
     });
 
+    afterEach(async () => {
+      // Ensure iterator completes after each test
+      if (finishIterator) {
+        finishIterator();
+      }
+      if (sendMessagePromise) {
+        await sendMessagePromise;
+      }
+    });
+
     it('should emit tool use event for permission request', async () => {
-      await service.sendMessage('Hi', '/home/user');
+      // Start sendMessage but don't await - it will wait for iterator to complete
+      sendMessagePromise = service.sendMessage(TEST_CONV_ID, 'Hi', '/home/user');
+
+      // Wait for all async operations to settle (auth check, query call, etc.)
+      await new Promise(resolve => setImmediate(resolve));
 
       const mockAbortController = { signal: { aborted: false, addEventListener: vi.fn() } };
 
@@ -352,12 +382,13 @@ describe('ClaudeCodeService', () => {
         { signal: mockAbortController.signal, suggestions: [] }
       );
 
-      // Let the async callback progress past its first await (getConfig)
-      await Promise.resolve();
+      // Wait for permission callback to progress
+      await new Promise(resolve => setImmediate(resolve));
 
       // Should emit tool use event
       expect(mockSend).toHaveBeenCalledWith(
         IPC_CHANNELS.CLAUDE_TOOL_USE,
+        TEST_CONV_ID,
         expect.objectContaining({
           toolName: 'Bash',
           type: 'bash-command',
@@ -367,17 +398,23 @@ describe('ClaudeCodeService', () => {
       // Clean up by approving
       const action = mockSend.mock.calls.find(
         (call) => call[0] === IPC_CHANNELS.CLAUDE_TOOL_USE
-      )?.[1];
+      )?.[2];
       if (action) {
-        service.handleActionResponse({ actionId: action.id, approved: true });
+        service.handleActionResponse(TEST_CONV_ID, { conversationId: TEST_CONV_ID, actionId: action.id, approved: true });
       }
       await permissionPromise;
+
+      // Finish the iterator and wait for sendMessage to complete
+      finishIterator();
+      await sendMessagePromise;
     });
 
     it('should auto-approve read operations when configured', async () => {
       mockConfigService.getConfig.mockResolvedValue({ autoApproveReads: true });
 
-      await service.sendMessage('Hi', '/home/user');
+      // Start sendMessage but don't await
+      sendMessagePromise = service.sendMessage(TEST_CONV_ID, 'Hi', '/home/user');
+      await new Promise(resolve => setImmediate(resolve));
 
       const mockAbortController = { signal: { aborted: false, addEventListener: vi.fn() } };
 
@@ -393,10 +430,15 @@ describe('ClaudeCodeService', () => {
         (call) => call[0] === IPC_CHANNELS.CLAUDE_TOOL_USE
       );
       expect(toolUseCalls).toHaveLength(0);
+
+      finishIterator();
+      await sendMessagePromise;
     });
 
     it('should deny when operation is aborted', async () => {
-      await service.sendMessage('Hi', '/home/user');
+      // Start sendMessage but don't await
+      sendMessagePromise = service.sendMessage(TEST_CONV_ID, 'Hi', '/home/user');
+      await new Promise(resolve => setImmediate(resolve));
 
       const mockAbortController = { signal: { aborted: true, addEventListener: vi.fn() } };
 
@@ -408,34 +450,44 @@ describe('ClaudeCodeService', () => {
 
       expect(result.behavior).toBe('deny');
       expect(result.interrupt).toBe(true);
+
+      finishIterator();
+      await sendMessagePromise;
     });
 
     it('should generate unique action IDs', async () => {
-      await service.sendMessage('Hi', '/home/user');
+      // Start sendMessage but don't await
+      sendMessagePromise = service.sendMessage(TEST_CONV_ID, 'Hi', '/home/user');
+      await new Promise(resolve => setImmediate(resolve));
 
       const mockAbortController = { signal: { aborted: false, addEventListener: vi.fn() } };
 
       // Request multiple permissions
       const promise1 = capturedCanUseTool('Bash', { command: 'ls' }, { signal: mockAbortController.signal, suggestions: [] });
-      await Promise.resolve(); // Let first callback progress
+      await new Promise(resolve => setImmediate(resolve));
       const promise2 = capturedCanUseTool('Bash', { command: 'pwd' }, { signal: mockAbortController.signal, suggestions: [] });
-      await Promise.resolve(); // Let second callback progress
+      await new Promise(resolve => setImmediate(resolve));
 
       const toolUseCalls = mockSend.mock.calls.filter(
         (call) => call[0] === IPC_CHANNELS.CLAUDE_TOOL_USE
       );
 
       expect(toolUseCalls.length).toBe(2);
-      expect(toolUseCalls[0][1].id).not.toBe(toolUseCalls[1][1].id);
+      expect(toolUseCalls[0][2].id).not.toBe(toolUseCalls[1][2].id);
 
       // Clean up by approving both
-      service.handleActionResponse({ actionId: toolUseCalls[0][1].id, approved: true });
-      service.handleActionResponse({ actionId: toolUseCalls[1][1].id, approved: true });
+      service.handleActionResponse(TEST_CONV_ID, { conversationId: TEST_CONV_ID, actionId: toolUseCalls[0][2].id, approved: true });
+      service.handleActionResponse(TEST_CONV_ID, { conversationId: TEST_CONV_ID, actionId: toolUseCalls[1][2].id, approved: true });
       await Promise.all([promise1, promise2]);
+
+      finishIterator();
+      await sendMessagePromise;
     });
 
     it('should create correct action for Edit tool', async () => {
-      await service.sendMessage('Hi', '/home/user');
+      // Start sendMessage but don't await
+      sendMessagePromise = service.sendMessage(TEST_CONV_ID, 'Hi', '/home/user');
+      await new Promise(resolve => setImmediate(resolve));
 
       const mockAbortController = { signal: { aborted: false, addEventListener: vi.fn() } };
 
@@ -444,10 +496,11 @@ describe('ClaudeCodeService', () => {
         { file_path: '/test.txt', old_string: 'foo', new_string: 'bar' },
         { signal: mockAbortController.signal, suggestions: [] }
       );
-      await Promise.resolve(); // Let callback progress past first await
+      await new Promise(resolve => setImmediate(resolve));
 
       expect(mockSend).toHaveBeenCalledWith(
         IPC_CHANNELS.CLAUDE_TOOL_USE,
+        TEST_CONV_ID,
         expect.objectContaining({
           type: 'file-edit',
           toolName: 'Edit',
@@ -458,15 +511,20 @@ describe('ClaudeCodeService', () => {
       // Clean up
       const action = mockSend.mock.calls.find(
         (call) => call[0] === IPC_CHANNELS.CLAUDE_TOOL_USE
-      )?.[1];
+      )?.[2];
       if (action) {
-        service.handleActionResponse({ actionId: action.id, approved: true });
+        service.handleActionResponse(TEST_CONV_ID, { conversationId: TEST_CONV_ID, actionId: action.id, approved: true });
       }
       await promise;
+
+      finishIterator();
+      await sendMessagePromise;
     });
 
     it('should create correct action for Write tool', async () => {
-      await service.sendMessage('Hi', '/home/user');
+      // Start sendMessage but don't await
+      sendMessagePromise = service.sendMessage(TEST_CONV_ID, 'Hi', '/home/user');
+      await new Promise(resolve => setImmediate(resolve));
 
       const mockAbortController = { signal: { aborted: false, addEventListener: vi.fn() } };
 
@@ -475,10 +533,11 @@ describe('ClaudeCodeService', () => {
         { file_path: '/new-file.txt', content: 'hello' },
         { signal: mockAbortController.signal, suggestions: [] }
       );
-      await Promise.resolve(); // Let callback progress past first await
+      await new Promise(resolve => setImmediate(resolve));
 
       expect(mockSend).toHaveBeenCalledWith(
         IPC_CHANNELS.CLAUDE_TOOL_USE,
+        TEST_CONV_ID,
         expect.objectContaining({
           type: 'file-create',
           toolName: 'Write',
@@ -488,11 +547,14 @@ describe('ClaudeCodeService', () => {
       // Clean up
       const action = mockSend.mock.calls.find(
         (call) => call[0] === IPC_CHANNELS.CLAUDE_TOOL_USE
-      )?.[1];
+      )?.[2];
       if (action) {
-        service.handleActionResponse({ actionId: action.id, approved: true });
+        service.handleActionResponse(TEST_CONV_ID, { conversationId: TEST_CONV_ID, actionId: action.id, approved: true });
       }
       await promise;
+
+      finishIterator();
+      await sendMessagePromise;
     });
   });
 
@@ -502,18 +564,25 @@ describe('ClaudeCodeService', () => {
   describe('handleActionResponse', () => {
     let capturedCanUseTool: (...args: unknown[]) => unknown;
     let permissionPromise: ReturnType<typeof capturedCanUseTool>;
+    let finishIterator: () => void;
+    let sendMessagePromise: Promise<void>;
 
     beforeEach(async () => {
       mockConfigService.getOAuthToken.mockResolvedValue(
         'sk-ant-oat01-valid-token-that-is-long-enough-to-pass-validation-requirements'
       );
 
+      // Create an iterator that waits for our signal before completing
       mockQuery.mockImplementation(({ options }) => {
         capturedCanUseTool = options.canUseTool;
-        return createMockQueryIterator([{ type: 'result', subtype: 'success' }]);
+        return createPendingIterator((resolve) => {
+          finishIterator = resolve;
+        });
       });
 
-      await service.sendMessage('Hi', '/home/user');
+      // Start sendMessage but don't await - it will wait for iterator to complete
+      sendMessagePromise = service.sendMessage(TEST_CONV_ID, 'Hi', '/home/user');
+      await new Promise(resolve => setImmediate(resolve));
 
       const mockAbortController = { signal: { aborted: false, addEventListener: vi.fn() } };
 
@@ -522,14 +591,26 @@ describe('ClaudeCodeService', () => {
         { command: 'rm -rf /important' },
         { signal: mockAbortController.signal, suggestions: [] }
       );
+      await new Promise(resolve => setImmediate(resolve));
+    });
+
+    afterEach(async () => {
+      // Ensure iterator completes after each test
+      if (finishIterator) {
+        finishIterator();
+      }
+      if (sendMessagePromise) {
+        await sendMessagePromise;
+      }
     });
 
     it('should approve action when approved is true', async () => {
       const action = mockSend.mock.calls.find(
         (call) => call[0] === IPC_CHANNELS.CLAUDE_TOOL_USE
-      )?.[1];
+      )?.[2];
 
-      service.handleActionResponse({
+      service.handleActionResponse(TEST_CONV_ID, {
+        conversationId: TEST_CONV_ID,
         actionId: action.id,
         approved: true,
       });
@@ -541,9 +622,10 @@ describe('ClaudeCodeService', () => {
     it('should deny action when approved is false', async () => {
       const action = mockSend.mock.calls.find(
         (call) => call[0] === IPC_CHANNELS.CLAUDE_TOOL_USE
-      )?.[1];
+      )?.[2];
 
-      service.handleActionResponse({
+      service.handleActionResponse(TEST_CONV_ID, {
+        conversationId: TEST_CONV_ID,
         actionId: action.id,
         approved: false,
         denyMessage: 'Too dangerous',
@@ -557,9 +639,10 @@ describe('ClaudeCodeService', () => {
     it('should include updated input when provided', async () => {
       const action = mockSend.mock.calls.find(
         (call) => call[0] === IPC_CHANNELS.CLAUDE_TOOL_USE
-      )?.[1];
+      )?.[2];
 
-      service.handleActionResponse({
+      service.handleActionResponse(TEST_CONV_ID, {
+        conversationId: TEST_CONV_ID,
         actionId: action.id,
         approved: true,
         updatedInput: { command: 'ls -la' }, // Modified command
@@ -572,7 +655,8 @@ describe('ClaudeCodeService', () => {
     it('should handle unknown action ID gracefully', () => {
       // Should not throw
       expect(() => {
-        service.handleActionResponse({
+        service.handleActionResponse(TEST_CONV_ID, {
+          conversationId: TEST_CONV_ID,
           actionId: 'unknown-action-id',
           approved: true,
         });
@@ -612,7 +696,7 @@ describe('ClaudeCodeService', () => {
       );
 
       // Start a message (don't await - it will hang)
-      const messagePromise = service.sendMessage('Hello', '/home/user');
+      const messagePromise = service.sendMessage(TEST_CONV_ID, 'Hello', '/home/user');
 
       // Wait for the iterator to actually start (sendMessage has several awaits before query())
       while (!iteratorStarted) {
@@ -620,7 +704,7 @@ describe('ClaudeCodeService', () => {
       }
 
       // Abort
-      await service.abort();
+      await service.abort(TEST_CONV_ID);
 
       // Now the message should complete
       await messagePromise;
@@ -655,7 +739,7 @@ describe('ClaudeCodeService', () => {
       );
 
       // Start message (will hang in iterator)
-      const messagePromise = service.sendMessage('Hi', '/home/user');
+      const messagePromise = service.sendMessage(TEST_CONV_ID, 'Hi', '/home/user');
 
       // Wait for query() to be called and canUseTool to be captured
       while (!capturedCanUseTool) {
@@ -673,7 +757,7 @@ describe('ClaudeCodeService', () => {
       await new Promise((resolve) => setImmediate(resolve)); // Let callback progress
 
       // Abort should clear pending permissions and release the iterator
-      await service.abort();
+      await service.abort(TEST_CONV_ID);
 
       const result = await permissionPromise as { behavior: string; interrupt: boolean };
       expect(result.behavior).toBe('deny');
@@ -684,7 +768,7 @@ describe('ClaudeCodeService', () => {
     });
 
     it('should not throw when no active query', async () => {
-      await expect(service.abort()).resolves.not.toThrow();
+      await expect(service.abort(TEST_CONV_ID)).resolves.not.toThrow();
     });
   });
 
@@ -703,10 +787,11 @@ describe('ClaudeCodeService', () => {
         throw new Error('API returned 401 unauthorized');
       });
 
-      await service.sendMessage('Hi', '/home/user');
+      await service.sendMessage(TEST_CONV_ID, 'Hi', '/home/user');
 
       expect(mockSend).toHaveBeenCalledWith(
         IPC_CHANNELS.CLAUDE_ERROR,
+        TEST_CONV_ID,
         expect.stringContaining('Authentication failed')
       );
     });
@@ -716,10 +801,11 @@ describe('ClaudeCodeService', () => {
         throw new Error('429 Too Many Requests');
       });
 
-      await service.sendMessage('Hi', '/home/user');
+      await service.sendMessage(TEST_CONV_ID, 'Hi', '/home/user');
 
       expect(mockSend).toHaveBeenCalledWith(
         IPC_CHANNELS.CLAUDE_ERROR,
+        TEST_CONV_ID,
         expect.stringContaining('Rate limit')
       );
     });
@@ -729,10 +815,11 @@ describe('ClaudeCodeService', () => {
         throw new Error('ECONNREFUSED');
       });
 
-      await service.sendMessage('Hi', '/home/user');
+      await service.sendMessage(TEST_CONV_ID, 'Hi', '/home/user');
 
       expect(mockSend).toHaveBeenCalledWith(
         IPC_CHANNELS.CLAUDE_ERROR,
+        TEST_CONV_ID,
         expect.stringContaining('Network error')
       );
     });
@@ -744,7 +831,7 @@ describe('ClaudeCodeService', () => {
         throw abortError;
       });
 
-      await service.sendMessage('Hi', '/home/user');
+      await service.sendMessage(TEST_CONV_ID, 'Hi', '/home/user');
 
       // Should NOT emit error for abort
       const errorCalls = mockSend.mock.calls.filter(
@@ -762,10 +849,10 @@ describe('ClaudeCodeService', () => {
         interrupt: vi.fn(),
       }));
 
-      await service.sendMessage('Hi', '/home/user');
+      await service.sendMessage(TEST_CONV_ID, 'Hi', '/home/user');
 
       // Should have emitted done, not error
-      expect(mockSend).toHaveBeenCalledWith(IPC_CHANNELS.CLAUDE_DONE);
+      expect(mockSend).toHaveBeenCalledWith(IPC_CHANNELS.CLAUDE_DONE, TEST_CONV_ID);
     });
   });
 
@@ -793,7 +880,7 @@ describe('ClaudeCodeService', () => {
       ]);
       mockQuery.mockReturnValue(mockIterator);
 
-      await service.sendMessage('Hi', '/home/user');
+      await service.sendMessage(TEST_CONV_ID, 'Hi', '/home/user');
 
       const commands = service.getSlashCommands();
       // Should have built-in commands + SDK commands merged
@@ -805,6 +892,160 @@ describe('ClaudeCodeService', () => {
       expect(commands.find(c => c.name === 'custom-skill')).toBeDefined();
     });
   });
+
+  // ===========================================================================
+  // Multi-Conversation Support
+  // ===========================================================================
+  describe('multi-conversation support', () => {
+    const CONV_ID_1 = 'conv-1';
+    const CONV_ID_2 = 'conv-2';
+
+    beforeEach(() => {
+      mockConfigService.getOAuthToken.mockResolvedValue(
+        'sk-ant-oat01-valid-token-that-is-long-enough-to-pass-validation-requirements'
+      );
+    });
+
+    it('should track active queries per conversation', async () => {
+      // Create iterators that hang
+      const createHangingIterator = () => {
+        let resolveIterator: (() => void) | undefined;
+        return {
+          iterator: {
+            [Symbol.asyncIterator]: async function* () {
+              await new Promise<void>((resolve) => {
+                resolveIterator = resolve;
+              });
+              yield { type: 'result', subtype: 'success' };
+            },
+            interrupt: vi.fn().mockImplementation(() => {
+              resolveIterator?.();
+            }),
+            supportedCommands: vi.fn().mockResolvedValue([]),
+          },
+          resolve: () => resolveIterator?.(),
+        };
+      };
+
+      const iter1 = createHangingIterator();
+      const iter2 = createHangingIterator();
+
+      let queryCallCount = 0;
+      mockQuery.mockImplementation(() => {
+        queryCallCount++;
+        return queryCallCount === 1 ? iter1.iterator : iter2.iterator;
+      });
+
+      // Start two conversations
+      const promise1 = service.sendMessage(CONV_ID_1, 'Hello', '/home/user');
+      await new Promise(resolve => setImmediate(resolve)); // Let first query start
+
+      const promise2 = service.sendMessage(CONV_ID_2, 'World', '/home/user');
+      await new Promise(resolve => setImmediate(resolve)); // Let second query start
+
+      // Both should be active
+      expect(service.getActiveConversationIds()).toContain(CONV_ID_1);
+      expect(service.getActiveConversationIds()).toContain(CONV_ID_2);
+
+      // Clean up
+      iter1.resolve();
+      iter2.resolve();
+      await Promise.all([promise1, promise2]);
+    });
+
+    it('should abort specific conversation without affecting others', async () => {
+      const createHangingIterator = () => {
+        let resolveIterator: (() => void) | undefined;
+        const interrupt = vi.fn().mockImplementation(() => {
+          resolveIterator?.();
+        });
+        return {
+          iterator: {
+            [Symbol.asyncIterator]: async function* () {
+              await new Promise<void>((resolve) => {
+                resolveIterator = resolve;
+              });
+              yield { type: 'result', subtype: 'success' };
+            },
+            interrupt,
+            supportedCommands: vi.fn().mockResolvedValue([]),
+          },
+          interrupt,
+          resolve: () => resolveIterator?.(),
+        };
+      };
+
+      const iter1 = createHangingIterator();
+      const iter2 = createHangingIterator();
+
+      let queryCallCount = 0;
+      mockQuery.mockImplementation(() => {
+        queryCallCount++;
+        return queryCallCount === 1 ? iter1.iterator : iter2.iterator;
+      });
+
+      // Start two conversations
+      const promise1 = service.sendMessage(CONV_ID_1, 'Hello', '/home/user');
+      await new Promise(resolve => setImmediate(resolve));
+
+      const promise2 = service.sendMessage(CONV_ID_2, 'World', '/home/user');
+      await new Promise(resolve => setImmediate(resolve));
+
+      // Abort only the first conversation
+      await service.abort(CONV_ID_1);
+
+      // First should be interrupted
+      expect(iter1.interrupt).toHaveBeenCalled();
+      // Second should NOT be interrupted
+      expect(iter2.interrupt).not.toHaveBeenCalled();
+
+      // Clean up
+      iter2.resolve();
+      await Promise.all([promise1, promise2]);
+    });
+
+    it('should respect resource limits', async () => {
+      // Start max concurrent queries
+      const iterators: Array<{ resolve: () => void }> = [];
+      mockQuery.mockImplementation(() => {
+        let resolveIterator: (() => void) | undefined;
+        const iter = {
+          [Symbol.asyncIterator]: async function* () {
+            await new Promise<void>((resolve) => {
+              resolveIterator = resolve;
+            });
+            yield { type: 'result', subtype: 'success' };
+          },
+          interrupt: vi.fn().mockImplementation(() => {
+            resolveIterator?.();
+          }),
+          supportedCommands: vi.fn().mockResolvedValue([]),
+        };
+        iterators.push({ resolve: () => resolveIterator?.() });
+        return iter;
+      });
+
+      // Start 5 conversations (the max)
+      const promises = [];
+      for (let i = 0; i < 5; i++) {
+        promises.push(service.sendMessage(`conv-${i}`, 'Hello', '/home/user'));
+        await new Promise(resolve => setImmediate(resolve));
+      }
+
+      // Try to start a 6th - should emit error
+      await service.sendMessage('conv-6', 'Hello', '/home/user');
+
+      expect(mockSend).toHaveBeenCalledWith(
+        IPC_CHANNELS.CLAUDE_ERROR,
+        'conv-6',
+        expect.stringContaining('Maximum concurrent conversations')
+      );
+
+      // Clean up
+      iterators.forEach(iter => iter.resolve());
+      await Promise.all(promises);
+    });
+  });
 });
 
 // ===========================================================================
@@ -814,13 +1055,32 @@ describe('ClaudeCodeService', () => {
 /**
  * Create a mock async iterator for SDK query results
  */
- 
+
 function createMockQueryIterator(messages: any[]) {
   return {
     [Symbol.asyncIterator]: async function* () {
       for (const msg of messages) {
         yield msg;
       }
+    },
+    interrupt: vi.fn(),
+    supportedCommands: vi.fn().mockResolvedValue([]),
+  };
+}
+
+/**
+ * Create an iterator that waits for a signal before completing
+ * Used for tests that need the query to stay active during permission handling
+ */
+function createPendingIterator(onReady: (resolve: () => void) => void) {
+  const waitPromise = new Promise<void>((resolve) => {
+    onReady(resolve);
+  });
+
+  return {
+    [Symbol.asyncIterator]: async function* () {
+      await waitPromise;
+      yield { type: 'result', subtype: 'success' };
     },
     interrupt: vi.fn(),
     supportedCommands: vi.fn().mockResolvedValue([]),

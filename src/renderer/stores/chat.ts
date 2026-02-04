@@ -1,5 +1,6 @@
 /**
  * Chat store - manages chat messages and Claude interactions
+ * Refactored for multi-conversation support with per-conversation state
  */
 
 import type { ChatMessage, PendingAction, BackgroundTask, TaskNotification, SessionUsage } from '@shared/types';
@@ -9,56 +10,210 @@ import { ref, computed } from 'vue';
 import { CONSTANTS } from '../constants/app';
 import { generateId } from '../utils/id';
 
-export const useChatStore = defineStore('chat', () => {
-  // State
-  const messages = ref<ChatMessage[]>([]);
-  const pendingActions = ref<PendingAction[]>([]);
-  const isLoading = ref(false);
-  const error = ref<string | null>(null);
-  const currentStreamingContent = ref('');
-  // Track which conversation owns the current streaming session
-  const streamingConversationId = ref<string | null>(null);
-  // Track the message ID being streamed
-  const streamingMessageId = ref<string | null>(null);
-  // Flag to indicate user is switching away from a streaming conversation
-  const isSwitchingFromStreaming = ref(false);
-  // Buffer for streaming content when user switches away from the streaming conversation
-  const streamingBuffer = ref<{ conversationId: string; messageId: string; content: string } | null>(null);
-  // Background tasks (subagents, background commands)
-  const backgroundTasks = ref<Map<string, BackgroundTask>>(new Map());
-  // Session usage (token counts, cost, context info)
-  const sessionUsage = ref<SessionUsage | null>(null);
+/**
+ * Per-conversation state tracked for multi-instance support
+ */
+export interface ConversationState {
+  /** Whether this conversation has an active query */
+  isLoading: boolean;
+  /** Current streaming content for this conversation */
+  currentStreamingContent: string;
+  /** Message ID being streamed in this conversation */
+  streamingMessageId: string | null;
+  /** Pending actions waiting for user approval */
+  pendingActions: PendingAction[];
+  /** Background tasks for this conversation */
+  backgroundTasks: Map<string, BackgroundTask>;
+  /** Session usage (token counts, cost) */
+  sessionUsage: SessionUsage | null;
+  /** Error message if any */
+  error: string | null;
+}
 
-  // Getters
+/**
+ * Create a fresh conversation state object
+ */
+function createConversationState(): ConversationState {
+  return {
+    isLoading: false,
+    currentStreamingContent: '',
+    streamingMessageId: null,
+    pendingActions: [],
+    backgroundTasks: new Map(),
+    sessionUsage: null,
+    error: null,
+  };
+}
+
+export const useChatStore = defineStore('chat', () => {
+  // ============================================
+  // Current View State (what user is looking at)
+  // ============================================
+
+  /** Messages currently displayed (from active conversation) */
+  const messages = ref<ChatMessage[]>([]);
+
+  /** Currently active conversation ID */
+  const currentConversationId = ref<string | null>(null);
+
+  // ============================================
+  // Per-Conversation State Map
+  // ============================================
+
+  /** Map of conversation ID to its state */
+  const conversationStates = ref<Map<string, ConversationState>>(new Map());
+
+  // ============================================
+  // Global Resource Tracking
+  // ============================================
+
+  /** Current number of active queries across all conversations */
+  const activeQueryCount = ref(0);
+
+  /** Maximum concurrent queries allowed */
+  const maxConcurrentQueries = ref(5);
+
+  /** IDs of conversations with active queries */
+  const activeConversationIds = ref<string[]>([]);
+
+  // ============================================
+  // Helper Functions
+  // ============================================
+
+  /**
+   * Get or create state for a conversation
+   */
+  function getConversationState(conversationId: string): ConversationState {
+    let state = conversationStates.value.get(conversationId);
+    if (!state) {
+      state = createConversationState();
+      conversationStates.value.set(conversationId, state);
+    }
+    return state;
+  }
+
+  /**
+   * Get the current conversation's state
+   */
+  function getCurrentState(): ConversationState | null {
+    if (!currentConversationId.value) return null;
+    return getConversationState(currentConversationId.value);
+  }
+
+  // ============================================
+  // Computed Properties (based on current conversation)
+  // ============================================
+
   const hasMessages = computed(() => messages.value.length > 0);
-  const hasPendingActions = computed(() => pendingActions.value.length > 0);
+
   const lastMessage = computed(() =>
     messages.value.length > 0 ? messages.value[messages.value.length - 1] : null
   );
+
+  // Current conversation's loading state
+  const isLoading = computed(() => {
+    const state = getCurrentState();
+    return state?.isLoading ?? false;
+  });
+
+  // Current conversation's error
+  const error = computed(() => {
+    const state = getCurrentState();
+    return state?.error ?? null;
+  });
+
+  // Current conversation's streaming content
+  const currentStreamingContent = computed(() => {
+    const state = getCurrentState();
+    return state?.currentStreamingContent ?? '';
+  });
+
+  // Current conversation's pending actions
+  const pendingActions = computed(() => {
+    const state = getCurrentState();
+    return state?.pendingActions ?? [];
+  });
+
+  const hasPendingActions = computed(() => pendingActions.value.length > 0);
+
+  // Current conversation's background tasks
+  const backgroundTasks = computed(() => {
+    const state = getCurrentState();
+    return state?.backgroundTasks ?? new Map();
+  });
+
   const hasBackgroundTasks = computed(() => backgroundTasks.value.size > 0);
+
   const runningTasksCount = computed(() =>
     Array.from(backgroundTasks.value.values()).filter(t => t.status === 'running').length
   );
+
   const backgroundTasksList = computed(() => Array.from(backgroundTasks.value.values()));
+
+  // Current conversation's session usage
+  const sessionUsage = computed(() => {
+    const state = getCurrentState();
+    return state?.sessionUsage ?? null;
+  });
+
   const hasSessionUsage = computed(() => sessionUsage.value !== null);
-  // Calculate total tokens used (input + output)
+
   const totalTokensUsed = computed(() => {
     if (!sessionUsage.value) return 0;
     return sessionUsage.value.usage.inputTokens + sessionUsage.value.usage.outputTokens;
   });
-  // Get context window size from model usage (uses first model's context window)
+
   const contextWindowSize = computed(() => {
     if (!sessionUsage.value?.modelUsage) return 0;
     const models = Object.values(sessionUsage.value.modelUsage);
     return models.length > 0 ? models[0].contextWindow : 0;
   });
-  // Calculate context usage percentage
+
   const contextUsagePercent = computed(() => {
     if (contextWindowSize.value === 0) return 0;
     return Math.min(100, (totalTokensUsed.value / contextWindowSize.value) * 100);
   });
 
-  // Actions
+  // Resource limit computed
+  const isAtResourceLimit = computed(() =>
+    activeQueryCount.value >= maxConcurrentQueries.value
+  );
+
+  const canStartNewQuery = computed(() =>
+    activeQueryCount.value < maxConcurrentQueries.value
+  );
+
+  // ============================================
+  // Current Conversation Management
+  // ============================================
+
+  /**
+   * Set the currently active conversation
+   */
+  function setCurrentConversation(conversationId: string | null): void {
+    currentConversationId.value = conversationId;
+  }
+
+  /**
+   * Check if a specific conversation is currently loading
+   */
+  function isConversationLoading(conversationId: string): boolean {
+    const state = conversationStates.value.get(conversationId);
+    return state?.isLoading ?? false;
+  }
+
+  /**
+   * Check if a specific conversation has pending actions
+   */
+  function conversationHasPendingActions(conversationId: string): boolean {
+    const state = conversationStates.value.get(conversationId);
+    return (state?.pendingActions.length ?? 0) > 0;
+  }
+
+  // ============================================
+  // Message Actions
+  // ============================================
+
   function addMessage(message: ChatMessage): void {
     messages.value.push(message);
 
@@ -80,7 +235,7 @@ export const useChatStore = defineStore('chat', () => {
     return message;
   }
 
-  function startAssistantMessage(conversationId?: string): ChatMessage {
+  function startAssistantMessage(conversationId: string): ChatMessage {
     const message: ChatMessage = {
       id: generateId('msg'),
       role: 'assistant',
@@ -88,152 +243,138 @@ export const useChatStore = defineStore('chat', () => {
       timestamp: Date.now(),
       isStreaming: true,
     };
-    addMessage(message);
-    currentStreamingContent.value = '';
-    // Track which conversation and message this streaming belongs to
-    streamingMessageId.value = message.id;
-    if (conversationId) {
-      streamingConversationId.value = conversationId;
-      streamingBuffer.value = null; // Clear any previous buffer
+
+    // Only add to messages array if this is the current conversation
+    if (conversationId === currentConversationId.value) {
+      addMessage(message);
     }
+
+    // Track streaming state for this conversation
+    const state = getConversationState(conversationId);
+    state.currentStreamingContent = '';
+    state.streamingMessageId = message.id;
+
     return message;
   }
 
-  function appendToLastMessage(chunk: string): void {
-    const last = messages.value[messages.value.length - 1];
-    if (last && last.role === 'assistant') {
-      last.content += chunk;
-      currentStreamingContent.value = last.content;
+  /**
+   * Append chunk to a conversation's streaming message
+   */
+  function appendChunk(conversationId: string, chunk: string): void {
+    const state = getConversationState(conversationId);
+    state.currentStreamingContent += chunk;
+
+    // If this is the current conversation, also update the message in view
+    if (conversationId === currentConversationId.value) {
+      const last = messages.value[messages.value.length - 1];
+      if (last && last.role === 'assistant' && last.id === state.streamingMessageId) {
+        last.content += chunk;
+      }
     }
   }
 
   /**
-   * Append chunk to streaming buffer (used when user switched away from streaming conversation)
+   * Get accumulated streaming content for a conversation
+   * (used when switching back to a conversation that was streaming)
    */
-  function appendToStreamingBuffer(chunk: string, conversationId: string, messageId: string): void {
-    if (!streamingBuffer.value || streamingBuffer.value.conversationId !== conversationId) {
-      // Initialize buffer for this conversation
-      streamingBuffer.value = {
-        conversationId,
-        messageId,
-        content: chunk,
-      };
-    } else {
-      // Append to existing buffer
-      streamingBuffer.value.content += chunk;
+  function getStreamingContent(conversationId: string): string {
+    const state = conversationStates.value.get(conversationId);
+    return state?.currentStreamingContent ?? '';
+  }
+
+  /**
+   * Finish streaming for a conversation
+   */
+  function finishStreaming(conversationId: string): void {
+    const state = conversationStates.value.get(conversationId);
+    if (!state) return;
+
+    // If this is the current conversation, update the message
+    if (conversationId === currentConversationId.value) {
+      const last = messages.value[messages.value.length - 1];
+      if (last && last.role === 'assistant' && last.id === state.streamingMessageId) {
+        last.isStreaming = false;
+        // Ensure content is synced
+        last.content = state.currentStreamingContent;
+      }
     }
-  }
 
-  /**
-   * Get and clear the streaming buffer
-   */
-  function getAndClearStreamingBuffer(): { conversationId: string; messageId: string; content: string } | null {
-    const buffer = streamingBuffer.value;
-    streamingBuffer.value = null;
-    return buffer;
-  }
-
-  /**
-   * Get current streaming conversation ID
-   */
-  function getStreamingConversationId(): string | null {
-    return streamingConversationId.value;
-  }
-
-  /**
-   * Get current streaming message ID
-   */
-  function getStreamingMessageId(): string | null {
-    return streamingMessageId.value;
-  }
-
-  /**
-   * Mark that user is switching away from a streaming conversation
-   * This triggers immediate buffering of incoming chunks
-   */
-  function startSwitchingFromStreaming(): void {
-    if (streamingConversationId.value && isLoading.value) {
-      isSwitchingFromStreaming.value = true;
-    }
-  }
-
-  /**
-   * Check if we should buffer chunks (user switched away from streaming conversation)
-   */
-  function shouldBufferChunks(): boolean {
-    return isSwitchingFromStreaming.value;
-  }
-
-  /**
-   * Clear streaming state
-   */
-  function clearStreamingState(): void {
-    streamingConversationId.value = null;
-    streamingMessageId.value = null;
-    streamingBuffer.value = null;
-    isSwitchingFromStreaming.value = false;
-  }
-
-  function finishStreaming(): void {
-    const last = messages.value[messages.value.length - 1];
-    if (last && last.role === 'assistant') {
-      last.isStreaming = false;
-    }
-    currentStreamingContent.value = '';
-    // Note: Don't clear streamingConversationId here - it's needed for proper buffer handling
-    // It will be cleared when the conversation is saved or a new stream starts
-  }
-
-  function addPendingAction(action: PendingAction): void {
-    pendingActions.value.push(action);
-  }
-
-  function removePendingAction(actionId: string): void {
-    const index = pendingActions.value.findIndex((a) => a.id === actionId);
-    if (index !== -1) {
-      pendingActions.value.splice(index, 1);
-    }
-  }
-
-  function updateActionStatus(actionId: string, status: PendingAction['status']): void {
-    const action = pendingActions.value.find((a) => a.id === actionId);
-    if (action) {
-      action.status = status;
-    }
-  }
-
-  function setLoading(loading: boolean): void {
-    isLoading.value = loading;
-  }
-
-  function setError(errorMessage: string | null): void {
-    error.value = errorMessage;
-  }
-
-  function clearError(): void {
-    error.value = null;
+    state.streamingMessageId = null;
+    state.currentStreamingContent = '';
   }
 
   function clearMessages(): void {
     messages.value = [];
-    pendingActions.value = [];
-    currentStreamingContent.value = '';
-    error.value = null;
+    // Don't clear conversation state here - that's separate
   }
 
   function loadMessages(loadedMessages: ChatMessage[]): void {
     messages.value = loadedMessages;
   }
 
-  /**
-   * Handle a task notification from the SDK
-   * Updates or creates a background task based on the notification
-   */
-  function handleTaskNotification(notification: TaskNotification): void {
-    const existingTask = backgroundTasks.value.get(notification.taskId);
+  // ============================================
+  // Loading State Actions
+  // ============================================
+
+  function setLoading(conversationId: string, loading: boolean): void {
+    const state = getConversationState(conversationId);
+    state.isLoading = loading;
+  }
+
+  // ============================================
+  // Error Actions
+  // ============================================
+
+  function setError(conversationId: string, errorMessage: string | null): void {
+    const state = getConversationState(conversationId);
+    state.error = errorMessage;
+  }
+
+  function clearError(): void {
+    if (currentConversationId.value) {
+      const state = getConversationState(currentConversationId.value);
+      state.error = null;
+    }
+  }
+
+  // ============================================
+  // Pending Action Actions
+  // ============================================
+
+  function addPendingAction(conversationId: string, action: PendingAction): void {
+    const state = getConversationState(conversationId);
+    state.pendingActions.push(action);
+  }
+
+  function removePendingAction(conversationId: string, actionId: string): void {
+    const state = conversationStates.value.get(conversationId);
+    if (!state) return;
+
+    const index = state.pendingActions.findIndex((a) => a.id === actionId);
+    if (index !== -1) {
+      state.pendingActions.splice(index, 1);
+    }
+  }
+
+  function updateActionStatus(conversationId: string, actionId: string, status: PendingAction['status']): void {
+    const state = conversationStates.value.get(conversationId);
+    if (!state) return;
+
+    const action = state.pendingActions.find((a) => a.id === actionId);
+    if (action) {
+      action.status = status;
+    }
+  }
+
+  // ============================================
+  // Background Task Actions
+  // ============================================
+
+  function handleTaskNotification(conversationId: string, notification: TaskNotification): void {
+    const state = getConversationState(conversationId);
+    const existingTask = state.backgroundTasks.get(notification.taskId);
 
     if (existingTask) {
-      // Update existing task
       existingTask.status = notification.status;
       if (notification.description) {
         existingTask.description = notification.description;
@@ -248,7 +389,6 @@ export const useChatStore = defineStore('chat', () => {
         existingTask.completedAt = Date.now();
       }
     } else {
-      // Create new task
       const task: BackgroundTask = {
         id: notification.taskId,
         description: notification.description || 'Background task',
@@ -262,64 +402,114 @@ export const useChatStore = defineStore('chat', () => {
       if (notification.status !== 'running') {
         task.completedAt = Date.now();
       }
-      backgroundTasks.value.set(notification.taskId, task);
+      state.backgroundTasks.set(notification.taskId, task);
     }
   }
 
-  /**
-   * Remove a background task by ID
-   */
   function removeBackgroundTask(taskId: string): void {
-    backgroundTasks.value.delete(taskId);
+    if (currentConversationId.value) {
+      const state = getConversationState(currentConversationId.value);
+      state.backgroundTasks.delete(taskId);
+    }
   }
 
-  /**
-   * Clear all completed background tasks
-   */
   function clearCompletedTasks(): void {
-    for (const [taskId, task] of backgroundTasks.value.entries()) {
-      if (task.status !== 'running') {
-        backgroundTasks.value.delete(taskId);
+    if (currentConversationId.value) {
+      const state = getConversationState(currentConversationId.value);
+      for (const [taskId, task] of state.backgroundTasks.entries()) {
+        if (task.status !== 'running') {
+          state.backgroundTasks.delete(taskId);
+        }
       }
     }
   }
 
+  function clearAllBackgroundTasks(conversationId?: string): void {
+    const targetId = conversationId ?? currentConversationId.value;
+    if (targetId) {
+      const state = conversationStates.value.get(targetId);
+      if (state) {
+        state.backgroundTasks.clear();
+      }
+    }
+  }
+
+  // ============================================
+  // Session Usage Actions
+  // ============================================
+
+  function updateSessionUsage(conversationId: string, usage: SessionUsage): void {
+    const state = getConversationState(conversationId);
+    state.sessionUsage = usage;
+  }
+
+  function clearSessionUsage(conversationId?: string): void {
+    const targetId = conversationId ?? currentConversationId.value;
+    if (targetId) {
+      const state = conversationStates.value.get(targetId);
+      if (state) {
+        state.sessionUsage = null;
+      }
+    }
+  }
+
+  // ============================================
+  // Resource Tracking Actions
+  // ============================================
+
+  function updateActiveQueries(count: number, max: number): void {
+    activeQueryCount.value = count;
+    maxConcurrentQueries.value = max;
+  }
+
+  function updateActiveConversationIds(ids: string[]): void {
+    activeConversationIds.value = ids;
+  }
+
+  // ============================================
+  // Cleanup Actions
+  // ============================================
+
   /**
-   * Clear all background tasks
+   * Clear all state for a conversation (e.g., when deleted)
    */
-  function clearAllBackgroundTasks(): void {
-    backgroundTasks.value.clear();
+  function clearConversationState(conversationId: string): void {
+    conversationStates.value.delete(conversationId);
   }
 
   /**
-   * Update session usage from SDK
+   * Reset all per-conversation state
    */
-  function updateSessionUsage(usage: SessionUsage): void {
-    sessionUsage.value = usage;
+  function resetAllConversationStates(): void {
+    conversationStates.value.clear();
   }
 
-  /**
-   * Clear session usage (e.g., when starting new conversation)
-   */
-  function clearSessionUsage(): void {
-    sessionUsage.value = null;
+  // ============================================
+  // Legacy compatibility - these methods work on current conversation
+  // They delegate to the conversation-specific versions
+  // ============================================
+
+  /** @deprecated Use appendChunk(conversationId, chunk) instead */
+  function appendToLastMessage(chunk: string): void {
+    if (currentConversationId.value) {
+      appendChunk(currentConversationId.value, chunk);
+    }
   }
 
   return {
-    // State
+    // Current view state
     messages,
-    pendingActions,
-    isLoading,
-    error,
-    currentStreamingContent,
-    streamingConversationId,
-    streamingMessageId,
-    streamingBuffer,
-    isSwitchingFromStreaming,
-    backgroundTasks,
-    sessionUsage,
+    currentConversationId,
 
-    // Getters
+    // Per-conversation state map (for advanced use)
+    conversationStates,
+
+    // Resource tracking
+    activeQueryCount,
+    maxConcurrentQueries,
+    activeConversationIds,
+
+    // Computed (based on current conversation)
     hasMessages,
     hasPendingActions,
     lastMessage,
@@ -330,33 +520,60 @@ export const useChatStore = defineStore('chat', () => {
     totalTokensUsed,
     contextWindowSize,
     contextUsagePercent,
+    isLoading,
+    error,
+    currentStreamingContent,
+    pendingActions,
+    sessionUsage,
+    backgroundTasks,
+    isAtResourceLimit,
+    canStartNewQuery,
 
-    // Actions
+    // Conversation management
+    setCurrentConversation,
+    isConversationLoading,
+    conversationHasPendingActions,
+    getConversationState,
+    getStreamingContent,
+
+    // Message actions
     addMessage,
     addUserMessage,
     startAssistantMessage,
-    appendToLastMessage,
-    appendToStreamingBuffer,
-    getAndClearStreamingBuffer,
-    getStreamingConversationId,
-    getStreamingMessageId,
-    startSwitchingFromStreaming,
-    shouldBufferChunks,
-    clearStreamingState,
+    appendChunk,
+    appendToLastMessage, // Legacy
     finishStreaming,
+    clearMessages,
+    loadMessages,
+
+    // Loading state
+    setLoading,
+
+    // Error actions
+    setError,
+    clearError,
+
+    // Pending action actions
     addPendingAction,
     removePendingAction,
     updateActionStatus,
-    setLoading,
-    setError,
-    clearError,
-    clearMessages,
-    loadMessages,
+
+    // Background task actions
     handleTaskNotification,
     removeBackgroundTask,
     clearCompletedTasks,
     clearAllBackgroundTasks,
+
+    // Session usage actions
     updateSessionUsage,
     clearSessionUsage,
+
+    // Resource tracking
+    updateActiveQueries,
+    updateActiveConversationIds,
+
+    // Cleanup
+    clearConversationState,
+    resetAllConversationStates,
   };
 });

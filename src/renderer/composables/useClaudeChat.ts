@@ -3,9 +3,12 @@
  *
  * IMPORTANT: IPC listeners are registered as a singleton to prevent
  * duplicate message processing when multiple components use this composable.
+ *
+ * Updated for multi-conversation support - all events now include conversationId
+ * for proper routing to per-conversation state.
  */
 
-import type { SlashCommandInfo } from '@shared/types';
+import type { SlashCommandInfo, ChatMessage } from '@shared/types';
 import { onMounted, onUnmounted, shallowRef } from 'vue';
 
 import { useChatStore } from '../stores/chat';
@@ -26,9 +29,23 @@ let cleanupSlashCommands: (() => void) | null = null;
 let cleanupCommandAction: (() => void) | null = null;
 let cleanupTaskNotification: (() => void) | null = null;
 let cleanupUsageUpdate: (() => void) | null = null;
+let cleanupActiveQueries: (() => void) | null = null;
 
 // Shared slash commands state (singleton)
 const sharedSlashCommands = shallowRef<SlashCommandInfo[]>([]);
+
+// Track messages per conversation for background saves (when user switches away)
+// This is needed because we need to reconstruct the message list for non-current conversations
+const conversationMessages = new Map<string, ChatMessage[]>();
+
+/**
+ * Get in-memory messages for a conversation that may be running in background
+ * This is used when switching to a conversation to get the latest messages
+ * without having to wait for the file to be saved
+ */
+export function getInMemoryMessages(conversationId: string): ChatMessage[] | null {
+  return conversationMessages.get(conversationId) || null;
+}
 
 export function useClaudeChat() {
   const chatStore = useChatStore();
@@ -66,6 +83,19 @@ export function useClaudeChat() {
   }
 
   /**
+   * Load active query status from the main process
+   */
+  async function loadActiveQueries(): Promise<void> {
+    try {
+      const status = await window.electron.claude.getActiveQueries();
+      chatStore.updateActiveQueries(status.count, status.maxCount);
+      chatStore.updateActiveConversationIds(status.activeConversationIds);
+    } catch (err) {
+      logger.warn('Failed to load active queries', { error: err });
+    }
+  }
+
+  /**
    * Send a message to Claude
    */
   async function sendMessage(content: string) {
@@ -73,14 +103,30 @@ export function useClaudeChat() {
       return;
     }
 
+    const currentConvId = conversationsStore.currentConversationId;
+    if (!currentConvId) {
+      chatStore.setError(currentConvId || 'unknown', 'No active conversation');
+      return;
+    }
+
     // Check prerequisites
     if (!settingsStore.hasAuth) {
-      chatStore.setError('Please log in or configure your API key in Settings');
+      chatStore.setError(currentConvId, 'Please log in or configure your API key in Settings');
       return;
     }
 
     if (!filesStore.workingDirectory) {
-      chatStore.setError('Please select a working directory');
+      chatStore.setError(currentConvId, 'Please select a working directory');
+      return;
+    }
+
+    // Check resource limits
+    if (chatStore.isAtResourceLimit && !chatStore.isConversationLoading(currentConvId)) {
+      chatStore.setError(
+        currentConvId,
+        `Maximum concurrent conversations (${chatStore.maxConcurrentQueries}) reached. ` +
+        `Please wait for another conversation to complete or cancel it.`
+      );
       return;
     }
 
@@ -93,8 +139,6 @@ export function useClaudeChat() {
     // Check if this is a slash command
     const slashCmd = isSlashCommand(content);
     if (slashCmd) {
-      // For slash commands, log what's happening
-      // The SDK handles these internally
       logger.info('Slash command detected', {
         command: content.split(' ')[0],
         name: slashCmd.name,
@@ -103,17 +147,20 @@ export function useClaudeChat() {
     }
 
     // Start assistant message for streaming - pass conversation ID for proper tracking
-    const currentConvId = conversationsStore.currentConversationId;
-    chatStore.startAssistantMessage(currentConvId || undefined);
-    chatStore.setLoading(true);
+    chatStore.startAssistantMessage(currentConvId);
+    chatStore.setLoading(currentConvId, true);
+
+    // Track messages for this conversation (for background save)
+    // We include the empty assistant message so it can accumulate content even when not current
+    conversationMessages.set(currentConvId, [...chatStore.messages]);
 
     try {
-      // Send message via IPC
-      await window.electron.claude.send(content, filesStore.workingDirectory);
+      // Send message via IPC with conversationId
+      await window.electron.claude.send(currentConvId, content, filesStore.workingDirectory);
     } catch (err) {
       logger.error('Failed to send message', err);
-      chatStore.setError('Failed to send message to Claude');
-      chatStore.setLoading(false);
+      chatStore.setError(currentConvId, 'Failed to send message to Claude');
+      chatStore.setLoading(currentConvId, false);
     }
   }
 
@@ -123,13 +170,19 @@ export function useClaudeChat() {
    * @param alwaysAllow - If true, automatically approve similar actions in the future
    */
   async function approveAction(actionId: string, alwaysAllow?: boolean) {
+    const currentConvId = conversationsStore.currentConversationId;
+    if (!currentConvId) {
+      logger.error('Cannot approve action: no active conversation');
+      return;
+    }
+
     try {
-      chatStore.updateActionStatus(actionId, 'approved');
-      await window.electron.claude.approve(actionId, undefined, alwaysAllow);
-      chatStore.removePendingAction(actionId);
+      chatStore.updateActionStatus(currentConvId, actionId, 'approved');
+      await window.electron.claude.approve(currentConvId, actionId, undefined, alwaysAllow);
+      chatStore.removePendingAction(currentConvId, actionId);
     } catch (err) {
       logger.error('Failed to approve action', err);
-      chatStore.setError('Failed to approve action');
+      chatStore.setError(currentConvId, 'Failed to approve action');
     }
   }
 
@@ -137,27 +190,51 @@ export function useClaudeChat() {
    * Reject a pending action
    */
   async function rejectAction(actionId: string) {
+    const currentConvId = conversationsStore.currentConversationId;
+    if (!currentConvId) {
+      logger.error('Cannot reject action: no active conversation');
+      return;
+    }
+
     try {
-      chatStore.updateActionStatus(actionId, 'rejected');
-      await window.electron.claude.reject(actionId);
-      chatStore.removePendingAction(actionId);
+      chatStore.updateActionStatus(currentConvId, actionId, 'rejected');
+      await window.electron.claude.reject(currentConvId, actionId);
+      chatStore.removePendingAction(currentConvId, actionId);
     } catch (err) {
       logger.error('Failed to reject action', err);
-      chatStore.setError('Failed to reject action');
+      chatStore.setError(currentConvId, 'Failed to reject action');
     }
   }
 
   /**
-   * Abort the current request
+   * Abort the current request for the active conversation
    */
   async function abort() {
+    const currentConvId = conversationsStore.currentConversationId;
+    if (!currentConvId) {
+      logger.error('Cannot abort: no active conversation');
+      return;
+    }
+
     try {
-      await window.electron.claude.abort();
-      chatStore.setLoading(false);
-      chatStore.finishStreaming();
-      chatStore.clearStreamingState();
+      await window.electron.claude.abort(currentConvId);
+      chatStore.setLoading(currentConvId, false);
+      chatStore.finishStreaming(currentConvId);
     } catch (err) {
       logger.error('Failed to abort', err);
+    }
+  }
+
+  /**
+   * Abort a specific conversation's request
+   */
+  async function abortConversation(conversationId: string) {
+    try {
+      await window.electron.claude.abort(conversationId);
+      chatStore.setLoading(conversationId, false);
+      chatStore.finishStreaming(conversationId);
+    } catch (err) {
+      logger.error('Failed to abort conversation', { conversationId, err });
     }
   }
 
@@ -178,124 +255,127 @@ export function useClaudeChat() {
       return;
     }
 
-    logger.info('Registering IPC listeners for Claude chat');
+    logger.info('Registering IPC listeners for Claude chat (multi-conversation)');
     listenersRegistered = true;
 
     // Handle streaming chunks - route to correct conversation
-    cleanupChunk = window.electron.claude.onChunk((chunk) => {
-      const streamingConvId = chatStore.getStreamingConversationId();
-      const streamingMsgId = chatStore.getStreamingMessageId();
+    cleanupChunk = window.electron.claude.onChunk((conversationId, chunk) => {
+      chatStore.appendChunk(conversationId, chunk);
 
-      // Once buffering has started, KEEP buffering until stream completes
-      // This handles the case where user switches away and then back
-      const shouldBuffer = chatStore.shouldBufferChunks();
-
-      if (!shouldBuffer) {
-        // Still in the same conversation and never switched away, append normally
-        chatStore.appendToLastMessage(chunk);
-      } else if (streamingConvId) {
-        // User switched conversations at some point - buffer ALL remaining chunks
-        chatStore.appendToStreamingBuffer(chunk, streamingConvId, streamingMsgId || 'unknown');
-      }
-    });
-
-    // Handle tool use requests
-    cleanupToolUse = window.electron.claude.onToolUse((action) => {
-      chatStore.addPendingAction(action);
-    });
-
-    // Handle errors
-    cleanupError = window.electron.claude.onError((error) => {
-      chatStore.setError(error);
-      chatStore.setLoading(false);
-      chatStore.finishStreaming();
-      chatStore.clearStreamingState();
-    });
-
-    // Handle completion
-    cleanupDone = window.electron.claude.onDone(async () => {
-      logger.info('Claude done event received, finishing streaming');
-
-      const currentConvId = conversationsStore.currentConversationId;
-      const buffer = chatStore.getAndClearStreamingBuffer();
-
-      // If there's buffered content from when user switched away, we need to save it
-      if (buffer && buffer.conversationId) {
-        logger.info('Applying buffered streaming content to original conversation', {
-          conversationId: buffer.conversationId,
-          contentLength: buffer.content.length,
-        });
-
-        // Load the original conversation, apply the buffer, and save
-        try {
-          const originalConv = await window.electron.conversation.get(buffer.conversationId);
-          if (originalConv && originalConv.messages.length > 0) {
-            // Find the assistant message that was being streamed and update it
-            const lastMsg = originalConv.messages[originalConv.messages.length - 1];
-            if (lastMsg && lastMsg.role === 'assistant') {
-              lastMsg.content += buffer.content;
-              lastMsg.isStreaming = false;
-              originalConv.updatedAt = Date.now();
-              await window.electron.conversation.save(originalConv);
-              logger.info('Saved buffered content to original conversation', {
-                conversationId: buffer.conversationId,
-              });
-
-              // If user is currently viewing the original conversation, reload it to show updated content
-              if (buffer.conversationId === currentConvId) {
-                // Replace in-memory messages with the saved version to avoid duplication
-                chatStore.loadMessages(originalConv.messages);
-              }
-            }
+      // Update tracked messages for this conversation
+      if (conversationId === conversationsStore.currentConversationId) {
+        conversationMessages.set(conversationId, [...chatStore.messages]);
+      } else {
+        // For non-current conversations, update the tracked messages with the new chunk
+        const tracked = conversationMessages.get(conversationId);
+        if (tracked && tracked.length > 0) {
+          const lastMsg = tracked[tracked.length - 1];
+          if (lastMsg.role === 'assistant') {
+            lastMsg.content += chunk;
           }
-        } catch (err) {
-          logger.error('Failed to save buffered content to original conversation', err);
         }
       }
+    });
 
-      chatStore.setLoading(false);
-      chatStore.finishStreaming();
-      chatStore.clearStreamingState();
+    // Handle tool use requests - route to correct conversation
+    cleanupToolUse = window.electron.claude.onToolUse((conversationId, action) => {
+      chatStore.addPendingAction(conversationId, action);
+    });
+
+    // Handle errors - route to correct conversation
+    cleanupError = window.electron.claude.onError((conversationId, error) => {
+      chatStore.setError(conversationId, error);
+      chatStore.setLoading(conversationId, false);
+      chatStore.finishStreaming(conversationId);
+    });
+
+    // Handle completion - route to correct conversation
+    cleanupDone = window.electron.claude.onDone(async (conversationId) => {
+      logger.info('Claude done event received', { conversationId });
+
+      chatStore.setLoading(conversationId, false);
+      chatStore.finishStreaming(conversationId);
+
+      // Save the conversation
+      // If this is the current conversation, use normal save
+      // If user switched away, we need to reconstruct and save
+      if (conversationId === conversationsStore.currentConversationId) {
+        // Current conversation - save normally
+        await conversationsStore.saveCurrentConversation();
+      } else {
+        // User switched away - need to save this conversation in background
+        logger.info('Saving completed conversation in background', { conversationId });
+
+        // Get the streaming content that was accumulated
+        const state = chatStore.getConversationState(conversationId);
+
+        // Try to get the tracked messages for this conversation
+        let messages = conversationMessages.get(conversationId);
+
+        if (messages && messages.length > 0) {
+          // Update the last assistant message with the full streamed content
+          const lastMsg = messages[messages.length - 1];
+          if (lastMsg.role === 'assistant') {
+            lastMsg.content = state.currentStreamingContent || lastMsg.content;
+            lastMsg.isStreaming = false;
+          }
+
+          await conversationsStore.saveConversation(conversationId, messages);
+        }
+
+        // Clean up tracked messages
+        conversationMessages.delete(conversationId);
+      }
     });
 
     // Handle slash commands updates from SDK
-    cleanupSlashCommands = window.electron.claude.onSlashCommands((commands) => {
+    cleanupSlashCommands = window.electron.claude.onSlashCommands((conversationId, commands) => {
       sharedSlashCommands.value = commands;
-      logger.debug('Received slash commands from SDK', { count: commands.length });
+      logger.debug('Received slash commands from SDK', { conversationId, count: commands.length });
     });
 
     // Handle command actions (clear, compact, etc.)
-    cleanupCommandAction = window.electron.claude.onCommandAction((action) => {
-      logger.info('Received command action', { action });
-      if (action === 'clear') {
-        // Clear the chat messages (keep the /clear response visible briefly)
-        setTimeout(() => {
-          chatStore.clearMessages();
-          logger.info('Chat cleared via /clear command');
-        }, 500);
+    cleanupCommandAction = window.electron.claude.onCommandAction((conversationId, action) => {
+      logger.info('Received command action', { conversationId, action });
+
+      // Only apply to current conversation
+      if (conversationId === conversationsStore.currentConversationId) {
+        if (action === 'clear') {
+          setTimeout(() => {
+            chatStore.clearMessages();
+            logger.info('Chat cleared via /clear command');
+          }, 500);
+        }
       }
-      // Other actions like 'compact', 'login', 'logout' can be handled here
     });
 
-    // Handle background task notifications
-    cleanupTaskNotification = window.electron.claude.onTaskNotification((notification) => {
+    // Handle background task notifications - route to correct conversation
+    cleanupTaskNotification = window.electron.claude.onTaskNotification((conversationId, notification) => {
       logger.info('Received task notification', {
+        conversationId,
         taskId: notification.taskId,
         status: notification.status,
         description: notification.description,
       });
-      chatStore.handleTaskNotification(notification);
+      chatStore.handleTaskNotification(conversationId, notification);
     });
 
-    // Handle usage updates (token counts, cost, context info)
-    cleanupUsageUpdate = window.electron.claude.onUsageUpdate((usage) => {
+    // Handle usage updates (token counts, cost, context info) - route to correct conversation
+    cleanupUsageUpdate = window.electron.claude.onUsageUpdate((conversationId, usage) => {
       logger.debug('Received usage update', {
+        conversationId,
         totalCostUSD: usage.totalCostUSD,
         inputTokens: usage.usage.inputTokens,
         outputTokens: usage.usage.outputTokens,
         numTurns: usage.numTurns,
       });
-      chatStore.updateSessionUsage(usage);
+      chatStore.updateSessionUsage(conversationId, usage);
+    });
+
+    // Handle active query count changes
+    cleanupActiveQueries = window.electron.claude.onActiveQueriesChange((count, maxCount) => {
+      logger.debug('Active queries changed', { count, maxCount });
+      chatStore.updateActiveQueries(count, maxCount);
     });
   }
 
@@ -348,6 +428,10 @@ export function useClaudeChat() {
       cleanupUsageUpdate();
       cleanupUsageUpdate = null;
     }
+    if (cleanupActiveQueries) {
+      cleanupActiveQueries();
+      cleanupActiveQueries = null;
+    }
   }
 
   // Set up listeners on mount, clean up on unmount
@@ -360,6 +444,8 @@ export function useClaudeChat() {
     if (sharedSlashCommands.value.length === 0) {
       loadSlashCommands();
     }
+    // Load current active query status
+    loadActiveQueries();
   });
 
   onUnmounted(() => {
@@ -377,13 +463,20 @@ export function useClaudeChat() {
     approveAction,
     rejectAction,
     abort,
+    abortConversation,
     clearChat,
 
-    // Store refs (for convenience)
+    // Store refs (for convenience) - these are now computed from current conversation
     messages: chatStore.messages,
     pendingActions: chatStore.pendingActions,
     isLoading: chatStore.isLoading,
     error: chatStore.error,
+
+    // Resource limit info
+    activeQueryCount: chatStore.activeQueryCount,
+    maxConcurrentQueries: chatStore.maxConcurrentQueries,
+    isAtResourceLimit: chatStore.isAtResourceLimit,
+    canStartNewQuery: chatStore.canStartNewQuery,
 
     // Slash commands from SDK
     slashCommands,

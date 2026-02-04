@@ -48,12 +48,19 @@ const mockClaudeService = {
   abort: vi.fn(),
   handleActionResponse: vi.fn(),
   getSlashCommands: vi.fn(),
+  getModels: vi.fn(),
+  getActiveQueryCount: vi.fn(),
+  getMaxConcurrentQueries: vi.fn(),
+  getActiveConversationIds: vi.fn(),
 };
 
 // Import after mocks
 import { IPC_CHANNELS } from '../../../shared/types';
 import { IpcError, AppError } from '../../errors';
 import { setupClaudeIPC } from '../claude';
+
+// Test conversation ID used across tests
+const TEST_CONV_ID = 'test-conv-123';
 
 describe('Claude IPC handlers', () => {
   let handlers: Map<string, (...args: unknown[]) => unknown>;
@@ -74,6 +81,10 @@ describe('Claude IPC handlers', () => {
     mockClaudeService.abort.mockResolvedValue(undefined);
     mockClaudeService.handleActionResponse.mockReturnValue(undefined);
     mockClaudeService.getSlashCommands.mockReturnValue([]);
+    mockClaudeService.getModels.mockResolvedValue([]);
+    mockClaudeService.getActiveQueryCount.mockReturnValue(0);
+    mockClaudeService.getMaxConcurrentQueries.mockReturnValue(5);
+    mockClaudeService.getActiveConversationIds.mockReturnValue([]);
 
     // Register handlers
     setupClaudeIPC(mockClaudeService as any);
@@ -94,6 +105,8 @@ describe('Claude IPC handlers', () => {
       expect(handlers.has(IPC_CHANNELS.CLAUDE_ABORT)).toBe(true);
       expect(handlers.has(IPC_CHANNELS.CLAUDE_ACTION_RESPONSE)).toBe(true);
       expect(handlers.has(IPC_CHANNELS.CLAUDE_GET_COMMANDS)).toBe(true);
+      expect(handlers.has(IPC_CHANNELS.CLAUDE_GET_MODELS)).toBe(true);
+      expect(handlers.has(IPC_CHANNELS.CLAUDE_GET_ACTIVE_QUERIES)).toBe(true);
     });
   });
 
@@ -108,32 +121,41 @@ describe('Claude IPC handlers', () => {
     });
 
     it('should call sendMessage with correct parameters', async () => {
-      await handler({}, 'Hello Claude', '/home/user/project');
+      await handler({}, TEST_CONV_ID, 'Hello Claude', '/home/user/project');
 
       expect(mockClaudeService.sendMessage).toHaveBeenCalledWith(
+        TEST_CONV_ID,
         'Hello Claude',
         '/home/user/project'
       );
     });
 
+    it('should throw when conversationId is not a string', async () => {
+      await expect(handler({}, 123, 'Hello', '/home/user')).rejects.toThrow(IpcError);
+    });
+
+    it('should throw when conversationId is empty', async () => {
+      await expect(handler({}, '', 'Hello', '/home/user')).rejects.toThrow(IpcError);
+    });
+
     it('should throw when message is not a string', async () => {
-      await expect(handler({}, 123, '/home/user')).rejects.toThrow(IpcError);
+      await expect(handler({}, TEST_CONV_ID, 123, '/home/user')).rejects.toThrow(IpcError);
     });
 
     it('should throw when message is empty', async () => {
-      await expect(handler({}, '', '/home/user')).rejects.toThrow(IpcError);
+      await expect(handler({}, TEST_CONV_ID, '', '/home/user')).rejects.toThrow(IpcError);
     });
 
     it('should throw when message is only whitespace', async () => {
-      await expect(handler({}, '   ', '/home/user')).rejects.toThrow(IpcError);
+      await expect(handler({}, TEST_CONV_ID, '   ', '/home/user')).rejects.toThrow(IpcError);
     });
 
     it('should throw when workingDir is not a string', async () => {
-      await expect(handler({}, 'Hello', null)).rejects.toThrow(IpcError);
+      await expect(handler({}, TEST_CONV_ID, 'Hello', null)).rejects.toThrow(IpcError);
     });
 
     it('should throw when workingDir is empty', async () => {
-      await expect(handler({}, 'Hello', '')).rejects.toThrow(IpcError);
+      await expect(handler({}, TEST_CONV_ID, 'Hello', '')).rejects.toThrow(IpcError);
     });
 
     it('should throw when service is not initialized', async () => {
@@ -141,27 +163,27 @@ describe('Claude IPC handlers', () => {
       setupClaudeIPC(null as any);
       const nullHandler = handlers.get(IPC_CHANNELS.CLAUDE_SEND)!;
 
-      await expect(nullHandler({}, 'Hello', '/home')).rejects.toThrow(IpcError);
+      await expect(nullHandler({}, TEST_CONV_ID, 'Hello', '/home')).rejects.toThrow(IpcError);
     });
 
     it('should propagate service errors', async () => {
       mockClaudeService.sendMessage.mockRejectedValue(new Error('SDK error'));
 
-      await expect(handler({}, 'Hello', '/home/user')).rejects.toThrow(IpcError);
+      await expect(handler({}, TEST_CONV_ID, 'Hello', '/home/user')).rejects.toThrow(IpcError);
     });
 
     it('should handle very long messages', async () => {
       const longMessage = 'x'.repeat(10000);
-      await handler({}, longMessage, '/home/user');
+      await handler({}, TEST_CONV_ID, longMessage, '/home/user');
 
-      expect(mockClaudeService.sendMessage).toHaveBeenCalledWith(longMessage, '/home/user');
+      expect(mockClaudeService.sendMessage).toHaveBeenCalledWith(TEST_CONV_ID, longMessage, '/home/user');
     });
 
     it('should handle special characters in message', async () => {
       const specialMessage = 'Hello\n\t"quotes" <tags> & symbols™';
-      await handler({}, specialMessage, '/home/user');
+      await handler({}, TEST_CONV_ID, specialMessage, '/home/user');
 
-      expect(mockClaudeService.sendMessage).toHaveBeenCalledWith(specialMessage, '/home/user');
+      expect(mockClaudeService.sendMessage).toHaveBeenCalledWith(TEST_CONV_ID, specialMessage, '/home/user');
     });
   });
 
@@ -175,10 +197,11 @@ describe('Claude IPC handlers', () => {
       handler = handlers.get(IPC_CHANNELS.CLAUDE_APPROVE)!;
     });
 
-    it('should call approveAction with actionId only', async () => {
-      await handler({}, 'action_123');
+    it('should call approveAction with conversationId and actionId only', async () => {
+      await handler({}, TEST_CONV_ID, 'action_123');
 
       expect(mockClaudeService.approveAction).toHaveBeenCalledWith(
+        TEST_CONV_ID,
         'action_123',
         undefined,
         undefined
@@ -187,9 +210,10 @@ describe('Claude IPC handlers', () => {
 
     it('should call approveAction with updatedInput', async () => {
       const updatedInput = { command: 'ls -la' };
-      await handler({}, 'action_123', updatedInput);
+      await handler({}, TEST_CONV_ID, 'action_123', updatedInput);
 
       expect(mockClaudeService.approveAction).toHaveBeenCalledWith(
+        TEST_CONV_ID,
         'action_123',
         updatedInput,
         undefined
@@ -197,9 +221,10 @@ describe('Claude IPC handlers', () => {
     });
 
     it('should call approveAction with alwaysAllow', async () => {
-      await handler({}, 'action_123', undefined, true);
+      await handler({}, TEST_CONV_ID, 'action_123', undefined, true);
 
       expect(mockClaudeService.approveAction).toHaveBeenCalledWith(
+        TEST_CONV_ID,
         'action_123',
         undefined,
         true
@@ -208,34 +233,43 @@ describe('Claude IPC handlers', () => {
 
     it('should call approveAction with all parameters', async () => {
       const updatedInput = { file_path: '/new/path' };
-      await handler({}, 'action_123', updatedInput, true);
+      await handler({}, TEST_CONV_ID, 'action_123', updatedInput, true);
 
       expect(mockClaudeService.approveAction).toHaveBeenCalledWith(
+        TEST_CONV_ID,
         'action_123',
         updatedInput,
         true
       );
     });
 
+    it('should throw when conversationId is not a string', async () => {
+      await expect(handler({}, 123, 'action_123')).rejects.toThrow(IpcError);
+    });
+
+    it('should throw when conversationId is empty', async () => {
+      await expect(handler({}, '', 'action_123')).rejects.toThrow(IpcError);
+    });
+
     it('should throw when actionId is not a string', async () => {
-      await expect(handler({}, 123)).rejects.toThrow(IpcError);
+      await expect(handler({}, TEST_CONV_ID, 123)).rejects.toThrow(IpcError);
     });
 
     it('should throw when actionId is empty', async () => {
-      await expect(handler({}, '')).rejects.toThrow(IpcError);
+      await expect(handler({}, TEST_CONV_ID, '')).rejects.toThrow(IpcError);
     });
 
     it('should throw when updatedInput is not an object', async () => {
-      await expect(handler({}, 'action_123', 'not-an-object')).rejects.toThrow(IpcError);
+      await expect(handler({}, TEST_CONV_ID, 'action_123', 'not-an-object')).rejects.toThrow(IpcError);
     });
 
     it('should throw when alwaysAllow is not a boolean', async () => {
-      await expect(handler({}, 'action_123', undefined, 'true')).rejects.toThrow(IpcError);
+      await expect(handler({}, TEST_CONV_ID, 'action_123', undefined, 'true')).rejects.toThrow(IpcError);
     });
 
     it('should allow null updatedInput', async () => {
       // undefined is allowed, but explicit null might be passed
-      await handler({}, 'action_123', undefined, false);
+      await handler({}, TEST_CONV_ID, 'action_123', undefined, false);
 
       expect(mockClaudeService.approveAction).toHaveBeenCalled();
     });
@@ -251,35 +285,43 @@ describe('Claude IPC handlers', () => {
       handler = handlers.get(IPC_CHANNELS.CLAUDE_REJECT)!;
     });
 
-    it('should call rejectAction with actionId only', async () => {
-      await handler({}, 'action_456');
+    it('should call rejectAction with conversationId and actionId only', async () => {
+      await handler({}, TEST_CONV_ID, 'action_456');
 
-      expect(mockClaudeService.rejectAction).toHaveBeenCalledWith('action_456', undefined);
+      expect(mockClaudeService.rejectAction).toHaveBeenCalledWith(TEST_CONV_ID, 'action_456', undefined);
     });
 
     it('should call rejectAction with message', async () => {
-      await handler({}, 'action_456', 'Too dangerous');
+      await handler({}, TEST_CONV_ID, 'action_456', 'Too dangerous');
 
-      expect(mockClaudeService.rejectAction).toHaveBeenCalledWith('action_456', 'Too dangerous');
+      expect(mockClaudeService.rejectAction).toHaveBeenCalledWith(TEST_CONV_ID, 'action_456', 'Too dangerous');
+    });
+
+    it('should throw when conversationId is not a string', async () => {
+      await expect(handler({}, 123, 'action_456')).rejects.toThrow(IpcError);
+    });
+
+    it('should throw when conversationId is empty', async () => {
+      await expect(handler({}, '', 'action_456')).rejects.toThrow(IpcError);
     });
 
     it('should throw when actionId is not a string', async () => {
-      await expect(handler({}, null)).rejects.toThrow(IpcError);
+      await expect(handler({}, TEST_CONV_ID, null)).rejects.toThrow(IpcError);
     });
 
     it('should throw when actionId is empty', async () => {
-      await expect(handler({}, '')).rejects.toThrow(IpcError);
+      await expect(handler({}, TEST_CONV_ID, '')).rejects.toThrow(IpcError);
     });
 
     it('should throw when message is not a string (if provided)', async () => {
       // ValidationError is caught and wrapped in IpcError by the handler
-      await expect(handler({}, 'action_456', 123)).rejects.toThrow(IpcError);
+      await expect(handler({}, TEST_CONV_ID, 'action_456', 123)).rejects.toThrow(IpcError);
     });
 
     it('should allow empty message string', async () => {
-      await handler({}, 'action_456', '');
+      await handler({}, TEST_CONV_ID, 'action_456', '');
 
-      expect(mockClaudeService.rejectAction).toHaveBeenCalledWith('action_456', '');
+      expect(mockClaudeService.rejectAction).toHaveBeenCalledWith(TEST_CONV_ID, 'action_456', '');
     });
   });
 
@@ -295,34 +337,37 @@ describe('Claude IPC handlers', () => {
 
     it('should call handleActionResponse with valid response', async () => {
       const response = {
+        conversationId: TEST_CONV_ID,
         actionId: 'action_789',
         approved: true,
       };
       await handler({}, response);
 
-      expect(mockClaudeService.handleActionResponse).toHaveBeenCalledWith(response);
+      expect(mockClaudeService.handleActionResponse).toHaveBeenCalledWith(TEST_CONV_ID, response);
     });
 
     it('should handle rejection response', async () => {
       const response = {
+        conversationId: TEST_CONV_ID,
         actionId: 'action_789',
         approved: false,
         denyMessage: 'Not allowed',
       };
       await handler({}, response);
 
-      expect(mockClaudeService.handleActionResponse).toHaveBeenCalledWith(response);
+      expect(mockClaudeService.handleActionResponse).toHaveBeenCalledWith(TEST_CONV_ID, response);
     });
 
     it('should handle response with updatedInput', async () => {
       const response = {
+        conversationId: TEST_CONV_ID,
         actionId: 'action_789',
         approved: true,
         updatedInput: { command: 'safer command' },
       };
       await handler({}, response);
 
-      expect(mockClaudeService.handleActionResponse).toHaveBeenCalledWith(response);
+      expect(mockClaudeService.handleActionResponse).toHaveBeenCalledWith(TEST_CONV_ID, response);
     });
 
     it('should throw when response is not an object', async () => {
@@ -333,29 +378,37 @@ describe('Claude IPC handlers', () => {
       await expect(handler({}, null)).rejects.toThrow(IpcError);
     });
 
+    it('should throw when conversationId is missing', async () => {
+      await expect(handler({}, { actionId: 'action_789', approved: true })).rejects.toThrow(IpcError);
+    });
+
+    it('should throw when conversationId is empty', async () => {
+      await expect(handler({}, { conversationId: '', actionId: 'action_789', approved: true })).rejects.toThrow(IpcError);
+    });
+
     it('should throw when actionId is missing', async () => {
       // ValidationError is caught and wrapped in IpcError by the handler
-      await expect(handler({}, { approved: true })).rejects.toThrow(IpcError);
+      await expect(handler({}, { conversationId: TEST_CONV_ID, approved: true })).rejects.toThrow(IpcError);
     });
 
     it('should throw when actionId is empty', async () => {
       // ValidationError is caught and wrapped in IpcError by the handler
-      await expect(handler({}, { actionId: '', approved: true })).rejects.toThrow(IpcError);
+      await expect(handler({}, { conversationId: TEST_CONV_ID, actionId: '', approved: true })).rejects.toThrow(IpcError);
     });
 
     it('should throw when actionId is not a string', async () => {
       // ValidationError is caught and wrapped in IpcError by the handler
-      await expect(handler({}, { actionId: 123, approved: true })).rejects.toThrow(IpcError);
+      await expect(handler({}, { conversationId: TEST_CONV_ID, actionId: 123, approved: true })).rejects.toThrow(IpcError);
     });
 
     it('should throw when approved is missing', async () => {
       // ValidationError is caught and wrapped in IpcError by the handler
-      await expect(handler({}, { actionId: 'action_789' })).rejects.toThrow(IpcError);
+      await expect(handler({}, { conversationId: TEST_CONV_ID, actionId: 'action_789' })).rejects.toThrow(IpcError);
     });
 
     it('should throw when approved is not a boolean', async () => {
       // ValidationError is caught and wrapped in IpcError by the handler
-      await expect(handler({}, { actionId: 'action_789', approved: 'yes' })).rejects.toThrow(IpcError);
+      await expect(handler({}, { conversationId: TEST_CONV_ID, actionId: 'action_789', approved: 'yes' })).rejects.toThrow(IpcError);
     });
   });
 
@@ -369,10 +422,18 @@ describe('Claude IPC handlers', () => {
       handler = handlers.get(IPC_CHANNELS.CLAUDE_ABORT)!;
     });
 
-    it('should call abort', async () => {
-      await handler({});
+    it('should call abort with conversationId', async () => {
+      await handler({}, TEST_CONV_ID);
 
-      expect(mockClaudeService.abort).toHaveBeenCalled();
+      expect(mockClaudeService.abort).toHaveBeenCalledWith(TEST_CONV_ID);
+    });
+
+    it('should throw when conversationId is not a string', async () => {
+      await expect(handler({}, 123)).rejects.toThrow(AppError);
+    });
+
+    it('should throw when conversationId is empty', async () => {
+      await expect(handler({}, '')).rejects.toThrow(AppError);
     });
 
     it('should throw when service is not initialized', async () => {
@@ -381,13 +442,13 @@ describe('Claude IPC handlers', () => {
       const nullHandler = handlers.get(IPC_CHANNELS.CLAUDE_ABORT)!;
 
       // IpcError is caught and wrapped in AppError by the handler's catch block
-      await expect(nullHandler({})).rejects.toThrow(AppError);
+      await expect(nullHandler({}, TEST_CONV_ID)).rejects.toThrow(AppError);
     });
 
     it('should propagate abort errors', async () => {
       mockClaudeService.abort.mockRejectedValue(new Error('Abort failed'));
 
-      await expect(handler({})).rejects.toThrow();
+      await expect(handler({}, TEST_CONV_ID)).rejects.toThrow();
     });
   });
 
@@ -431,6 +492,92 @@ describe('Claude IPC handlers', () => {
   });
 
   // ===========================================================================
+  // CLAUDE_GET_MODELS
+  // ===========================================================================
+  describe('CLAUDE_GET_MODELS handler', () => {
+    let handler: (...args: unknown[]) => unknown;
+
+    beforeEach(() => {
+      handler = handlers.get(IPC_CHANNELS.CLAUDE_GET_MODELS)!;
+    });
+
+    it('should return models', async () => {
+      const models = [
+        { id: 'claude-3-opus', name: 'Claude 3 Opus' },
+        { id: 'claude-3-sonnet', name: 'Claude 3 Sonnet' },
+      ];
+      mockClaudeService.getModels.mockResolvedValue(models);
+
+      const result = await handler({});
+
+      expect(result).toEqual(models);
+    });
+
+    it('should return empty array when no models', async () => {
+      mockClaudeService.getModels.mockResolvedValue([]);
+
+      const result = await handler({});
+
+      expect(result).toEqual([]);
+    });
+
+    it('should throw when service is not initialized', async () => {
+      handlers.clear();
+      setupClaudeIPC(null as any);
+      const nullHandler = handlers.get(IPC_CHANNELS.CLAUDE_GET_MODELS)!;
+
+      await expect(nullHandler({})).rejects.toThrow(IpcError);
+    });
+  });
+
+  // ===========================================================================
+  // CLAUDE_GET_ACTIVE_QUERIES
+  // ===========================================================================
+  describe('CLAUDE_GET_ACTIVE_QUERIES handler', () => {
+    let handler: (...args: unknown[]) => unknown;
+
+    beforeEach(() => {
+      handler = handlers.get(IPC_CHANNELS.CLAUDE_GET_ACTIVE_QUERIES)!;
+    });
+
+    it('should return active query status', async () => {
+      mockClaudeService.getActiveQueryCount.mockReturnValue(2);
+      mockClaudeService.getMaxConcurrentQueries.mockReturnValue(5);
+      mockClaudeService.getActiveConversationIds.mockReturnValue(['conv1', 'conv2']);
+
+      const result = await handler({});
+
+      expect(result).toEqual({
+        count: 2,
+        maxCount: 5,
+        activeConversationIds: ['conv1', 'conv2'],
+      });
+    });
+
+    it('should return zero counts when no active queries', async () => {
+      mockClaudeService.getActiveQueryCount.mockReturnValue(0);
+      mockClaudeService.getMaxConcurrentQueries.mockReturnValue(5);
+      mockClaudeService.getActiveConversationIds.mockReturnValue([]);
+
+      const result = await handler({});
+
+      expect(result).toEqual({
+        count: 0,
+        maxCount: 5,
+        activeConversationIds: [],
+      });
+    });
+
+    it('should throw when service is not initialized', async () => {
+      handlers.clear();
+      setupClaudeIPC(null as any);
+      const nullHandler = handlers.get(IPC_CHANNELS.CLAUDE_GET_ACTIVE_QUERIES)!;
+
+      await expect(nullHandler({})).rejects.toThrow(IpcError);
+    });
+  });
+
+  // ===========================================================================
   // Error Message Formatting
   // ===========================================================================
   describe('error handling', () => {
@@ -439,7 +586,7 @@ describe('Claude IPC handlers', () => {
       mockClaudeService.sendMessage.mockRejectedValue(new Error('Network timeout'));
 
       try {
-        await handler({}, 'Hello', '/home/user');
+        await handler({}, TEST_CONV_ID, 'Hello', '/home/user');
         expect.fail('Should have thrown');
       } catch (error) {
         expect(error).toBeInstanceOf(IpcError);
@@ -451,7 +598,7 @@ describe('Claude IPC handlers', () => {
       const handler = handlers.get(IPC_CHANNELS.CLAUDE_SEND)!;
 
       try {
-        await handler({}, null, '/home');
+        await handler({}, TEST_CONV_ID, null, '/home');
         expect.fail('Should have thrown');
       } catch (error) {
         expect(error).toBeInstanceOf(IpcError);

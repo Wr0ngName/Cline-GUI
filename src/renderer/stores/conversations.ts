@@ -1,11 +1,13 @@
 /**
  * Conversations store - manages conversation persistence and history
+ * Updated for multi-conversation support
  */
 
 import type { ChatMessage, Conversation } from '@shared/types';
 import { defineStore, storeToRefs } from 'pinia';
 import { ref, computed, watch } from 'vue';
 
+import { getInMemoryMessages } from '../composables/useClaudeChat';
 import { CONSTANTS } from '../constants/app';
 import { generateId } from '../utils/id';
 import { logger } from '../utils/logger';
@@ -24,36 +26,13 @@ export const useConversationsStore = defineStore('conversations', () => {
 
   // Set up watchers at store creation time for proper reactivity
   const chatStore = useChatStore();
-  const { messages: chatMessages, isLoading: chatIsLoading } = storeToRefs(chatStore);
+  const { messages: chatMessages } = storeToRefs(chatStore);
 
-  // Watch for streaming to finish - save when Claude response is complete
-  // IMPORTANT: Must handle errors since watchers are fire-and-forget
-  watch(
-    chatIsLoading,
-    (loading, wasLoading) => {
-      if (!isInitialized.value) return; // Don't save before initialization
+  // Note: Per-conversation save on streaming completion is handled by the useClaudeChat composable
+  // via the onDone event handler, which has access to the conversationId from the event
 
-      logger.debug('Chat loading state changed', {
-        loading,
-        wasLoading,
-        conversationId: currentConversationId.value,
-        messageCount: chatMessages.value.length,
-      });
-
-      // When loading transitions from true to false, the message is complete
-      if (!loading && wasLoading && currentConversationId.value && chatMessages.value.length > 0) {
-        logger.info('Streaming finished, saving conversation');
-        // Must catch errors since watcher callbacks can't be async
-        saveCurrentConversation().catch((err) => {
-          logger.error('Failed to save conversation after streaming', err);
-        });
-      }
-    }
-  );
-
-  // Watch for message count changes - save when first user message is added
+  // Watch for message count changes in current conversation - save when first user message is added
   // This ensures the conversation appears in history immediately
-  // IMPORTANT: Must handle errors since watchers are fire-and-forget
   watch(
     () => chatMessages.value.length,
     (newLength, oldLength) => {
@@ -63,14 +42,12 @@ export const useConversationsStore = defineStore('conversations', () => {
         newLength,
         oldLength,
         conversationId: currentConversationId.value,
-        isLoading: chatIsLoading.value,
       });
 
       // Save when first message is added (user message)
       // This makes the conversation appear in history immediately
       if (oldLength === 0 && newLength > 0 && currentConversationId.value) {
         logger.info('First message added, saving conversation to history');
-        // Must catch errors since watcher callbacks can't be async
         saveCurrentConversation().catch((err) => {
           logger.error('Failed to save conversation after first message', err);
         });
@@ -132,11 +109,51 @@ export const useConversationsStore = defineStore('conversations', () => {
         conversations.value.push(conversation);
       }
 
+      // Update current conversation ID in both stores
       currentConversationId.value = id;
+      chatStore.setCurrentConversation(id);
 
-      // Load messages into chat store
-      const chatStore = useChatStore();
-      chatStore.loadMessages(conversation.messages);
+      // Check if this conversation has in-memory messages (was running in background)
+      // These are more up-to-date than the saved file
+      const inMemoryMessages = getInMemoryMessages(id);
+      const state = chatStore.getConversationState(id);
+
+      if (inMemoryMessages && inMemoryMessages.length > 0) {
+        // Use in-memory messages - they're more current than the saved file
+        logger.info('Using in-memory messages for background conversation', {
+          id,
+          messageCount: inMemoryMessages.length,
+          isLoading: state.isLoading,
+        });
+
+        // Deep clone to avoid reactivity issues
+        const messages = JSON.parse(JSON.stringify(inMemoryMessages)) as ChatMessage[];
+
+        // If still streaming, update the last message with accumulated content
+        if (state.isLoading && state.streamingMessageId && state.currentStreamingContent) {
+          const lastMsg = messages[messages.length - 1];
+          if (lastMsg && lastMsg.role === 'assistant') {
+            lastMsg.content = state.currentStreamingContent;
+            lastMsg.isStreaming = true;
+          }
+        }
+
+        chatStore.loadMessages(messages);
+      } else {
+        // Load messages from saved file
+        chatStore.loadMessages(conversation.messages);
+
+        // If this conversation was streaming, check for buffered content
+        if (state.streamingMessageId && state.currentStreamingContent) {
+          // There's buffered streaming content - find the message and update it
+          const lastMessage = chatStore.messages[chatStore.messages.length - 1];
+          if (lastMessage && lastMessage.role === 'assistant' && lastMessage.id === state.streamingMessageId) {
+            // Sync the content
+            lastMessage.content = state.currentStreamingContent;
+            lastMessage.isStreaming = state.isLoading;
+          }
+        }
+      }
 
       // Update working directory if different
       const settingsStore = useSettingsStore();
@@ -156,6 +173,31 @@ export const useConversationsStore = defineStore('conversations', () => {
   }
 
   /**
+   * Switch to a different conversation
+   * This properly handles switching from a streaming conversation
+   */
+  async function switchConversation(id: string): Promise<boolean> {
+    if (id === currentConversationId.value) {
+      return true; // Already on this conversation
+    }
+
+    logger.info('Switching conversation', {
+      from: currentConversationId.value,
+      to: id,
+    });
+
+    // Save current conversation before switching (if it has messages)
+    if (currentConversationId.value && chatStore.messages.length > 0) {
+      await saveCurrentConversation().catch((err) => {
+        logger.error('Failed to save conversation before switch', err);
+      });
+    }
+
+    // Load the target conversation
+    return loadConversation(id);
+  }
+
+  /**
    * Save the current conversation
    * Returns true if save was successful, false otherwise
    */
@@ -165,7 +207,6 @@ export const useConversationsStore = defineStore('conversations', () => {
       return false;
     }
 
-    const chatStore = useChatStore();
     const settingsStore = useSettingsStore();
 
     // Don't save if no messages
@@ -195,12 +236,19 @@ export const useConversationsStore = defineStore('conversations', () => {
       // Vue proxies can't be cloned across IPC - use JSON round-trip for complete deproxification
       const rawMessages: ChatMessage[] = JSON.parse(JSON.stringify(chatStore.messages));
 
+      // Preserve existing custom title if it was explicitly set via rename
+      const existingConv = currentConversation.value;
+      const generatedTitle = generateTitle(chatStore.messages);
+      // Use the customTitle flag to determine if the title was manually set
+      const title = existingConv?.customTitle ? existingConv.title : generatedTitle;
+
       const conversation: Conversation = {
         id: currentConversationId.value,
-        title: generateTitle(chatStore.messages),
+        title,
+        customTitle: existingConv?.customTitle,  // Preserve the flag
         workingDirectory: settingsStore.workingDirectory,
         messages: rawMessages,
-        createdAt: currentConversation.value?.createdAt || Date.now(),
+        createdAt: existingConv?.createdAt || Date.now(),
         updatedAt: Date.now(),
       };
 
@@ -244,18 +292,77 @@ export const useConversationsStore = defineStore('conversations', () => {
   }
 
   /**
+   * Save a specific conversation (not necessarily the current one)
+   * Used for background saves of streaming conversations
+   */
+  async function saveConversation(conversationId: string, messages: ChatMessage[]): Promise<boolean> {
+    if (messages.length === 0) {
+      logger.debug('No messages to save for conversation', { conversationId });
+      return false;
+    }
+
+    const settingsStore = useSettingsStore();
+
+    // Validate workingDirectory is set
+    if (!settingsStore.workingDirectory) {
+      logger.warn('Cannot save conversation: working directory not set');
+      return false;
+    }
+
+    try {
+      const rawMessages: ChatMessage[] = JSON.parse(JSON.stringify(messages));
+      const existingConv = conversations.value.find(c => c.id === conversationId);
+
+      // Preserve existing custom title if it was explicitly set via rename
+      const generatedTitle = generateTitle(messages);
+      // Use the customTitle flag to determine if the title was manually set
+      const title = existingConv?.customTitle ? existingConv.title : generatedTitle;
+
+      const conversation: Conversation = {
+        id: conversationId,
+        title,
+        customTitle: existingConv?.customTitle,  // Preserve the flag
+        workingDirectory: settingsStore.workingDirectory,
+        messages: rawMessages,
+        createdAt: existingConv?.createdAt || Date.now(),
+        updatedAt: Date.now(),
+      };
+
+      logger.info('Saving conversation (background)', {
+        id: conversation.id,
+        messageCount: conversation.messages.length,
+      });
+
+      await window.electron.conversation.save(conversation);
+
+      // Update in list
+      const index = conversations.value.findIndex((c) => c.id === conversation.id);
+      if (index !== -1) {
+        conversations.value[index] = { ...conversation, messages: [] };
+      } else {
+        conversations.value.push({ ...conversation, messages: [] });
+      }
+
+      return true;
+    } catch (err) {
+      logger.error('Failed to save conversation (background)', { conversationId, error: err });
+      return false;
+    }
+  }
+
+  /**
    * Create a new conversation and make it current
    */
   function createNewConversation(): string {
-    const chatStore = useChatStore();
-
-    // Clear current chat
+    // Clear current chat messages
     chatStore.clearMessages();
 
     // Generate new conversation ID
     const id = generateId('conv');
 
+    // Update both stores
     currentConversationId.value = id;
+    chatStore.setCurrentConversation(id);
 
     logger.info('Created new conversation', { id });
     return id;
@@ -274,6 +381,7 @@ export const useConversationsStore = defineStore('conversations', () => {
         conversations.value[index] = {
           ...conversations.value[index],
           title: newTitle.trim(),
+          customTitle: true,  // Mark as manually renamed
           updatedAt: Date.now(),
         };
       }
@@ -300,6 +408,9 @@ export const useConversationsStore = defineStore('conversations', () => {
         conversations.value.splice(index, 1);
       }
 
+      // Clear conversation state from chat store
+      chatStore.clearConversationState(id);
+
       // If it was the current conversation, create a new one
       if (currentConversationId.value === id) {
         createNewConversation();
@@ -310,6 +421,13 @@ export const useConversationsStore = defineStore('conversations', () => {
       logger.error('Failed to delete conversation', err);
       error.value = 'Failed to delete conversation';
     }
+  }
+
+  /**
+   * Check if a conversation has an active query (loading)
+   */
+  function isConversationActive(id: string): boolean {
+    return chatStore.isConversationLoading(id);
   }
 
   /**
@@ -390,10 +508,13 @@ export const useConversationsStore = defineStore('conversations', () => {
     // Actions
     loadConversationList,
     loadConversation,
+    switchConversation,
     saveCurrentConversation,
+    saveConversation,
     createNewConversation,
     renameConversation,
     deleteConversation,
+    isConversationActive,
     clearError,
     initialize,
     cleanup,

@@ -445,9 +445,11 @@ describe('useConversationsStore', () => {
     });
 
     it('should clear chat messages', () => {
+      const convId = 'test-conv';
+      chatStore.setCurrentConversation(convId);
       chatStore.addUserMessage('Test');
-      chatStore.startAssistantMessage();
-      chatStore.appendToLastMessage('Response');
+      chatStore.startAssistantMessage(convId);
+      chatStore.appendChunk(convId, 'Response');
 
       store.createNewConversation();
 
@@ -455,7 +457,9 @@ describe('useConversationsStore', () => {
     });
 
     it('should clear pending actions in chat store', () => {
-      chatStore.addPendingAction(createBashAction({ id: 'action-1' }));
+      const convId = 'test-conv';
+      chatStore.setCurrentConversation(convId);
+      chatStore.addPendingAction(convId, createBashAction({ id: 'action-1' }));
 
       store.createNewConversation();
 
@@ -475,10 +479,11 @@ describe('useConversationsStore', () => {
   describe('saveCurrentConversation', () => {
     it('should save conversation with current messages', async () => {
       store.currentConversationId = 'conv_1';
+      chatStore.setCurrentConversation('conv_1');
       chatStore.addUserMessage('Hello');
-      chatStore.startAssistantMessage();
-      chatStore.appendToLastMessage('Hi there!');
-      chatStore.finishStreaming();
+      chatStore.startAssistantMessage('conv_1');
+      chatStore.appendChunk('conv_1', 'Hi there!');
+      chatStore.finishStreaming('conv_1');
 
       await store.saveCurrentConversation();
 
@@ -724,10 +729,11 @@ describe('useConversationsStore', () => {
       const convId = store.currentConversationId!;
 
       // 2. Add messages
+      chatStore.setCurrentConversation(convId);
       chatStore.addUserMessage('Hello');
-      chatStore.startAssistantMessage();
-      chatStore.appendToLastMessage('Hi there!');
-      chatStore.finishStreaming();
+      chatStore.startAssistantMessage(convId);
+      chatStore.appendChunk(convId, 'Hi there!');
+      chatStore.finishStreaming(convId);
 
       // 3. Save conversation
       await store.saveCurrentConversation();
@@ -809,10 +815,11 @@ describe('useConversationsStore', () => {
   describe('edge cases', () => {
     it('should handle conversation with empty title', async () => {
       store.currentConversationId = 'conv_1';
+      chatStore.setCurrentConversation('conv_1');
       // Only assistant message, no user message for title
-      chatStore.startAssistantMessage();
-      chatStore.appendToLastMessage('Response');
-      chatStore.finishStreaming();
+      chatStore.startAssistantMessage('conv_1');
+      chatStore.appendChunk('conv_1', 'Response');
+      chatStore.finishStreaming('conv_1');
 
       await store.saveCurrentConversation();
 
@@ -832,13 +839,14 @@ describe('useConversationsStore', () => {
 
     it('should handle conversation with many messages', async () => {
       store.currentConversationId = 'conv_1';
+      chatStore.setCurrentConversation('conv_1');
 
       // Add 50 message pairs
       for (let i = 0; i < 50; i++) {
         chatStore.addUserMessage(`Question ${i}`);
-        chatStore.startAssistantMessage();
-        chatStore.appendToLastMessage(`Answer ${i}`);
-        chatStore.finishStreaming();
+        chatStore.startAssistantMessage('conv_1');
+        chatStore.appendChunk('conv_1', `Answer ${i}`);
+        chatStore.finishStreaming('conv_1');
       }
 
       await store.saveCurrentConversation();

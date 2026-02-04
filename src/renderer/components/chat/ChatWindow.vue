@@ -12,10 +12,11 @@ import BackgroundTaskPanel from './BackgroundTaskPanel.vue';
 import ContextUsageBar from './ContextUsageBar.vue';
 import InputBox from './InputBox.vue';
 import MessageList from './MessageList.vue';
+import ResourceLimitWarning from './ResourceLimitWarning.vue';
 import Toast from '../shared/Toast.vue';
 
 const chatStore = useChatStore();
-const { pendingActions, error, hasPendingActions, hasBackgroundTasks, backgroundTasksList, sessionUsage, hasSessionUsage } = storeToRefs(chatStore);
+const { pendingActions, error, hasPendingActions, hasBackgroundTasks, backgroundTasksList, sessionUsage, hasSessionUsage, activeQueryCount, maxConcurrentQueries } = storeToRefs(chatStore);
 
 const { sendMessage, approveAction, rejectAction, abort } = useClaudeChat();
 
@@ -67,6 +68,26 @@ function handleClearCompletedTasks() {
           type="error"
           :message="error"
           @dismiss="clearError"
+        />
+      </div>
+    </Transition>
+
+    <!-- Resource limit warning -->
+    <Transition
+      enter-active-class="transition ease-out duration-200"
+      enter-from-class="opacity-0 -translate-y-2"
+      enter-to-class="opacity-100 translate-y-0"
+      leave-active-class="transition ease-in duration-150"
+      leave-from-class="opacity-100 translate-y-0"
+      leave-to-class="opacity-0 -translate-y-2"
+    >
+      <div
+        v-if="activeQueryCount > 0"
+        class="px-4 pt-2"
+      >
+        <ResourceLimitWarning
+          :active-count="activeQueryCount"
+          :max-count="maxConcurrentQueries"
         />
       </div>
     </Transition>

@@ -9,50 +9,61 @@ import { IPC_CHANNELS, ActionResponse } from '../shared/types';
 
 // Create the API object that will be exposed to the renderer
 const electronAPI: ElectronAPI = {
-  // Claude operations
+  // Claude operations - all operations now include conversationId for multi-instance support
   claude: {
-    send: (message: string, workingDir: string) =>
-      ipcRenderer.invoke(IPC_CHANNELS.CLAUDE_SEND, message, workingDir),
+    send: (conversationId: string, message: string, workingDir: string) =>
+      ipcRenderer.invoke(IPC_CHANNELS.CLAUDE_SEND, conversationId, message, workingDir),
 
     approve: (
+      conversationId: string,
       actionId: string,
       updatedInput?: Record<string, unknown>,
       alwaysAllow?: boolean
-    ) => ipcRenderer.invoke(IPC_CHANNELS.CLAUDE_APPROVE, actionId, updatedInput, alwaysAllow),
+    ) => ipcRenderer.invoke(IPC_CHANNELS.CLAUDE_APPROVE, conversationId, actionId, updatedInput, alwaysAllow),
 
-    reject: (actionId: string, message?: string) =>
-      ipcRenderer.invoke(IPC_CHANNELS.CLAUDE_REJECT, actionId, message),
+    reject: (conversationId: string, actionId: string, message?: string) =>
+      ipcRenderer.invoke(IPC_CHANNELS.CLAUDE_REJECT, conversationId, actionId, message),
 
     respondToAction: (response: ActionResponse) =>
       ipcRenderer.invoke(IPC_CHANNELS.CLAUDE_ACTION_RESPONSE, response),
 
-    abort: () => ipcRenderer.invoke(IPC_CHANNELS.CLAUDE_ABORT),
+    abort: (conversationId: string) =>
+      ipcRenderer.invoke(IPC_CHANNELS.CLAUDE_ABORT, conversationId),
 
     getCommands: () => ipcRenderer.invoke(IPC_CHANNELS.CLAUDE_GET_COMMANDS),
 
     getModels: () => ipcRenderer.invoke(IPC_CHANNELS.CLAUDE_GET_MODELS),
 
+    getActiveQueries: () => ipcRenderer.invoke(IPC_CHANNELS.CLAUDE_GET_ACTIVE_QUERIES),
+
+    // Event listeners now receive conversationId as first parameter
     onChunk: (callback) => {
-      const handler = (_event: Electron.IpcRendererEvent, chunk: string) => callback(chunk);
+      const handler = (_event: Electron.IpcRendererEvent, conversationId: string, chunk: string) =>
+        callback(conversationId, chunk);
       ipcRenderer.on(IPC_CHANNELS.CLAUDE_CHUNK, handler);
       return () => ipcRenderer.removeListener(IPC_CHANNELS.CLAUDE_CHUNK, handler);
     },
 
     onToolUse: (callback) => {
-      const handler = (_event: Electron.IpcRendererEvent, action: Parameters<typeof callback>[0]) =>
-        callback(action);
+      const handler = (
+        _event: Electron.IpcRendererEvent,
+        conversationId: string,
+        action: Parameters<typeof callback>[1]
+      ) => callback(conversationId, action);
       ipcRenderer.on(IPC_CHANNELS.CLAUDE_TOOL_USE, handler);
       return () => ipcRenderer.removeListener(IPC_CHANNELS.CLAUDE_TOOL_USE, handler);
     },
 
     onError: (callback) => {
-      const handler = (_event: Electron.IpcRendererEvent, error: string) => callback(error);
+      const handler = (_event: Electron.IpcRendererEvent, conversationId: string, error: string) =>
+        callback(conversationId, error);
       ipcRenderer.on(IPC_CHANNELS.CLAUDE_ERROR, handler);
       return () => ipcRenderer.removeListener(IPC_CHANNELS.CLAUDE_ERROR, handler);
     },
 
     onDone: (callback) => {
-      const handler = () => callback();
+      const handler = (_event: Electron.IpcRendererEvent, conversationId: string) =>
+        callback(conversationId);
       ipcRenderer.on(IPC_CHANNELS.CLAUDE_DONE, handler);
       return () => ipcRenderer.removeListener(IPC_CHANNELS.CLAUDE_DONE, handler);
     },
@@ -60,8 +71,9 @@ const electronAPI: ElectronAPI = {
     onSlashCommands: (callback) => {
       const handler = (
         _event: Electron.IpcRendererEvent,
-        commands: Parameters<typeof callback>[0]
-      ) => callback(commands);
+        conversationId: string,
+        commands: Parameters<typeof callback>[1]
+      ) => callback(conversationId, commands);
       ipcRenderer.on(IPC_CHANNELS.CLAUDE_SLASH_COMMANDS, handler);
       return () => ipcRenderer.removeListener(IPC_CHANNELS.CLAUDE_SLASH_COMMANDS, handler);
     },
@@ -69,8 +81,9 @@ const electronAPI: ElectronAPI = {
     onCommandAction: (callback) => {
       const handler = (
         _event: Electron.IpcRendererEvent,
-        action: Parameters<typeof callback>[0]
-      ) => callback(action);
+        conversationId: string,
+        action: Parameters<typeof callback>[1]
+      ) => callback(conversationId, action);
       ipcRenderer.on(IPC_CHANNELS.CLAUDE_COMMAND_ACTION, handler);
       return () => ipcRenderer.removeListener(IPC_CHANNELS.CLAUDE_COMMAND_ACTION, handler);
     },
@@ -87,8 +100,9 @@ const electronAPI: ElectronAPI = {
     onTaskNotification: (callback) => {
       const handler = (
         _event: Electron.IpcRendererEvent,
-        notification: Parameters<typeof callback>[0]
-      ) => callback(notification);
+        conversationId: string,
+        notification: Parameters<typeof callback>[1]
+      ) => callback(conversationId, notification);
       ipcRenderer.on(IPC_CHANNELS.CLAUDE_TASK_NOTIFICATION, handler);
       return () => ipcRenderer.removeListener(IPC_CHANNELS.CLAUDE_TASK_NOTIFICATION, handler);
     },
@@ -96,10 +110,21 @@ const electronAPI: ElectronAPI = {
     onUsageUpdate: (callback) => {
       const handler = (
         _event: Electron.IpcRendererEvent,
-        usage: Parameters<typeof callback>[0]
-      ) => callback(usage);
+        conversationId: string,
+        usage: Parameters<typeof callback>[1]
+      ) => callback(conversationId, usage);
       ipcRenderer.on(IPC_CHANNELS.CLAUDE_USAGE_UPDATE, handler);
       return () => ipcRenderer.removeListener(IPC_CHANNELS.CLAUDE_USAGE_UPDATE, handler);
+    },
+
+    onActiveQueriesChange: (callback) => {
+      const handler = (
+        _event: Electron.IpcRendererEvent,
+        count: number,
+        maxCount: number
+      ) => callback(count, maxCount);
+      ipcRenderer.on(IPC_CHANNELS.CLAUDE_ACTIVE_QUERIES, handler);
+      return () => ipcRenderer.removeListener(IPC_CHANNELS.CLAUDE_ACTIVE_QUERIES, handler);
     },
   },
 

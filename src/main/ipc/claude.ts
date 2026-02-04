@@ -26,20 +26,21 @@ import logger from '../utils/logger';
  */
 export function setupClaudeIPC(claudeService: ClaudeCodeService): void {
   // Send message to Claude
-  ipcMain.handle(IPC_CHANNELS.CLAUDE_SEND, async (_event, message: string, workingDir: string) => {
+  ipcMain.handle(IPC_CHANNELS.CLAUDE_SEND, async (_event, conversationId: string, message: string, workingDir: string) => {
     try {
-      logger.debug('IPC: claude:send', { messageLength: message?.length || 0 });
+      logger.debug('IPC: claude:send', { conversationId, messageLength: message?.length || 0 });
 
       // Validate service
       ensureService(claudeService, 'ClaudeCodeService');
 
       // Validate inputs
+      validateString(conversationId, 'Conversation ID');
       validateString(message, 'Message');
       validateString(workingDir, 'Working directory');
 
-      await claudeService.sendMessage(message, workingDir);
+      await claudeService.sendMessage(conversationId, message, workingDir);
     } catch (error) {
-      logger.error('Failed to send message to Claude', { error, messageLength: message?.length });
+      logger.error('Failed to send message to Claude', { error, conversationId, messageLength: message?.length });
       throw new IpcError(formatErrorMessage('Failed to send message', error), IPC_CHANNELS.CLAUDE_SEND, ERROR_CODES.CLAUDE_SEND_FAILED, error);
     }
   });
@@ -49,17 +50,19 @@ export function setupClaudeIPC(claudeService: ClaudeCodeService): void {
     IPC_CHANNELS.CLAUDE_APPROVE,
     async (
       _event,
+      conversationId: string,
       actionId: string,
       updatedInput?: Record<string, unknown>,
       alwaysAllow?: boolean
     ) => {
       try {
-        logger.debug('IPC: claude:approve', { actionId, alwaysAllow });
+        logger.debug('IPC: claude:approve', { conversationId, actionId, alwaysAllow });
 
         // Validate service
         ensureService(claudeService, 'ClaudeCodeService');
 
         // Validate inputs
+        validateString(conversationId, 'Conversation ID');
         validateString(actionId, 'Action ID');
 
         if (updatedInput !== undefined) {
@@ -70,9 +73,9 @@ export function setupClaudeIPC(claudeService: ClaudeCodeService): void {
           validateBoolean(alwaysAllow, 'alwaysAllow');
         }
 
-        await claudeService.approveAction(actionId, updatedInput, alwaysAllow);
+        await claudeService.approveAction(conversationId, actionId, updatedInput, alwaysAllow);
       } catch (error) {
-        logger.error('Failed to approve action', { error, actionId });
+        logger.error('Failed to approve action', { error, conversationId, actionId });
         throw new IpcError(formatErrorMessage('Failed to approve action', error), IPC_CHANNELS.CLAUDE_APPROVE, ERROR_CODES.IPC_HANDLER_FAILED, error);
       }
     }
@@ -81,23 +84,24 @@ export function setupClaudeIPC(claudeService: ClaudeCodeService): void {
   // Reject a pending action with optional denial message
   ipcMain.handle(
     IPC_CHANNELS.CLAUDE_REJECT,
-    async (_event, actionId: string, message?: string) => {
+    async (_event, conversationId: string, actionId: string, message?: string) => {
       try {
-        logger.debug('IPC: claude:reject', { actionId, message });
+        logger.debug('IPC: claude:reject', { conversationId, actionId, message });
 
         // Validate service
         ensureService(claudeService, 'ClaudeCodeService');
 
         // Validate inputs
+        validateString(conversationId, 'Conversation ID');
         validateString(actionId, 'Action ID');
 
         if (message !== undefined && typeof message !== 'string') {
           throw new ValidationError('Invalid message type: must be a string', 'message', ERROR_CODES.VALIDATION_TYPE_MISMATCH);
         }
 
-        await claudeService.rejectAction(actionId, message);
+        await claudeService.rejectAction(conversationId, actionId, message);
       } catch (error) {
-        logger.error('Failed to reject action', { error, actionId });
+        logger.error('Failed to reject action', { error, conversationId, actionId });
         throw new IpcError(formatErrorMessage('Failed to reject action', error), IPC_CHANNELS.CLAUDE_REJECT, ERROR_CODES.IPC_HANDLER_FAILED, error);
       }
     }
@@ -109,6 +113,7 @@ export function setupClaudeIPC(claudeService: ClaudeCodeService): void {
     async (_event, response: ActionResponse) => {
       try {
         logger.debug('IPC: claude:action-response', {
+          conversationId: response?.conversationId,
           actionId: response?.actionId,
           approved: response?.approved,
         });
@@ -119,6 +124,10 @@ export function setupClaudeIPC(claudeService: ClaudeCodeService): void {
         // Validate input
         validateObject(response, 'Response');
 
+        if (typeof response.conversationId !== 'string' || !response.conversationId.trim()) {
+          throw new ValidationError('Invalid conversation ID in response', 'conversationId', ERROR_CODES.VALIDATION_REQUIRED);
+        }
+
         if (typeof response.actionId !== 'string' || !response.actionId.trim()) {
           throw new ValidationError('Invalid action ID in response', 'actionId', ERROR_CODES.VALIDATION_REQUIRED);
         }
@@ -127,7 +136,7 @@ export function setupClaudeIPC(claudeService: ClaudeCodeService): void {
           throw new ValidationError('Invalid approved status: must be a boolean', 'approved', ERROR_CODES.VALIDATION_TYPE_MISMATCH);
         }
 
-        claudeService.handleActionResponse(response);
+        claudeService.handleActionResponse(response.conversationId, response);
       } catch (error) {
         logger.error('Failed to handle action response', { error, response });
         throw new IpcError(formatErrorMessage('Failed to handle action response', error), IPC_CHANNELS.CLAUDE_ACTION_RESPONSE, ERROR_CODES.IPC_HANDLER_FAILED, error);
@@ -135,17 +144,20 @@ export function setupClaudeIPC(claudeService: ClaudeCodeService): void {
     }
   );
 
-  // Abort current request
-  ipcMain.handle(IPC_CHANNELS.CLAUDE_ABORT, async () => {
+  // Abort request for a specific conversation
+  ipcMain.handle(IPC_CHANNELS.CLAUDE_ABORT, async (_event, conversationId: string) => {
     try {
-      logger.debug('IPC: claude:abort');
+      logger.debug('IPC: claude:abort', { conversationId });
 
       // Validate service
       ensureService(claudeService, 'ClaudeCodeService');
 
-      await claudeService.abort();
+      // Validate input
+      validateString(conversationId, 'Conversation ID');
+
+      await claudeService.abort(conversationId);
     } catch (error) {
-      logger.error('Failed to abort Claude request', { error });
+      logger.error('Failed to abort Claude request', { error, conversationId });
       throw new AppError(formatErrorMessage('Failed to abort request', error), ERROR_CODES.CLAUDE_ABORT_FAILED, error);
     }
   });
@@ -177,6 +189,25 @@ export function setupClaudeIPC(claudeService: ClaudeCodeService): void {
     } catch (error) {
       logger.error('Failed to get models', { error });
       throw new IpcError(formatErrorMessage('Failed to get models', error), IPC_CHANNELS.CLAUDE_GET_MODELS, ERROR_CODES.IPC_HANDLER_FAILED, error);
+    }
+  });
+
+  // Get active query status
+  ipcMain.handle(IPC_CHANNELS.CLAUDE_GET_ACTIVE_QUERIES, async () => {
+    try {
+      logger.debug('IPC: claude:get-active-queries');
+
+      // Validate service
+      ensureService(claudeService, 'ClaudeCodeService');
+
+      return {
+        count: claudeService.getActiveQueryCount(),
+        maxCount: claudeService.getMaxConcurrentQueries(),
+        activeConversationIds: claudeService.getActiveConversationIds(),
+      };
+    } catch (error) {
+      logger.error('Failed to get active queries', { error });
+      throw new IpcError(formatErrorMessage('Failed to get active queries', error), IPC_CHANNELS.CLAUDE_GET_ACTIVE_QUERIES, ERROR_CODES.IPC_HANDLER_FAILED, error);
     }
   });
 

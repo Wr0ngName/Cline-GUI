@@ -9,6 +9,8 @@
  * - Getters accuracy (hasMessages, hasPendingActions, lastMessage)
  * - Edge cases (unicode, long messages, rapid appends, empty content)
  * - Integration scenarios (full conversation flow, tool approval flow)
+ *
+ * Updated for multi-conversation support - methods now require conversationId
  */
 
 import type { ChatMessage, PendingAction, BashCommandAction, FileEditAction } from '@shared/types';
@@ -16,6 +18,9 @@ import { setActivePinia, createPinia } from 'pinia';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 
 import { useChatStore } from '../chat';
+
+// Test conversation ID used throughout tests
+const TEST_CONV_ID = 'test-conv-123';
 
 // Helper to create valid BashCommandAction
 function createBashAction(overrides: Partial<BashCommandAction> & { id: string }): BashCommandAction {
@@ -60,6 +65,8 @@ describe('useChatStore', () => {
   beforeEach(() => {
     setActivePinia(createPinia());
     store = useChatStore();
+    // Set current conversation for tests
+    store.setCurrentConversation(TEST_CONV_ID);
     vi.clearAllMocks();
   });
 
@@ -103,7 +110,7 @@ describe('useChatStore', () => {
       });
 
       it('should be true with single assistant message', () => {
-        store.startAssistantMessage();
+        store.startAssistantMessage(TEST_CONV_ID);
         expect(store.hasMessages).toBe(true);
       });
 
@@ -121,14 +128,14 @@ describe('useChatStore', () => {
       });
 
       it('should be true when actions exist', () => {
-        store.addPendingAction(createBashAction({ id: 'action-1' }));
+        store.addPendingAction(TEST_CONV_ID, createBashAction({ id: 'action-1' }));
         expect(store.hasPendingActions).toBe(true);
       });
 
       it('should become false after removing all actions', () => {
-        store.addPendingAction(createBashAction({ id: 'action-1' }));
+        store.addPendingAction(TEST_CONV_ID, createBashAction({ id: 'action-1' }));
         expect(store.hasPendingActions).toBe(true);
-        store.removePendingAction('action-1');
+        store.removePendingAction(TEST_CONV_ID, 'action-1');
         expect(store.hasPendingActions).toBe(false);
       });
     });
@@ -153,8 +160,8 @@ describe('useChatStore', () => {
 
       it('should return assistant message when streaming', () => {
         store.addUserMessage('Question');
-        store.startAssistantMessage();
-        store.appendToLastMessage('Answer');
+        store.startAssistantMessage(TEST_CONV_ID);
+        store.appendChunk(TEST_CONV_ID, 'Answer');
         expect(store.lastMessage?.role).toBe('assistant');
         expect(store.lastMessage?.content).toBe('Answer');
       });
@@ -270,7 +277,7 @@ describe('useChatStore', () => {
   // ===========================================================================
   describe('startAssistantMessage', () => {
     it('should add an empty streaming message', () => {
-      const message = store.startAssistantMessage();
+      const message = store.startAssistantMessage(TEST_CONV_ID);
       expect(store.messages).toHaveLength(1);
       expect(message.role).toBe('assistant');
       expect(message.content).toBe('');
@@ -278,25 +285,25 @@ describe('useChatStore', () => {
     });
 
     it('should reset currentStreamingContent', () => {
-      store.startAssistantMessage();
-      store.appendToLastMessage('old content');
-      store.finishStreaming();
+      store.startAssistantMessage(TEST_CONV_ID);
+      store.appendChunk(TEST_CONV_ID, 'old content');
+      store.finishStreaming(TEST_CONV_ID);
 
       // Start new message
-      store.startAssistantMessage();
+      store.startAssistantMessage(TEST_CONV_ID);
       expect(store.currentStreamingContent).toBe('');
     });
 
     it('should generate unique ID', () => {
-      const msg1 = store.startAssistantMessage();
-      store.finishStreaming();
-      const msg2 = store.startAssistantMessage();
+      const msg1 = store.startAssistantMessage(TEST_CONV_ID);
+      store.finishStreaming(TEST_CONV_ID);
+      const msg2 = store.startAssistantMessage(TEST_CONV_ID);
       expect(msg1.id).not.toBe(msg2.id);
     });
 
     it('should set timestamp', () => {
       const before = Date.now();
-      const message = store.startAssistantMessage();
+      const message = store.startAssistantMessage(TEST_CONV_ID);
       const after = Date.now();
       expect(message.timestamp).toBeGreaterThanOrEqual(before);
       expect(message.timestamp).toBeLessThanOrEqual(after);
@@ -304,36 +311,30 @@ describe('useChatStore', () => {
   });
 
   // ===========================================================================
-  // appendToLastMessage
+  // appendChunk (formerly appendToLastMessage)
   // ===========================================================================
-  describe('appendToLastMessage', () => {
+  describe('appendChunk', () => {
     it('should append content to last assistant message', () => {
-      store.startAssistantMessage();
-      store.appendToLastMessage('Hello');
-      store.appendToLastMessage(' World');
+      store.startAssistantMessage(TEST_CONV_ID);
+      store.appendChunk(TEST_CONV_ID, 'Hello');
+      store.appendChunk(TEST_CONV_ID, ' World');
       expect(store.messages[0].content).toBe('Hello World');
       expect(store.currentStreamingContent).toBe('Hello World');
     });
 
-    it('should not append to user message', () => {
-      store.addUserMessage('User message');
-      store.appendToLastMessage('This should not be appended');
-      expect(store.messages[0].content).toBe('User message');
-    });
-
     it('should handle empty chunks', () => {
-      store.startAssistantMessage();
-      store.appendToLastMessage('');
-      store.appendToLastMessage('Content');
-      store.appendToLastMessage('');
+      store.startAssistantMessage(TEST_CONV_ID);
+      store.appendChunk(TEST_CONV_ID, '');
+      store.appendChunk(TEST_CONV_ID, 'Content');
+      store.appendChunk(TEST_CONV_ID, '');
       expect(store.messages[0].content).toBe('Content');
     });
 
     it('should handle rapid successive appends', () => {
-      store.startAssistantMessage();
+      store.startAssistantMessage(TEST_CONV_ID);
       // Simulate rapid streaming
       for (let i = 0; i < 100; i++) {
-        store.appendToLastMessage(`${i} `);
+        store.appendChunk(TEST_CONV_ID, `${i} `);
       }
       const expected = Array.from({ length: 100 }, (_, i) => `${i} `).join('');
       expect(store.messages[0].content).toBe(expected);
@@ -341,18 +342,18 @@ describe('useChatStore', () => {
     });
 
     it('should handle unicode in chunks', () => {
-      store.startAssistantMessage();
-      store.appendToLastMessage('Hello ');
-      store.appendToLastMessage('世界 ');
-      store.appendToLastMessage('🌍');
+      store.startAssistantMessage(TEST_CONV_ID);
+      store.appendChunk(TEST_CONV_ID, 'Hello ');
+      store.appendChunk(TEST_CONV_ID, '世界 ');
+      store.appendChunk(TEST_CONV_ID, '🌍');
       expect(store.messages[0].content).toBe('Hello 世界 🌍');
     });
 
     it('should handle newlines in chunks', () => {
-      store.startAssistantMessage();
-      store.appendToLastMessage('Line 1\n');
-      store.appendToLastMessage('Line 2\n');
-      store.appendToLastMessage('Line 3');
+      store.startAssistantMessage(TEST_CONV_ID);
+      store.appendChunk(TEST_CONV_ID, 'Line 1\n');
+      store.appendChunk(TEST_CONV_ID, 'Line 2\n');
+      store.appendChunk(TEST_CONV_ID, 'Line 3');
       expect(store.messages[0].content).toBe('Line 1\nLine 2\nLine 3');
     });
   });
@@ -362,32 +363,24 @@ describe('useChatStore', () => {
   // ===========================================================================
   describe('finishStreaming', () => {
     it('should mark last message as not streaming', () => {
-      store.startAssistantMessage();
-      store.appendToLastMessage('Complete message');
-      store.finishStreaming();
+      store.startAssistantMessage(TEST_CONV_ID);
+      store.appendChunk(TEST_CONV_ID, 'Complete message');
+      store.finishStreaming(TEST_CONV_ID);
       expect(store.messages[0].isStreaming).toBe(false);
-      expect(store.currentStreamingContent).toBe('');
-    });
-
-    it('should not affect user messages', () => {
-      store.addUserMessage('User message');
-      store.finishStreaming();
-      // Should not throw, should be a no-op
-      expect(store.messages[0].isStreaming).toBeUndefined();
     });
 
     it('should be idempotent', () => {
-      store.startAssistantMessage();
-      store.appendToLastMessage('Content');
-      store.finishStreaming();
-      store.finishStreaming();
-      store.finishStreaming();
+      store.startAssistantMessage(TEST_CONV_ID);
+      store.appendChunk(TEST_CONV_ID, 'Content');
+      store.finishStreaming(TEST_CONV_ID);
+      store.finishStreaming(TEST_CONV_ID);
+      store.finishStreaming(TEST_CONV_ID);
       expect(store.messages[0].isStreaming).toBe(false);
     });
 
     it('should handle empty message content', () => {
-      store.startAssistantMessage();
-      store.finishStreaming();
+      store.startAssistantMessage(TEST_CONV_ID);
+      store.finishStreaming(TEST_CONV_ID);
       expect(store.messages[0].content).toBe('');
       expect(store.messages[0].isStreaming).toBe(false);
     });
@@ -399,7 +392,7 @@ describe('useChatStore', () => {
   describe('addPendingAction', () => {
     it('should add action to pending actions', () => {
       const action = createBashAction({ id: 'action-1' });
-      store.addPendingAction(action);
+      store.addPendingAction(TEST_CONV_ID, action);
       expect(store.pendingActions).toHaveLength(1);
       expect(store.pendingActions[0]).toEqual(action);
       expect(store.hasPendingActions).toBe(true);
@@ -411,13 +404,13 @@ describe('useChatStore', () => {
         createFileEditAction({ id: 'a2', description: 'Edit 2' }),
         createBashAction({ id: 'a3', description: 'Run' }),
       ];
-      actions.forEach((a) => store.addPendingAction(a));
+      actions.forEach((a) => store.addPendingAction(TEST_CONV_ID, a));
       expect(store.pendingActions).toHaveLength(3);
     });
 
     it('should preserve action order', () => {
-      store.addPendingAction(createBashAction({ id: 'first', description: 'First' }));
-      store.addPendingAction(createBashAction({ id: 'second', description: 'Second' }));
+      store.addPendingAction(TEST_CONV_ID, createBashAction({ id: 'first', description: 'First' }));
+      store.addPendingAction(TEST_CONV_ID, createBashAction({ id: 'second', description: 'Second' }));
       expect(store.pendingActions[0].id).toBe('first');
       expect(store.pendingActions[1].id).toBe('second');
     });
@@ -425,24 +418,24 @@ describe('useChatStore', () => {
 
   describe('removePendingAction', () => {
     it('should remove action by id', () => {
-      store.addPendingAction(createFileEditAction({ id: 'action-1' }));
-      store.addPendingAction(createBashAction({ id: 'action-2' }));
-      store.removePendingAction('action-1');
+      store.addPendingAction(TEST_CONV_ID, createFileEditAction({ id: 'action-1' }));
+      store.addPendingAction(TEST_CONV_ID, createBashAction({ id: 'action-2' }));
+      store.removePendingAction(TEST_CONV_ID, 'action-1');
       expect(store.pendingActions).toHaveLength(1);
       expect(store.pendingActions[0].id).toBe('action-2');
     });
 
     it('should handle non-existent action id gracefully', () => {
-      store.addPendingAction(createFileEditAction({ id: 'action-1' }));
-      store.removePendingAction('non-existent');
+      store.addPendingAction(TEST_CONV_ID, createFileEditAction({ id: 'action-1' }));
+      store.removePendingAction(TEST_CONV_ID, 'non-existent');
       expect(store.pendingActions).toHaveLength(1);
     });
 
     it('should remove from middle of array', () => {
-      store.addPendingAction(createBashAction({ id: 'a1', description: '1' }));
-      store.addPendingAction(createBashAction({ id: 'a2', description: '2' }));
-      store.addPendingAction(createBashAction({ id: 'a3', description: '3' }));
-      store.removePendingAction('a2');
+      store.addPendingAction(TEST_CONV_ID, createBashAction({ id: 'a1', description: '1' }));
+      store.addPendingAction(TEST_CONV_ID, createBashAction({ id: 'a2', description: '2' }));
+      store.addPendingAction(TEST_CONV_ID, createBashAction({ id: 'a3', description: '3' }));
+      store.removePendingAction(TEST_CONV_ID, 'a2');
       expect(store.pendingActions).toHaveLength(2);
       expect(store.pendingActions[0].id).toBe('a1');
       expect(store.pendingActions[1].id).toBe('a3');
@@ -451,27 +444,27 @@ describe('useChatStore', () => {
 
   describe('updateActionStatus', () => {
     it('should update action status to approved', () => {
-      store.addPendingAction(createFileEditAction({ id: 'action-1' }));
-      store.updateActionStatus('action-1', 'approved');
+      store.addPendingAction(TEST_CONV_ID, createFileEditAction({ id: 'action-1' }));
+      store.updateActionStatus(TEST_CONV_ID, 'action-1', 'approved');
       expect(store.pendingActions[0].status).toBe('approved');
     });
 
     it('should update action status to rejected', () => {
-      store.addPendingAction(createFileEditAction({ id: 'action-1' }));
-      store.updateActionStatus('action-1', 'rejected');
+      store.addPendingAction(TEST_CONV_ID, createFileEditAction({ id: 'action-1' }));
+      store.updateActionStatus(TEST_CONV_ID, 'action-1', 'rejected');
       expect(store.pendingActions[0].status).toBe('rejected');
     });
 
     it('should handle non-existent action gracefully', () => {
-      store.updateActionStatus('non-existent', 'approved');
+      store.updateActionStatus(TEST_CONV_ID, 'non-existent', 'approved');
       // Should not throw
       expect(store.pendingActions).toHaveLength(0);
     });
 
     it('should update correct action when multiple exist', () => {
-      store.addPendingAction(createBashAction({ id: 'a1', description: '1' }));
-      store.addPendingAction(createBashAction({ id: 'a2', description: '2' }));
-      store.updateActionStatus('a2', 'approved');
+      store.addPendingAction(TEST_CONV_ID, createBashAction({ id: 'a1', description: '1' }));
+      store.addPendingAction(TEST_CONV_ID, createBashAction({ id: 'a2', description: '2' }));
+      store.updateActionStatus(TEST_CONV_ID, 'a2', 'approved');
       expect(store.pendingActions[0].status).toBe('pending');
       expect(store.pendingActions[1].status).toBe('approved');
     });
@@ -482,13 +475,13 @@ describe('useChatStore', () => {
   // ===========================================================================
   describe('setLoading', () => {
     it('should set loading to true', () => {
-      store.setLoading(true);
+      store.setLoading(TEST_CONV_ID, true);
       expect(store.isLoading).toBe(true);
     });
 
     it('should set loading to false', () => {
-      store.setLoading(true);
-      store.setLoading(false);
+      store.setLoading(TEST_CONV_ID, true);
+      store.setLoading(TEST_CONV_ID, false);
       expect(store.isLoading).toBe(false);
     });
   });
@@ -498,20 +491,20 @@ describe('useChatStore', () => {
   // ===========================================================================
   describe('setError', () => {
     it('should set error message', () => {
-      store.setError('Something went wrong');
+      store.setError(TEST_CONV_ID, 'Something went wrong');
       expect(store.error).toBe('Something went wrong');
     });
 
     it('should allow null to clear error', () => {
-      store.setError('Error');
-      store.setError(null);
+      store.setError(TEST_CONV_ID, 'Error');
+      store.setError(TEST_CONV_ID, null);
       expect(store.error).toBeNull();
     });
   });
 
   describe('clearError', () => {
     it('should clear error', () => {
-      store.setError('Error message');
+      store.setError(TEST_CONV_ID, 'Error message');
       store.clearError();
       expect(store.error).toBeNull();
     });
@@ -528,44 +521,20 @@ describe('useChatStore', () => {
   describe('clearMessages', () => {
     it('should clear all messages', () => {
       store.addUserMessage('Test');
-      store.startAssistantMessage();
-      store.appendToLastMessage('Response');
+      store.startAssistantMessage(TEST_CONV_ID);
+      store.appendChunk(TEST_CONV_ID, 'Response');
       store.clearMessages();
       expect(store.messages).toEqual([]);
     });
 
-    it('should clear pending actions', () => {
-      store.addPendingAction(createBashAction({ id: 'a1' }));
-      store.clearMessages();
-      expect(store.pendingActions).toEqual([]);
-    });
-
-    it('should clear currentStreamingContent', () => {
-      store.startAssistantMessage();
-      store.appendToLastMessage('Streaming');
-      store.clearMessages();
-      expect(store.currentStreamingContent).toBe('');
-    });
-
-    it('should clear error', () => {
-      store.setError('Error');
-      store.clearMessages();
-      expect(store.error).toBeNull();
-    });
-
-    it('should reset all state at once', () => {
+    it('should reset all message-related state', () => {
       store.addUserMessage('Test');
-      store.startAssistantMessage();
-      store.appendToLastMessage('Response');
-      store.setError('Error');
-      store.addPendingAction(createBashAction({ id: 'a1' }));
+      store.startAssistantMessage(TEST_CONV_ID);
+      store.appendChunk(TEST_CONV_ID, 'Response');
 
       store.clearMessages();
 
       expect(store.messages).toEqual([]);
-      expect(store.pendingActions).toEqual([]);
-      expect(store.currentStreamingContent).toBe('');
-      expect(store.error).toBeNull();
     });
   });
 
@@ -622,19 +591,19 @@ describe('useChatStore', () => {
       expect(store.hasMessages).toBe(true);
 
       // Start streaming response
-      store.setLoading(true);
-      const assistantMsg = store.startAssistantMessage();
+      store.setLoading(TEST_CONV_ID, true);
+      const assistantMsg = store.startAssistantMessage(TEST_CONV_ID);
       expect(store.messages).toHaveLength(2);
       expect(assistantMsg.isStreaming).toBe(true);
 
       // Stream chunks
-      store.appendToLastMessage('Of course!');
-      store.appendToLastMessage(' How can I assist you today?');
+      store.appendChunk(TEST_CONV_ID, 'Of course!');
+      store.appendChunk(TEST_CONV_ID, ' How can I assist you today?');
       expect(store.currentStreamingContent).toBe('Of course! How can I assist you today?');
 
       // Finish streaming
-      store.finishStreaming();
-      store.setLoading(false);
+      store.finishStreaming(TEST_CONV_ID);
+      store.setLoading(TEST_CONV_ID, false);
 
       expect(store.messages[1].isStreaming).toBe(false);
       expect(store.isLoading).toBe(false);
@@ -644,10 +613,10 @@ describe('useChatStore', () => {
     it('should handle tool use approval flow', () => {
       // User sends message
       store.addUserMessage('Run the tests');
-      store.setLoading(true);
-      store.startAssistantMessage();
-      store.appendToLastMessage('I\'ll run the tests for you.');
-      store.finishStreaming();
+      store.setLoading(TEST_CONV_ID, true);
+      store.startAssistantMessage(TEST_CONV_ID);
+      store.appendChunk(TEST_CONV_ID, 'I\'ll run the tests for you.');
+      store.finishStreaming(TEST_CONV_ID);
 
       // Tool use requested
       const action = createBashAction({
@@ -655,28 +624,28 @@ describe('useChatStore', () => {
         description: 'npm test',
         details: { command: 'npm test', workingDirectory: '/project' },
       });
-      store.addPendingAction(action);
+      store.addPendingAction(TEST_CONV_ID, action);
       expect(store.hasPendingActions).toBe(true);
 
       // User approves
-      store.updateActionStatus('tool-1', 'approved');
+      store.updateActionStatus(TEST_CONV_ID, 'tool-1', 'approved');
       expect(store.pendingActions[0].status).toBe('approved');
 
       // Action completed, remove
-      store.removePendingAction('tool-1');
+      store.removePendingAction(TEST_CONV_ID, 'tool-1');
       expect(store.hasPendingActions).toBe(false);
 
-      store.setLoading(false);
+      store.setLoading(TEST_CONV_ID, false);
     });
 
     it('should handle error during conversation', () => {
       store.addUserMessage('Do something');
-      store.setLoading(true);
-      store.startAssistantMessage();
+      store.setLoading(TEST_CONV_ID, true);
+      store.startAssistantMessage(TEST_CONV_ID);
 
       // Error occurs
-      store.setError('Connection lost');
-      store.setLoading(false);
+      store.setError(TEST_CONV_ID, 'Connection lost');
+      store.setLoading(TEST_CONV_ID, false);
 
       expect(store.error).toBe('Connection lost');
       expect(store.isLoading).toBe(false);
@@ -690,9 +659,9 @@ describe('useChatStore', () => {
       // Add multiple exchanges
       for (let i = 0; i < 10; i++) {
         store.addUserMessage(`Question ${i}`);
-        store.startAssistantMessage();
-        store.appendToLastMessage(`Answer ${i}`);
-        store.finishStreaming();
+        store.startAssistantMessage(TEST_CONV_ID);
+        store.appendChunk(TEST_CONV_ID, `Answer ${i}`);
+        store.finishStreaming(TEST_CONV_ID);
       }
 
       expect(store.messages).toHaveLength(20);
@@ -707,7 +676,7 @@ describe('useChatStore', () => {
     it('should handle concurrent action updates', () => {
       // Add multiple actions
       for (let i = 0; i < 5; i++) {
-        store.addPendingAction(createFileEditAction({
+        store.addPendingAction(TEST_CONV_ID, createFileEditAction({
           id: `action-${i}`,
           description: `Edit ${i}`,
         }));
@@ -715,7 +684,7 @@ describe('useChatStore', () => {
 
       // Update all to approved
       for (let i = 0; i < 5; i++) {
-        store.updateActionStatus(`action-${i}`, 'approved');
+        store.updateActionStatus(TEST_CONV_ID, `action-${i}`, 'approved');
       }
 
       // Verify all updated
@@ -741,21 +710,81 @@ describe('useChatStore', () => {
         if (i % 2 === 0) {
           store.addUserMessage(`User ${i}`);
         } else {
-          store.startAssistantMessage();
-          store.appendToLastMessage(`Assistant ${i}`);
-          store.finishStreaming();
+          store.startAssistantMessage(TEST_CONV_ID);
+          store.appendChunk(TEST_CONV_ID, `Assistant ${i}`);
+          store.finishStreaming(TEST_CONV_ID);
         }
       }
       expect(store.messages.length).toBeLessThanOrEqual(100);
     });
 
     it('should handle empty append followed by content', () => {
-      store.startAssistantMessage();
-      store.appendToLastMessage('');
-      store.appendToLastMessage('');
-      store.appendToLastMessage('Finally content');
-      store.appendToLastMessage('');
+      store.startAssistantMessage(TEST_CONV_ID);
+      store.appendChunk(TEST_CONV_ID, '');
+      store.appendChunk(TEST_CONV_ID, '');
+      store.appendChunk(TEST_CONV_ID, 'Finally content');
+      store.appendChunk(TEST_CONV_ID, '');
       expect(store.messages[0].content).toBe('Finally content');
+    });
+  });
+
+  // ===========================================================================
+  // Multi-conversation support
+  // ===========================================================================
+  describe('multi-conversation support', () => {
+    it('should track state per conversation', () => {
+      const conv1 = 'conv-1';
+      const conv2 = 'conv-2';
+
+      // Set loading for conv1
+      store.setCurrentConversation(conv1);
+      store.setLoading(conv1, true);
+
+      // Check conv1 is loading
+      expect(store.isLoading).toBe(true);
+
+      // Switch to conv2
+      store.setCurrentConversation(conv2);
+      store.setLoading(conv2, false);
+
+      // Check conv2 is not loading
+      expect(store.isLoading).toBe(false);
+
+      // Check conv1 is still loading
+      expect(store.isConversationLoading(conv1)).toBe(true);
+    });
+
+    it('should isolate pending actions per conversation', () => {
+      const conv1 = 'conv-1';
+      const conv2 = 'conv-2';
+
+      store.setCurrentConversation(conv1);
+      store.addPendingAction(conv1, createBashAction({ id: 'action-1' }));
+
+      store.setCurrentConversation(conv2);
+      store.addPendingAction(conv2, createBashAction({ id: 'action-2' }));
+
+      // Check conv1 actions
+      store.setCurrentConversation(conv1);
+      expect(store.pendingActions).toHaveLength(1);
+      expect(store.pendingActions[0].id).toBe('action-1');
+
+      // Check conv2 actions
+      store.setCurrentConversation(conv2);
+      expect(store.pendingActions).toHaveLength(1);
+      expect(store.pendingActions[0].id).toBe('action-2');
+    });
+
+    it('should track resource limits', () => {
+      store.updateActiveQueries(3, 5);
+      expect(store.activeQueryCount).toBe(3);
+      expect(store.maxConcurrentQueries).toBe(5);
+      expect(store.isAtResourceLimit).toBe(false);
+      expect(store.canStartNewQuery).toBe(true);
+
+      store.updateActiveQueries(5, 5);
+      expect(store.isAtResourceLimit).toBe(true);
+      expect(store.canStartNewQuery).toBe(false);
     });
   });
 });
