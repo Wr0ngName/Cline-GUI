@@ -30,6 +30,8 @@ const electronAPI: ElectronAPI = {
 
     getCommands: () => ipcRenderer.invoke(IPC_CHANNELS.CLAUDE_GET_COMMANDS),
 
+    getModels: () => ipcRenderer.invoke(IPC_CHANNELS.CLAUDE_GET_MODELS),
+
     onChunk: (callback) => {
       const handler = (_event: Electron.IpcRendererEvent, chunk: string) => callback(chunk);
       ipcRenderer.on(IPC_CHANNELS.CLAUDE_CHUNK, handler);
@@ -71,6 +73,15 @@ const electronAPI: ElectronAPI = {
       ) => callback(action);
       ipcRenderer.on(IPC_CHANNELS.CLAUDE_COMMAND_ACTION, handler);
       return () => ipcRenderer.removeListener(IPC_CHANNELS.CLAUDE_COMMAND_ACTION, handler);
+    },
+
+    onModelsChanged: (callback) => {
+      const handler = (
+        _event: Electron.IpcRendererEvent,
+        models: Parameters<typeof callback>[0]
+      ) => callback(models);
+      ipcRenderer.on(IPC_CHANNELS.CLAUDE_MODEL_CHANGED, handler);
+      return () => ipcRenderer.removeListener(IPC_CHANNELS.CLAUDE_MODEL_CHANGED, handler);
     },
   },
 

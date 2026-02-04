@@ -33,6 +33,7 @@ export type IconName =
   | 'file'
   | 'chevron-right'
   | 'chevron-down'
+  | 'chevron-up'
   | 'chevron-left'
   | 'close'
   | 'check'
@@ -57,6 +58,7 @@ export type IconName =
   | 'sun'
   | 'moon'
   | 'computer'
+  | 'cpu'
   | 'warning'
   | 'info'
   | 'error'
@@ -78,6 +80,7 @@ const iconPaths: Record<IconName, string> = {
   file: 'M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z',
   'chevron-right': 'M9 5l7 7-7 7',
   'chevron-down': 'M19 9l-7 7-7-7',
+  'chevron-up': 'M5 15l7-7 7 7',
   'chevron-left': 'M15 19l-7-7 7-7',
   close: 'M6 18L18 6M6 6l12 12',
   check: 'M5 13l4 4L19 7',
@@ -103,6 +106,7 @@ const iconPaths: Record<IconName, string> = {
   sun: 'M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z',
   moon: 'M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z',
   computer: 'M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z',
+  cpu: 'M9 3v2m6-2v2M9 19v2m6-2v2M3 9h2m-2 6h2m14-6h2m-2 6h2M7 7h10a2 2 0 012 2v6a2 2 0 01-2 2H7a2 2 0 01-2-2V9a2 2 0 012-2z',
   warning: 'M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z',
   info: 'M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z',
   error: 'M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z',

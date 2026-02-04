@@ -23,6 +23,7 @@ const { mockQuery, mockSend, mockConfigService } = vi.hoisted(() => ({
     getOAuthToken: vi.fn(),
     getApiKey: vi.fn(),
     getConfig: vi.fn(),
+    getSelectedModel: vi.fn(),
   },
 }));
 
@@ -66,6 +67,7 @@ describe('ClaudeCodeService', () => {
     mockConfigService.getOAuthToken.mockResolvedValue('sk-ant-oat01-test-token-that-is-long-enough-to-pass-validation-check');
     mockConfigService.getApiKey.mockResolvedValue('');
     mockConfigService.getConfig.mockResolvedValue({ autoApproveReads: false });
+    mockConfigService.getSelectedModel.mockResolvedValue('');
 
     service = new ClaudeCodeService(mockConfigService as any, getMainWindow);
   });

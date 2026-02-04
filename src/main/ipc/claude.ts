@@ -165,5 +165,20 @@ export function setupClaudeIPC(claudeService: ClaudeCodeService): void {
     }
   });
 
+  // Get available models from SDK
+  ipcMain.handle(IPC_CHANNELS.CLAUDE_GET_MODELS, async () => {
+    try {
+      logger.debug('IPC: claude:get-models');
+
+      // Validate service
+      ensureService(claudeService, 'ClaudeCodeService');
+
+      return await claudeService.getModels();
+    } catch (error) {
+      logger.error('Failed to get models', { error });
+      throw new IpcError(formatErrorMessage('Failed to get models', error), IPC_CHANNELS.CLAUDE_GET_MODELS, ERROR_CODES.IPC_HANDLER_FAILED, error);
+    }
+  });
+
   logger.info('Claude IPC handlers registered');
 }

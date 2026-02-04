@@ -24,6 +24,7 @@ interface StoredConfig {
   fontSize: number;
   autoApproveReads: boolean;
   logLevel: LogLevel;
+  selectedModel: string;
 }
 
 /**
@@ -72,6 +73,7 @@ export class ConfigService {
           fontSize: 14,
           autoApproveReads: true,
           logLevel: 'warn',
+          selectedModel: '',
         },
       }) as unknown as TypedStore;
       this.isInitialized = true;
@@ -391,6 +393,26 @@ export class ConfigService {
     await this.ensureInitialized();
     if (!this.store) return 'system';
     return this.store.get('theme', 'system');
+  }
+
+  /**
+   * Get selected model
+   */
+  async getSelectedModel(): Promise<string> {
+    await this.ensureInitialized();
+    if (!this.store) return '';
+    return this.store.get('selectedModel', '');
+  }
+
+  /**
+   * Set selected model
+   */
+  async setSelectedModel(model: string): Promise<void> {
+    await this.ensureInitialized();
+    if (!this.store) throw new ConfigurationError('Store not initialized', ERROR_CODES.CONFIG_SAVE_FAILED);
+
+    this.store.set('selectedModel', model);
+    logger.info('Selected model updated', { model: model || '(SDK default)' });
   }
 
   /**

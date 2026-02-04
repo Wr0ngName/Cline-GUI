@@ -9,6 +9,7 @@ import type {
   Conversation,
   FileChange,
   FileNode,
+  ModelInfo,
   PendingAction,
   SlashCommandInfo,
   UpdateInfo,
@@ -28,12 +29,14 @@ export interface ElectronAPI {
     respondToAction: (response: ActionResponse) => Promise<void>;
     abort: () => Promise<void>;
     getCommands: () => Promise<SlashCommandInfo[]>;
+    getModels: () => Promise<ModelInfo[]>;
     onChunk: (callback: (chunk: string) => void) => () => void;
     onToolUse: (callback: (action: PendingAction) => void) => () => void;
     onError: (callback: (error: string) => void) => () => void;
     onDone: (callback: () => void) => () => void;
     onSlashCommands: (callback: (commands: SlashCommandInfo[]) => void) => () => void;
     onCommandAction: (callback: (action: string) => void) => () => void;
+    onModelsChanged: (callback: (models: ModelInfo[]) => void) => () => void;
   };
 
   // File operations

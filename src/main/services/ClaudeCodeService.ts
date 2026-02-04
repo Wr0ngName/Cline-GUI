@@ -29,6 +29,7 @@ import {
   PendingAction,
   ActionResponse,
   SlashCommandInfo,
+  ModelInfo,
 } from '../../shared/types';
 import { createSender } from '../utils/ipc-helpers';
 import logger from '../utils/logger';
@@ -52,10 +53,16 @@ export class ClaudeCodeService {
   private currentQuery: Query | null = null;
   // Bound sender function for DRY IPC communication
   private send: (channel: string, ...args: unknown[]) => boolean;
+  // Cached models list
+  private cachedModels: ModelInfo[] = [];
+  private configService: ConfigService;
 
   constructor(configService: ConfigService, getMainWindow: () => BrowserWindow | null) {
     // Create bound sender using the provided window getter
     this.send = createSender(getMainWindow);
+
+    // Store config service reference for model selection
+    this.configService = configService;
 
     // Initialize modules
     this.authValidator = new AuthValidator(configService);
@@ -132,10 +139,14 @@ export class ClaudeCodeService {
     const originalEnv: Record<string, string | undefined> = {};
 
     try {
+      // Get selected model from config
+      const selectedModel = await this.configService.getSelectedModel();
+
       logger.info('Sending message to Claude Code SDK', {
         messageLength: message.length,
         workingDirectory,
         isSlashCommand,
+        model: selectedModel || '(SDK default)',
       });
 
       // Set up authentication environment
@@ -163,6 +174,8 @@ export class ClaudeCodeService {
           canUseTool: this.permissionManager.createCanUseToolCallback(),
           // Stream partial messages for real-time updates
           includePartialMessages: true,
+          // Use selected model if configured (empty string = SDK default)
+          ...(selectedModel ? { model: selectedModel } : {}),
           // Use Electron as Node.js runtime (with Windows bundled Node.js support)
           spawnClaudeCodeProcess: (options: SpawnOptions): SpawnedProcess => {
             return this.spawnSDKProcess(options);
@@ -172,9 +185,10 @@ export class ClaudeCodeService {
 
       this.currentQuery = queryIterator;
 
-      // Fetch full slash command details now that we have a query object
-      // This runs asynchronously and emits updates when ready
+      // Fetch full slash command details and available models now that we have a query object
+      // These run asynchronously and emit updates when ready
       this.fetchAndEmitSlashCommandDetails();
+      this.fetchAndCacheModels();
 
       // Process the async generator
       for await (const sdkMessage of queryIterator) {
@@ -518,6 +532,61 @@ export class ClaudeCodeService {
     } catch (error) {
       logger.warn('Failed to fetch slash command details', error);
       return this.messageHandler.getSlashCommands();
+    }
+  }
+
+  /**
+   * Get available models from the SDK
+   * Returns cached models if available, otherwise fetches from current query
+   */
+  async getModels(): Promise<ModelInfo[]> {
+    // Return cached models if available
+    if (this.cachedModels.length > 0) {
+      return this.cachedModels;
+    }
+
+    // Try to fetch from current query
+    if (this.currentQuery) {
+      try {
+        const models = await this.currentQuery.supportedModels();
+        this.cachedModels = models.map((m) => ({
+          value: m.value,
+          displayName: m.displayName,
+          description: m.description,
+        }));
+        logger.info('Fetched models from SDK', { count: this.cachedModels.length });
+        return this.cachedModels;
+      } catch (error) {
+        logger.warn('Failed to fetch models from current query', error);
+      }
+    }
+
+    // Return empty list if no models available yet
+    // The renderer should retry after a query is made
+    return [];
+  }
+
+  /**
+   * Update cached models from SDK (called after query init)
+   */
+  private async fetchAndCacheModels(): Promise<void> {
+    if (!this.currentQuery) return;
+
+    try {
+      const models = await this.currentQuery.supportedModels();
+      this.cachedModels = models.map((m) => ({
+        value: m.value,
+        displayName: m.displayName,
+        description: m.description,
+      }));
+      logger.info('Cached models from SDK', {
+        count: this.cachedModels.length,
+        models: this.cachedModels.map(m => m.displayName),
+      });
+      // Emit models to renderer
+      this.send(IPC_CHANNELS.CLAUDE_MODEL_CHANGED, this.cachedModels);
+    } catch (error) {
+      logger.warn('Failed to fetch models for caching', error);
     }
   }
 }

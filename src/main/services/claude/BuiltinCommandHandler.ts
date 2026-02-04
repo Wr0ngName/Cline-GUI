@@ -376,15 +376,17 @@ export class BuiltinCommandHandler {
     if (args) {
       return {
         handled: true,
-        response: `_Model switching is not yet supported in GUI mode._\n\n` +
+        response: `_To change the model, use the Model Selector in the header._\n\n` +
           `Requested model: **${args}**\n\n` +
-          'The model is configured at the SDK level.',
+          'Click the model dropdown in the top toolbar to select a different model.',
       };
     }
     return {
       handled: true,
-      response: '_Model information is not available in GUI mode._\n\n' +
-        'The model is configured at the SDK level.',
+      response: '## Model Selection\n\n' +
+        '_Use the Model Selector dropdown in the header to change models._\n\n' +
+        'The currently selected model is used for all new messages in this conversation.\n\n' +
+        '**Available models** are loaded dynamically from the Claude Code SDK.',
     };
   }
 

@@ -23,6 +23,18 @@ export interface SlashCommandInfo {
 }
 
 /**
+ * Information about an available Claude model from the SDK
+ */
+export interface ModelInfo {
+  /** Model identifier to use in API calls */
+  value: string;
+  /** Human-readable display name */
+  displayName: string;
+  /** Description of the model's capabilities */
+  description?: string;
+}
+
+/**
  * Represents a single message in the chat conversation
  */
 export interface ChatMessage {
@@ -285,6 +297,8 @@ export interface AppConfig {
   autoApproveReads: boolean;
   /** Log level for application logging */
   logLevel: LogLevel;
+  /** Selected Claude model (empty means SDK default) */
+  selectedModel: string;
 }
 
 /**
@@ -300,6 +314,7 @@ export const DEFAULT_CONFIG: AppConfig = {
   fontSize: 14,
   autoApproveReads: true,
   logLevel: 'warn',
+  selectedModel: '', // Empty means use SDK default
 };
 
 // Conversation types
@@ -417,6 +432,10 @@ export const IPC_CHANNELS = {
   CLAUDE_GET_COMMANDS: 'claude:get-commands',
   /** Built-in command action (clear, compact, etc.) */
   CLAUDE_COMMAND_ACTION: 'claude:command-action',
+  /** Get available models from SDK */
+  CLAUDE_GET_MODELS: 'claude:get-models',
+  /** Model changed event */
+  CLAUDE_MODEL_CHANGED: 'claude:model-changed',
 
   // File operations
   /** Open directory picker dialog */

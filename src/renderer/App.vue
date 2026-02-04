@@ -17,6 +17,7 @@ import SettingsPanel from './components/settings/SettingsPanel.vue';
 import InitWizard from './components/wizard/InitWizard.vue';
 import ErrorBoundary from './components/shared/ErrorBoundary.vue';
 import UpdateBanner from './components/shared/UpdateBanner.vue';
+import ModelSelector from './components/shared/ModelSelector.vue';
 
 const settingsStore = useSettingsStore();
 const filesStore = useFilesStore();
@@ -131,6 +132,9 @@ const isMac = window.electron?.platform === 'darwin';
 
       <!-- Actions -->
       <div class="flex items-center gap-2 no-drag">
+        <!-- Model Selector -->
+        <ModelSelector />
+
         <button
           class="btn-icon"
           :class="{ 'bg-surface-200 dark:bg-surface-700': showHistory }"

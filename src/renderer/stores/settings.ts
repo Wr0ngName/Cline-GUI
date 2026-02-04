@@ -27,6 +27,7 @@ export const useSettingsStore = defineStore('settings', () => {
   const workingDirectory = computed(() => config.value.workingDirectory);
   const recentProjects = computed(() => config.value.recentProjects);
   const theme = computed(() => config.value.theme);
+  const selectedModel = computed(() => config.value.selectedModel);
   const needsSetup = computed(() => !workingDirectory.value || !hasAuth.value);
   const isDarkMode = computed(() => {
     if (config.value.theme === 'system') {
@@ -86,6 +87,10 @@ export const useSettingsStore = defineStore('settings', () => {
 
   async function setLogLevel(logLevel: LogLevel): Promise<void> {
     await saveConfig({ logLevel });
+  }
+
+  async function setSelectedModel(model: string): Promise<void> {
+    await saveConfig({ selectedModel: model });
   }
 
   function applyFontSize(size: number): void {
@@ -158,6 +163,7 @@ export const useSettingsStore = defineStore('settings', () => {
     workingDirectory,
     recentProjects,
     theme,
+    selectedModel,
     isDarkMode,
     needsSetup,
 
@@ -169,6 +175,7 @@ export const useSettingsStore = defineStore('settings', () => {
     setTheme,
     setFontSize,
     setLogLevel,
+    setSelectedModel,
     applyTheme,
     applyFontSize,
     clearError,
