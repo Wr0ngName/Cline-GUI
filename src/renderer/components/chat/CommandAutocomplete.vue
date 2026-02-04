@@ -15,6 +15,8 @@ interface Props {
   inputValue: string;
   /** Whether to show the autocomplete dropdown */
   show: boolean;
+  /** Whether a conversation has been started (affects hint display) */
+  hasConversation?: boolean;
 }
 
 const props = defineProps<Props>();
@@ -116,6 +118,13 @@ defineExpose({ handleKeydown });
       role="listbox"
       :aria-label="'Slash commands'"
     >
+      <!-- Hint when no conversation started -->
+      <div
+        v-if="!hasConversation"
+        class="px-4 py-2 text-xs text-surface-500 dark:text-surface-400 bg-surface-50 dark:bg-surface-700/50 border-b border-surface-200 dark:border-surface-600"
+      >
+        Showing built-in commands only. Start a conversation to see project-specific commands.
+      </div>
       <div
         v-for="(cmd, index) in filteredCommands"
         :key="cmd.name"

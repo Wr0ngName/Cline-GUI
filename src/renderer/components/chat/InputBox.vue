@@ -27,7 +27,7 @@ const filesStore = useFilesStore();
 const settingsStore = useSettingsStore();
 const { slashCommands } = useClaudeChat();
 
-const { isLoading } = storeToRefs(chatStore);
+const { isLoading, hasMessages } = storeToRefs(chatStore);
 const { hasAuth } = storeToRefs(settingsStore);
 const { hasWorkingDirectory } = storeToRefs(filesStore);
 
@@ -123,6 +123,7 @@ function handleInput(event: Event) {
           :commands="slashCommands"
           :input-value="message"
           :show="showAutocomplete"
+          :has-conversation="hasMessages"
           @select="handleCommandSelect"
         />
 
