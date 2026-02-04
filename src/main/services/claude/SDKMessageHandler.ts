@@ -15,6 +15,28 @@ import { SlashCommandInfo } from '../../../shared/types';
 import logger from '../../utils/logger';
 
 /**
+ * Built-in CLI commands that are not exposed via SDK's supportedCommands()
+ * These are interactive mode commands from the Claude Code CLI.
+ * @see https://code.claude.com/docs/en/slash-commands
+ */
+const BUILTIN_COMMANDS: SlashCommandInfo[] = [
+  { name: 'help', description: 'Show all available slash commands', argumentHint: '' },
+  { name: 'clear', description: 'Clear conversation history and context', argumentHint: '' },
+  { name: 'compact', description: 'Compress context by summarizing conversation', argumentHint: '[focus area]' },
+  { name: 'context', description: 'View current context window usage', argumentHint: '' },
+  { name: 'cost', description: 'Show token usage and cost information', argumentHint: '' },
+  { name: 'memory', description: 'Edit CLAUDE.md memory file', argumentHint: '' },
+  { name: 'permissions', description: 'Manage tool permissions', argumentHint: '' },
+  { name: 'status', description: 'View current session status', argumentHint: '' },
+  { name: 'doctor', description: 'Run diagnostics on your setup', argumentHint: '' },
+  { name: 'login', description: 'Switch accounts or re-authenticate', argumentHint: '' },
+  { name: 'logout', description: 'Log out of current account', argumentHint: '' },
+  { name: 'bug', description: 'Report a bug to Anthropic', argumentHint: '' },
+  { name: 'model', description: 'Switch AI model', argumentHint: '[model name]' },
+  { name: 'vim', description: 'Toggle vim mode for input', argumentHint: '' },
+];
+
+/**
  * Callbacks for emitting events to the renderer
  */
 export interface MessageHandlerCallbacks {
@@ -66,10 +88,29 @@ export class SDKMessageHandler {
   /**
    * Update cached slash commands with full details (descriptions, argument hints).
    * Called after fetching details via supportedCommands().
+   * Merges SDK skills with built-in CLI commands.
    */
   updateSlashCommands(commands: SlashCommandInfo[]): void {
-    this.cachedSlashCommands = commands;
-    logger.info('Updated slash commands with full details', { count: commands.length });
+    // Merge built-in commands with SDK-provided skills
+    // SDK skills take precedence if they have the same name (more specific descriptions)
+    const commandMap = new Map<string, SlashCommandInfo>();
+
+    // Add built-in commands first
+    for (const cmd of BUILTIN_COMMANDS) {
+      commandMap.set(cmd.name, cmd);
+    }
+
+    // Override/add SDK commands (skills)
+    for (const cmd of commands) {
+      commandMap.set(cmd.name, cmd);
+    }
+
+    this.cachedSlashCommands = Array.from(commandMap.values());
+    logger.info('Updated slash commands with full details', {
+      count: this.cachedSlashCommands.length,
+      builtinCount: BUILTIN_COMMANDS.length,
+      sdkCount: commands.length,
+    });
   }
 
   /**
@@ -244,15 +285,38 @@ export class SDKMessageHandler {
         slashCommands: systemMsg.slash_commands,
         model: systemMsg.model,
       });
-      // Cache the slash commands for later retrieval
-      // The init message only has names, we'll get full details via supportedCommands()
-      this.cachedSlashCommands = systemMsg.slash_commands.map((name) => ({
-        name,
-        description: '',
-        argumentHint: '',
-      }));
-      // Emit slash commands to renderer
-      this.callbacks.onSlashCommands(this.cachedSlashCommands);
+
+      // Only update if we don't already have commands with descriptions
+      // (supportedCommands() may have already provided full details)
+      const hasDescriptions = this.cachedSlashCommands.some(cmd => cmd.description);
+      if (!hasDescriptions) {
+        // Merge built-in commands with SDK-provided commands
+        const commandMap = new Map<string, SlashCommandInfo>();
+
+        // Add built-in commands first (with descriptions)
+        for (const cmd of BUILTIN_COMMANDS) {
+          commandMap.set(cmd.name, cmd);
+        }
+
+        // Add SDK commands (may override built-ins if same name)
+        for (const name of systemMsg.slash_commands) {
+          // Only add if not already in map (preserve built-in descriptions)
+          if (!commandMap.has(name)) {
+            commandMap.set(name, { name, description: '', argumentHint: '' });
+          }
+        }
+
+        this.cachedSlashCommands = Array.from(commandMap.values());
+        logger.info('Merged built-in and SDK commands', {
+          total: this.cachedSlashCommands.length,
+          builtinCount: BUILTIN_COMMANDS.length,
+          sdkCount: systemMsg.slash_commands.length,
+        });
+        // Emit slash commands to renderer
+        this.callbacks.onSlashCommands(this.cachedSlashCommands);
+      } else {
+        logger.debug('Skipping init commands - already have descriptions');
+      }
     }
 
     // Handle status messages (like compacting)

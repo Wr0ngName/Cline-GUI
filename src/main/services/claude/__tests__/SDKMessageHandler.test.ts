@@ -93,31 +93,31 @@ describe('SDKMessageHandler', () => {
   });
 
   describe('updateSlashCommands', () => {
-    it('should update cached slash commands', () => {
+    it('should merge SDK commands with built-in commands', () => {
       const commands: SlashCommandInfo[] = [
-        { name: 'help', description: 'Show help', argumentHint: '' },
-        { name: 'cost', description: 'Show costs', argumentHint: '' },
+        { name: 'custom-skill', description: 'Custom skill', argumentHint: '' },
       ];
 
       handler.updateSlashCommands(commands);
 
-      expect(handler.getSlashCommands()).toEqual(commands);
+      const result = handler.getSlashCommands();
+      // Should have built-in commands + the custom skill
+      expect(result.length).toBeGreaterThan(1);
+      expect(result.find(c => c.name === 'help')).toBeDefined();
+      expect(result.find(c => c.name === 'custom-skill')).toBeDefined();
     });
 
-    it('should replace existing commands', () => {
-      const initialCommands: SlashCommandInfo[] = [
-        { name: 'help', description: '', argumentHint: '' },
+    it('should override built-in commands with SDK commands of same name', () => {
+      const commands: SlashCommandInfo[] = [
+        { name: 'help', description: 'SDK help description', argumentHint: '[topic]' },
       ];
 
-      const updatedCommands: SlashCommandInfo[] = [
-        { name: 'help', description: 'Show help text', argumentHint: '[command]' },
-        { name: 'cost', description: 'Show cost info', argumentHint: '' },
-      ];
+      handler.updateSlashCommands(commands);
 
-      handler.updateSlashCommands(initialCommands);
-      handler.updateSlashCommands(updatedCommands);
-
-      expect(handler.getSlashCommands()).toEqual(updatedCommands);
+      const result = handler.getSlashCommands();
+      const helpCmd = result.find(c => c.name === 'help');
+      expect(helpCmd?.description).toBe('SDK help description');
+      expect(helpCmd?.argumentHint).toBe('[topic]');
     });
   });
 
@@ -155,31 +155,61 @@ describe('SDKMessageHandler', () => {
   });
 
   describe('handleMessage - system type with init', () => {
-    it('should cache slash commands from init message', async () => {
+    it('should merge SDK and built-in commands from init message', async () => {
       await handler.handleMessage({
         type: 'system',
         subtype: 'init',
-        slash_commands: ['help', 'cost', 'compact'],
+        slash_commands: ['custom-skill', 'another-skill'],
         model: 'claude-3',
       } as never);
 
       const commands = handler.getSlashCommands();
-      expect(commands).toHaveLength(3);
-      expect(commands[0].name).toBe('help');
-      expect(commands[0].description).toBe(''); // Stub has empty description
+      // Should have built-in commands + SDK commands
+      expect(commands.length).toBeGreaterThan(2);
+      // Built-in commands should have descriptions
+      const helpCmd = commands.find(c => c.name === 'help');
+      expect(helpCmd).toBeDefined();
+      expect(helpCmd?.description).toBeTruthy();
+      // SDK commands without built-in match should have empty descriptions
+      const customCmd = commands.find(c => c.name === 'custom-skill');
+      expect(customCmd).toBeDefined();
     });
 
-    it('should emit slash commands to callback', async () => {
+    it('should emit merged commands to callback', async () => {
       await handler.handleMessage({
         type: 'system',
         subtype: 'init',
-        slash_commands: ['help'],
+        slash_commands: ['custom-skill'],
         model: 'claude-3',
       } as never);
 
-      expect(callbacks.onSlashCommands).toHaveBeenCalledWith([
-        { name: 'help', description: '', argumentHint: '' },
+      expect(callbacks.onSlashCommands).toHaveBeenCalled();
+      const emittedCommands = (callbacks.onSlashCommands as ReturnType<typeof vi.fn>).mock.calls[0][0];
+      // Should include both built-in and SDK commands
+      expect(emittedCommands.find((c: SlashCommandInfo) => c.name === 'help')).toBeDefined();
+      expect(emittedCommands.find((c: SlashCommandInfo) => c.name === 'custom-skill')).toBeDefined();
+    });
+
+    it('should NOT overwrite commands when descriptions already exist', async () => {
+      // First set commands with descriptions via updateSlashCommands
+      handler.updateSlashCommands([
+        { name: 'custom', description: 'Custom desc', argumentHint: '' },
       ]);
+
+      const commandsBefore = handler.getSlashCommands();
+      const countBefore = commandsBefore.length;
+
+      // Then receive init message (should be ignored - we already have descriptions)
+      await handler.handleMessage({
+        type: 'system',
+        subtype: 'init',
+        slash_commands: ['new-skill'],
+        model: 'claude-3',
+      } as never);
+
+      // Should still have same commands (init was ignored)
+      const commandsAfter = handler.getSlashCommands();
+      expect(commandsAfter.length).toBe(countBefore);
     });
   });
 

@@ -768,7 +768,7 @@ describe('ClaudeCodeService', () => {
       expect(Array.isArray(commands)).toBe(true);
     });
 
-    it('should return commands after init message', async () => {
+    it('should return merged built-in and SDK commands after init message', async () => {
       mockConfigService.getOAuthToken.mockResolvedValue(
         'sk-ant-oat01-valid-token-that-is-long-enough-to-pass-validation-requirements'
       );
@@ -777,7 +777,7 @@ describe('ClaudeCodeService', () => {
         {
           type: 'system',
           subtype: 'init',
-          slash_commands: ['/help', '/clear'],
+          slash_commands: ['custom-skill', 'another-skill'],
         },
         { type: 'result', subtype: 'success' },
       ]);
@@ -786,8 +786,13 @@ describe('ClaudeCodeService', () => {
       await service.sendMessage('Hi', '/home/user');
 
       const commands = service.getSlashCommands();
-      expect(commands).toHaveLength(2);
-      expect(commands[0].name).toBe('/help');
+      // Should have built-in commands + SDK commands merged
+      expect(commands.length).toBeGreaterThan(2);
+      // Built-in commands should be present with descriptions
+      expect(commands.find(c => c.name === 'help')).toBeDefined();
+      expect(commands.find(c => c.name === 'clear')).toBeDefined();
+      // SDK commands should also be present
+      expect(commands.find(c => c.name === 'custom-skill')).toBeDefined();
     });
   });
 });
