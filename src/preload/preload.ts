@@ -92,6 +92,15 @@ const electronAPI: ElectronAPI = {
       ipcRenderer.on(IPC_CHANNELS.CLAUDE_TASK_NOTIFICATION, handler);
       return () => ipcRenderer.removeListener(IPC_CHANNELS.CLAUDE_TASK_NOTIFICATION, handler);
     },
+
+    onUsageUpdate: (callback) => {
+      const handler = (
+        _event: Electron.IpcRendererEvent,
+        usage: Parameters<typeof callback>[0]
+      ) => callback(usage);
+      ipcRenderer.on(IPC_CHANNELS.CLAUDE_USAGE_UPDATE, handler);
+      return () => ipcRenderer.removeListener(IPC_CHANNELS.CLAUDE_USAGE_UPDATE, handler);
+    },
   },
 
   // File operations

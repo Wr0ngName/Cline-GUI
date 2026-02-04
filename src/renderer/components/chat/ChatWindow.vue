@@ -9,12 +9,13 @@ import { useChatStore } from '../../stores/chat';
 import { useClaudeChat } from '../../composables/useClaudeChat';
 import ActionApproval from './ActionApproval.vue';
 import BackgroundTaskPanel from './BackgroundTaskPanel.vue';
+import ContextUsageBar from './ContextUsageBar.vue';
 import InputBox from './InputBox.vue';
 import MessageList from './MessageList.vue';
 import Toast from '../shared/Toast.vue';
 
 const chatStore = useChatStore();
-const { pendingActions, error, hasPendingActions, hasBackgroundTasks, backgroundTasksList } = storeToRefs(chatStore);
+const { pendingActions, error, hasPendingActions, hasBackgroundTasks, backgroundTasksList, sessionUsage, hasSessionUsage } = storeToRefs(chatStore);
 
 const { sendMessage, approveAction, rejectAction, abort } = useClaudeChat();
 
@@ -113,6 +114,21 @@ function handleClearCompletedTasks() {
         />
       </TransitionGroup>
     </div>
+
+    <!-- Context usage bar -->
+    <Transition
+      enter-active-class="transition ease-out duration-200"
+      enter-from-class="opacity-0"
+      enter-to-class="opacity-100"
+      leave-active-class="transition ease-in duration-150"
+      leave-from-class="opacity-100"
+      leave-to-class="opacity-0"
+    >
+      <ContextUsageBar
+        v-if="hasSessionUsage"
+        :usage="sessionUsage"
+      />
+    </Transition>
 
     <!-- Input -->
     <InputBox

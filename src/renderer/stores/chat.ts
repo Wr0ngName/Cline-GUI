@@ -2,7 +2,7 @@
  * Chat store - manages chat messages and Claude interactions
  */
 
-import type { ChatMessage, PendingAction, BackgroundTask, TaskNotification } from '@shared/types';
+import type { ChatMessage, PendingAction, BackgroundTask, TaskNotification, SessionUsage } from '@shared/types';
 import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
 
@@ -26,6 +26,8 @@ export const useChatStore = defineStore('chat', () => {
   const streamingBuffer = ref<{ conversationId: string; messageId: string; content: string } | null>(null);
   // Background tasks (subagents, background commands)
   const backgroundTasks = ref<Map<string, BackgroundTask>>(new Map());
+  // Session usage (token counts, cost, context info)
+  const sessionUsage = ref<SessionUsage | null>(null);
 
   // Getters
   const hasMessages = computed(() => messages.value.length > 0);
@@ -38,6 +40,23 @@ export const useChatStore = defineStore('chat', () => {
     Array.from(backgroundTasks.value.values()).filter(t => t.status === 'running').length
   );
   const backgroundTasksList = computed(() => Array.from(backgroundTasks.value.values()));
+  const hasSessionUsage = computed(() => sessionUsage.value !== null);
+  // Calculate total tokens used (input + output)
+  const totalTokensUsed = computed(() => {
+    if (!sessionUsage.value) return 0;
+    return sessionUsage.value.usage.inputTokens + sessionUsage.value.usage.outputTokens;
+  });
+  // Get context window size from model usage (uses first model's context window)
+  const contextWindowSize = computed(() => {
+    if (!sessionUsage.value?.modelUsage) return 0;
+    const models = Object.values(sessionUsage.value.modelUsage);
+    return models.length > 0 ? models[0].contextWindow : 0;
+  });
+  // Calculate context usage percentage
+  const contextUsagePercent = computed(() => {
+    if (contextWindowSize.value === 0) return 0;
+    return Math.min(100, (totalTokensUsed.value / contextWindowSize.value) * 100);
+  });
 
   // Actions
   function addMessage(message: ChatMessage): void {
@@ -272,6 +291,20 @@ export const useChatStore = defineStore('chat', () => {
     backgroundTasks.value.clear();
   }
 
+  /**
+   * Update session usage from SDK
+   */
+  function updateSessionUsage(usage: SessionUsage): void {
+    sessionUsage.value = usage;
+  }
+
+  /**
+   * Clear session usage (e.g., when starting new conversation)
+   */
+  function clearSessionUsage(): void {
+    sessionUsage.value = null;
+  }
+
   return {
     // State
     messages,
@@ -284,6 +317,7 @@ export const useChatStore = defineStore('chat', () => {
     streamingBuffer,
     isSwitchingFromStreaming,
     backgroundTasks,
+    sessionUsage,
 
     // Getters
     hasMessages,
@@ -292,6 +326,10 @@ export const useChatStore = defineStore('chat', () => {
     hasBackgroundTasks,
     runningTasksCount,
     backgroundTasksList,
+    hasSessionUsage,
+    totalTokensUsed,
+    contextWindowSize,
+    contextUsagePercent,
 
     // Actions
     addMessage,
@@ -318,5 +356,7 @@ export const useChatStore = defineStore('chat', () => {
     removeBackgroundTask,
     clearCompletedTasks,
     clearAllBackgroundTasks,
+    updateSessionUsage,
+    clearSessionUsage,
   };
 });

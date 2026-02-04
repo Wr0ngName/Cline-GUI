@@ -11,6 +11,7 @@ import type {
   FileNode,
   ModelInfo,
   PendingAction,
+  SessionUsage,
   SlashCommandInfo,
   TaskNotification,
   UpdateInfo,
@@ -39,6 +40,7 @@ export interface ElectronAPI {
     onCommandAction: (callback: (action: string) => void) => () => void;
     onModelsChanged: (callback: (models: ModelInfo[]) => void) => () => void;
     onTaskNotification: (callback: (notification: TaskNotification) => void) => () => void;
+    onUsageUpdate: (callback: (usage: SessionUsage) => void) => () => void;
   };
 
   // File operations

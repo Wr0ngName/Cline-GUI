@@ -31,6 +31,7 @@ import {
   SlashCommandInfo,
   ModelInfo,
   TaskNotification,
+  SessionUsage,
 } from '../../shared/types';
 import { createSender } from '../utils/ipc-helpers';
 import logger from '../utils/logger';
@@ -76,6 +77,7 @@ export class ClaudeCodeService {
       onChunk: (chunk: string) => this.emitChunk(chunk),
       onSlashCommands: (commands: SlashCommandInfo[]) => this.emitSlashCommands(commands),
       onTaskNotification: (notification: TaskNotification) => this.emitTaskNotification(notification),
+      onUsageUpdate: (usage: SessionUsage) => this.emitUsageUpdate(usage),
     });
     this.builtinCommandHandler = new BuiltinCommandHandler({
       getSlashCommands: () => this.messageHandler.getSlashCommands(),
@@ -510,6 +512,13 @@ export class ClaudeCodeService {
    */
   private emitTaskNotification(notification: TaskNotification): void {
     this.send(IPC_CHANNELS.CLAUDE_TASK_NOTIFICATION, notification);
+  }
+
+  /**
+   * Emit usage update to the renderer
+   */
+  private emitUsageUpdate(usage: SessionUsage): void {
+    this.send(IPC_CHANNELS.CLAUDE_USAGE_UPDATE, usage);
   }
 
   /**

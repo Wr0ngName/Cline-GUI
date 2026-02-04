@@ -11,7 +11,7 @@ import type {
   SDKResultMessage,
 } from '@anthropic-ai/claude-agent-sdk';
 
-import type { SlashCommandInfo, TaskNotification, BackgroundTaskStatus } from '../../../shared/types';
+import type { SlashCommandInfo, TaskNotification, BackgroundTaskStatus, SessionUsage } from '../../../shared/types';
 import logger from '../../utils/logger';
 
 import { BUILTIN_COMMANDS } from './BuiltinCommandHandler';
@@ -23,6 +23,7 @@ export interface MessageHandlerCallbacks {
   onChunk: (chunk: string) => void;
   onSlashCommands: (commands: SlashCommandInfo[]) => void;
   onTaskNotification: (notification: TaskNotification) => void;
+  onUsageUpdate: (usage: SessionUsage) => void;
 }
 
 /**
@@ -203,13 +204,31 @@ export class SDKMessageHandler {
    * Process result message
    */
   private processResultMessage(message: SDKResultMessage): void {
-    // Extract result text if present (this is where slash command output lives!)
+    // Extract result text and usage data from result message
+    // The SDK provides detailed token usage in success and error result messages
     const resultMessage = message as {
       subtype?: string;
       result?: string;
       error?: string;
       num_turns?: number;
       duration_ms?: number;
+      total_cost_usd?: number;
+      usage?: {
+        input_tokens?: number;
+        output_tokens?: number;
+        cache_read_input_tokens?: number;
+        cache_creation_input_tokens?: number;
+      };
+      modelUsage?: Record<string, {
+        inputTokens?: number;
+        outputTokens?: number;
+        cacheReadInputTokens?: number;
+        cacheCreationInputTokens?: number;
+        webSearchRequests?: number;
+        costUSD?: number;
+        contextWindow?: number;
+        maxOutputTokens?: number;
+      }>;
     };
 
     // Log full result details for debugging
@@ -220,7 +239,50 @@ export class SDKMessageHandler {
       hasResult: !!resultMessage.result,
       resultPreview: resultMessage.result?.slice(0, 200),
       error: resultMessage.error,
+      totalCostUSD: resultMessage.total_cost_usd,
+      hasUsage: !!resultMessage.usage,
     });
+
+    // Extract and emit usage data (available on both success and error results)
+    if (resultMessage.usage || resultMessage.modelUsage) {
+      const sessionUsage: SessionUsage = {
+        totalCostUSD: resultMessage.total_cost_usd || 0,
+        usage: {
+          inputTokens: resultMessage.usage?.input_tokens || 0,
+          outputTokens: resultMessage.usage?.output_tokens || 0,
+          cacheReadInputTokens: resultMessage.usage?.cache_read_input_tokens || 0,
+          cacheCreationInputTokens: resultMessage.usage?.cache_creation_input_tokens || 0,
+        },
+        modelUsage: {},
+        numTurns: resultMessage.num_turns || 0,
+        durationMs: resultMessage.duration_ms || 0,
+      };
+
+      // Process per-model usage if available
+      if (resultMessage.modelUsage) {
+        for (const [modelName, modelData] of Object.entries(resultMessage.modelUsage)) {
+          sessionUsage.modelUsage[modelName] = {
+            inputTokens: modelData.inputTokens || 0,
+            outputTokens: modelData.outputTokens || 0,
+            cacheReadInputTokens: modelData.cacheReadInputTokens || 0,
+            cacheCreationInputTokens: modelData.cacheCreationInputTokens || 0,
+            webSearchRequests: modelData.webSearchRequests || 0,
+            costUSD: modelData.costUSD || 0,
+            contextWindow: modelData.contextWindow || 0,
+            maxOutputTokens: modelData.maxOutputTokens || 0,
+          };
+        }
+      }
+
+      logger.info('Emitting session usage', {
+        totalCostUSD: sessionUsage.totalCostUSD,
+        inputTokens: sessionUsage.usage.inputTokens,
+        outputTokens: sessionUsage.usage.outputTokens,
+        modelCount: Object.keys(sessionUsage.modelUsage).length,
+      });
+
+      this.callbacks.onUsageUpdate(sessionUsage);
+    }
 
     if (message.subtype === 'success') {
       // Mark query as succeeded - used to handle process exit errors gracefully

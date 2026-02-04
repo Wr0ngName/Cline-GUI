@@ -396,6 +396,60 @@ export interface TaskNotification {
   uuid?: string;
 }
 
+// Context/Usage types
+
+/**
+ * Token usage information from the SDK
+ */
+export interface TokenUsage {
+  /** Input tokens used */
+  inputTokens: number;
+  /** Output tokens generated */
+  outputTokens: number;
+  /** Tokens read from cache */
+  cacheReadInputTokens: number;
+  /** Tokens written to cache */
+  cacheCreationInputTokens: number;
+}
+
+/**
+ * Per-model usage breakdown
+ */
+export interface ModelUsageInfo {
+  /** Input tokens used */
+  inputTokens: number;
+  /** Output tokens generated */
+  outputTokens: number;
+  /** Tokens read from cache */
+  cacheReadInputTokens: number;
+  /** Tokens written to cache */
+  cacheCreationInputTokens: number;
+  /** Number of web search requests */
+  webSearchRequests: number;
+  /** Cost in USD */
+  costUSD: number;
+  /** Context window size for this model */
+  contextWindow: number;
+  /** Maximum output tokens for this model */
+  maxOutputTokens: number;
+}
+
+/**
+ * Session usage information sent to the renderer
+ */
+export interface SessionUsage {
+  /** Total cost in USD for this session */
+  totalCostUSD: number;
+  /** Aggregated token usage */
+  usage: TokenUsage;
+  /** Per-model usage breakdown */
+  modelUsage: Record<string, ModelUsageInfo>;
+  /** Number of turns in the conversation */
+  numTurns: number;
+  /** Duration of the query in milliseconds */
+  durationMs: number;
+}
+
 // Update types
 
 /**
@@ -451,6 +505,8 @@ export type IpcMainEvents = {
   'update:downloaded': () => void;
   /** Background task notification from Claude */
   'claude:task-notification': (notification: TaskNotification) => void;
+  /** Session usage update (tokens, cost) */
+  'claude:usage-update': (usage: SessionUsage) => void;
 };
 
 /**
@@ -499,6 +555,8 @@ export const IPC_CHANNELS = {
   CLAUDE_MODEL_CHANGED: 'claude:model-changed',
   /** Background task notification */
   CLAUDE_TASK_NOTIFICATION: 'claude:task-notification',
+  /** Session usage update (token counts, cost) */
+  CLAUDE_USAGE_UPDATE: 'claude:usage-update',
 
   // File operations
   /** Open directory picker dialog */

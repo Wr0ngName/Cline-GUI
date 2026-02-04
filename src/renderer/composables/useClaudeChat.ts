@@ -25,6 +25,7 @@ let cleanupDone: (() => void) | null = null;
 let cleanupSlashCommands: (() => void) | null = null;
 let cleanupCommandAction: (() => void) | null = null;
 let cleanupTaskNotification: (() => void) | null = null;
+let cleanupUsageUpdate: (() => void) | null = null;
 
 // Shared slash commands state (singleton)
 const sharedSlashCommands = shallowRef<SlashCommandInfo[]>([]);
@@ -285,6 +286,17 @@ export function useClaudeChat() {
       });
       chatStore.handleTaskNotification(notification);
     });
+
+    // Handle usage updates (token counts, cost, context info)
+    cleanupUsageUpdate = window.electron.claude.onUsageUpdate((usage) => {
+      logger.debug('Received usage update', {
+        totalCostUSD: usage.totalCostUSD,
+        inputTokens: usage.usage.inputTokens,
+        outputTokens: usage.usage.outputTokens,
+        numTurns: usage.numTurns,
+      });
+      chatStore.updateSessionUsage(usage);
+    });
   }
 
   /**
@@ -331,6 +343,10 @@ export function useClaudeChat() {
     if (cleanupTaskNotification) {
       cleanupTaskNotification();
       cleanupTaskNotification = null;
+    }
+    if (cleanupUsageUpdate) {
+      cleanupUsageUpdate();
+      cleanupUsageUpdate = null;
     }
   }
 

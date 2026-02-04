@@ -25,6 +25,7 @@ describe('SDKMessageHandler', () => {
       onChunk: vi.fn(),
       onSlashCommands: vi.fn(),
       onTaskNotification: vi.fn(),
+      onUsageUpdate: vi.fn(),
     };
     handler = new SDKMessageHandler(callbacks);
   });
@@ -298,6 +299,94 @@ describe('SDKMessageHandler', () => {
       } as never);
 
       expect(handler.didQuerySucceed()).toBe(false);
+    });
+
+    it('should emit usage update with token counts', async () => {
+      await handler.handleMessage({
+        type: 'result',
+        subtype: 'success',
+        num_turns: 3,
+        duration_ms: 5000,
+        total_cost_usd: 0.05,
+        usage: {
+          input_tokens: 1000,
+          output_tokens: 500,
+          cache_read_input_tokens: 200,
+          cache_creation_input_tokens: 100,
+        },
+      } as never);
+
+      expect(callbacks.onUsageUpdate).toHaveBeenCalledWith(expect.objectContaining({
+        totalCostUSD: 0.05,
+        numTurns: 3,
+        durationMs: 5000,
+        usage: {
+          inputTokens: 1000,
+          outputTokens: 500,
+          cacheReadInputTokens: 200,
+          cacheCreationInputTokens: 100,
+        },
+      }));
+    });
+
+    it('should emit usage update with model-specific usage', async () => {
+      await handler.handleMessage({
+        type: 'result',
+        subtype: 'success',
+        num_turns: 1,
+        duration_ms: 1000,
+        total_cost_usd: 0.02,
+        usage: {
+          input_tokens: 500,
+          output_tokens: 200,
+        },
+        modelUsage: {
+          'claude-3-opus': {
+            inputTokens: 500,
+            outputTokens: 200,
+            cacheReadInputTokens: 0,
+            cacheCreationInputTokens: 0,
+            webSearchRequests: 0,
+            costUSD: 0.02,
+            contextWindow: 200000,
+            maxOutputTokens: 4096,
+          },
+        },
+      } as never);
+
+      expect(callbacks.onUsageUpdate).toHaveBeenCalledWith(expect.objectContaining({
+        modelUsage: {
+          'claude-3-opus': expect.objectContaining({
+            inputTokens: 500,
+            outputTokens: 200,
+            contextWindow: 200000,
+            maxOutputTokens: 4096,
+            costUSD: 0.02,
+          }),
+        },
+      }));
+    });
+
+    it('should emit usage update on error results too', async () => {
+      await handler.handleMessage({
+        type: 'result',
+        subtype: 'error',
+        num_turns: 1,
+        duration_ms: 500,
+        total_cost_usd: 0.01,
+        usage: {
+          input_tokens: 100,
+          output_tokens: 50,
+        },
+      } as never);
+
+      expect(callbacks.onUsageUpdate).toHaveBeenCalledWith(expect.objectContaining({
+        totalCostUSD: 0.01,
+        usage: expect.objectContaining({
+          inputTokens: 100,
+          outputTokens: 50,
+        }),
+      }));
     });
   });
 });
