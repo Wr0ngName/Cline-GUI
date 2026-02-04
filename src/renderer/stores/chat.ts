@@ -25,7 +25,7 @@ export const useChatStore = defineStore('chat', () => {
   );
 
   // Actions
-  function addMessage(message: ChatMessage) {
+  function addMessage(message: ChatMessage): void {
     messages.value.push(message);
 
     // Enforce message limit
@@ -35,7 +35,7 @@ export const useChatStore = defineStore('chat', () => {
     }
   }
 
-  function addUserMessage(content: string) {
+  function addUserMessage(content: string): ChatMessage {
     const message: ChatMessage = {
       id: generateId('msg'),
       role: 'user',
@@ -46,7 +46,7 @@ export const useChatStore = defineStore('chat', () => {
     return message;
   }
 
-  function startAssistantMessage() {
+  function startAssistantMessage(): ChatMessage {
     const message: ChatMessage = {
       id: generateId('msg'),
       role: 'assistant',
@@ -59,7 +59,7 @@ export const useChatStore = defineStore('chat', () => {
     return message;
   }
 
-  function appendToLastMessage(chunk: string) {
+  function appendToLastMessage(chunk: string): void {
     const last = messages.value[messages.value.length - 1];
     if (last && last.role === 'assistant') {
       last.content += chunk;
@@ -67,7 +67,7 @@ export const useChatStore = defineStore('chat', () => {
     }
   }
 
-  function finishStreaming() {
+  function finishStreaming(): void {
     const last = messages.value[messages.value.length - 1];
     if (last && last.role === 'assistant') {
       last.isStreaming = false;
@@ -75,44 +75,44 @@ export const useChatStore = defineStore('chat', () => {
     currentStreamingContent.value = '';
   }
 
-  function addPendingAction(action: PendingAction) {
+  function addPendingAction(action: PendingAction): void {
     pendingActions.value.push(action);
   }
 
-  function removePendingAction(actionId: string) {
+  function removePendingAction(actionId: string): void {
     const index = pendingActions.value.findIndex((a) => a.id === actionId);
     if (index !== -1) {
       pendingActions.value.splice(index, 1);
     }
   }
 
-  function updateActionStatus(actionId: string, status: PendingAction['status']) {
+  function updateActionStatus(actionId: string, status: PendingAction['status']): void {
     const action = pendingActions.value.find((a) => a.id === actionId);
     if (action) {
       action.status = status;
     }
   }
 
-  function setLoading(loading: boolean) {
+  function setLoading(loading: boolean): void {
     isLoading.value = loading;
   }
 
-  function setError(errorMessage: string | null) {
+  function setError(errorMessage: string | null): void {
     error.value = errorMessage;
   }
 
-  function clearError() {
+  function clearError(): void {
     error.value = null;
   }
 
-  function clearMessages() {
+  function clearMessages(): void {
     messages.value = [];
     pendingActions.value = [];
     currentStreamingContent.value = '';
     error.value = null;
   }
 
-  function loadMessages(loadedMessages: ChatMessage[]) {
+  function loadMessages(loadedMessages: ChatMessage[]): void {
     messages.value = loadedMessages;
   }
 

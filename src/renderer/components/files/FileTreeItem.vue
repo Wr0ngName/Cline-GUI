@@ -12,7 +12,9 @@ import { useFilesStore } from '../../stores/files';
 import Icon from '../shared/Icon.vue';
 
 interface Props {
+  /** File or directory node to render */
   node: FileNode;
+  /** Nesting depth for indentation (0 = root level) */
   depth?: number;
 }
 

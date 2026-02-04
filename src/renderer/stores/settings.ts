@@ -36,7 +36,7 @@ export const useSettingsStore = defineStore('settings', () => {
   });
 
   // Actions
-  async function loadConfig() {
+  async function loadConfig(): Promise<void> {
     isLoading.value = true;
     error.value = null;
     try {
@@ -50,7 +50,7 @@ export const useSettingsStore = defineStore('settings', () => {
     }
   }
 
-  async function saveConfig(updates: Partial<AppConfig>) {
+  async function saveConfig(updates: Partial<AppConfig>): Promise<void> {
     isSaving.value = true;
     error.value = null;
     try {
@@ -66,29 +66,29 @@ export const useSettingsStore = defineStore('settings', () => {
     }
   }
 
-  async function setApiKey(apiKey: string) {
+  async function setApiKey(apiKey: string): Promise<void> {
     await saveConfig({ apiKey });
   }
 
-  async function setWorkingDirectory(directory: string) {
+  async function setWorkingDirectory(directory: string): Promise<void> {
     await saveConfig({ workingDirectory: directory });
   }
 
-  async function setTheme(theme: 'light' | 'dark' | 'system') {
-    await saveConfig({ theme });
-    applyTheme(theme);
+  async function setTheme(newTheme: 'light' | 'dark' | 'system'): Promise<void> {
+    await saveConfig({ theme: newTheme });
+    applyTheme(newTheme);
   }
 
-  async function setFontSize(fontSize: number) {
+  async function setFontSize(fontSize: number): Promise<void> {
     await saveConfig({ fontSize });
   }
 
-  function applyTheme(theme: 'light' | 'dark' | 'system') {
+  function applyTheme(themeToApply: 'light' | 'dark' | 'system'): void {
     const html = document.documentElement;
 
-    if (theme === 'dark') {
+    if (themeToApply === 'dark') {
       html.classList.add('dark');
-    } else if (theme === 'light') {
+    } else if (themeToApply === 'light') {
       html.classList.remove('dark');
     } else {
       // System preference
@@ -100,12 +100,12 @@ export const useSettingsStore = defineStore('settings', () => {
     }
   }
 
-  function clearError() {
+  function clearError(): void {
     error.value = null;
   }
 
   // Initialize
-  function initialize() {
+  function initialize(): void {
     loadConfig().then(() => {
       applyTheme(config.value.theme);
     });
@@ -120,7 +120,7 @@ export const useSettingsStore = defineStore('settings', () => {
 
     // Listen for system theme changes
     const systemThemeMediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
-    const systemThemeHandler = () => {
+    const systemThemeHandler = (): void => {
       if (config.value.theme === 'system') {
         applyTheme('system');
       }

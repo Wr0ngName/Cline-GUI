@@ -5,6 +5,7 @@
 
 import { onMounted, onUnmounted, watch, ref, nextTick } from 'vue';
 import Icon from './Icon.vue';
+import { generateId } from '../../utils/id';
 
 interface Props {
   /** Whether the modal is open */
@@ -29,8 +30,8 @@ const props = withDefaults(defineProps<Props>(), {
   ariaDescription: '',
 });
 
-// Generate unique IDs for ARIA attributes
-const modalId = `modal-${Math.random().toString(36).slice(2, 9)}`;
+// Generate unique IDs for ARIA attributes using consistent utility
+const modalId = generateId('modal');
 const titleId = `${modalId}-title`;
 const descId = `${modalId}-desc`;
 

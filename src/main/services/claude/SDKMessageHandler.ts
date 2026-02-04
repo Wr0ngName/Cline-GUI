@@ -1,0 +1,211 @@
+/**
+ * SDK Message Handler for Claude Code
+ *
+ * Processes messages from the Claude Code SDK and emits events to the renderer.
+ * Extracted from ClaudeCodeService for better separation of concerns.
+ */
+
+import type {
+  SDKMessage,
+  SDKAssistantMessage,
+  SDKResultMessage,
+} from '@anthropic-ai/claude-agent-sdk';
+
+import { SlashCommandInfo } from '../../../shared/types';
+import logger from '../../utils/logger';
+
+/**
+ * Callbacks for emitting events to the renderer
+ */
+export interface MessageHandlerCallbacks {
+  onChunk: (chunk: string) => void;
+  onSlashCommands: (commands: SlashCommandInfo[]) => void;
+}
+
+/**
+ * Result of processing SDK messages
+ */
+export interface MessageProcessingResult {
+  /** Whether the query completed successfully */
+  querySucceeded: boolean;
+  /** Cached slash commands from init message */
+  slashCommands: SlashCommandInfo[];
+}
+
+/**
+ * Handles messages from the Claude Code SDK
+ */
+export class SDKMessageHandler {
+  private callbacks: MessageHandlerCallbacks;
+  private querySucceeded = false;
+  private cachedSlashCommands: SlashCommandInfo[] = [];
+
+  constructor(callbacks: MessageHandlerCallbacks) {
+    this.callbacks = callbacks;
+  }
+
+  /**
+   * Reset state for a new query
+   */
+  reset(): void {
+    this.querySucceeded = false;
+  }
+
+  /**
+   * Check if the query succeeded
+   */
+  didQuerySucceed(): boolean {
+    return this.querySucceeded;
+  }
+
+  /**
+   * Get cached slash commands
+   */
+  getSlashCommands(): SlashCommandInfo[] {
+    return this.cachedSlashCommands;
+  }
+
+  /**
+   * Handle a message from the Claude Code SDK
+   */
+  async handleMessage(message: SDKMessage): Promise<void> {
+    // Log all SDK messages for debugging
+    logger.debug('SDK message received', {
+      type: message.type,
+      subtype: (message as { subtype?: string }).subtype,
+      hasContent: !!(message as SDKAssistantMessage).message?.content,
+    });
+
+    switch (message.type) {
+      case 'assistant':
+        await this.processAssistantMessage(message as SDKAssistantMessage);
+        break;
+
+      case 'result':
+        this.processResultMessage(message as SDKResultMessage);
+        break;
+
+      case 'stream_event':
+        this.processStreamEvent(message);
+        break;
+
+      case 'system':
+        this.processSystemMessage(message);
+        break;
+
+      default:
+        logger.debug('Unknown SDK message type', { type: message.type });
+    }
+  }
+
+  /**
+   * Process assistant message and extract text/tool use
+   * Note: Text content is streamed via handleStreamEvent's content_block_delta events.
+   * We do NOT emit text here because with includePartialMessages:true we get multiple
+   * assistant messages (partial and final) which would cause duplication.
+   * For slash commands that don't stream, their output comes through system messages.
+   */
+  private async processAssistantMessage(message: SDKAssistantMessage): Promise<void> {
+    const content = message.message.content;
+
+    // Log message content for debugging
+    logger.debug('Assistant message content', {
+      blockCount: content.length,
+      blockTypes: content.map(b => b.type),
+    });
+
+    for (const block of content) {
+      if (block.type === 'text') {
+        // Log warnings for auth errors (don't emit, just log)
+        const textPreview = block.text.slice(0, 200);
+        if (block.text.toLowerCase().includes('401') ||
+            block.text.toLowerCase().includes('unauthorized') ||
+            block.text.toLowerCase().includes('invalid')) {
+          logger.warn('Assistant message contains error keywords', { textPreview });
+        }
+      }
+      // Tool use is handled via canUseTool callback, not here
+    }
+  }
+
+  /**
+   * Process result message
+   */
+  private processResultMessage(message: SDKResultMessage): void {
+    // Log full result details for debugging
+    logger.info('SDK result message', {
+      subtype: message.subtype,
+      numTurns: message.num_turns,
+      duration: message.duration_ms,
+      // Include any error info if present
+      error: (message as { error?: string }).error,
+    });
+
+    if (message.subtype === 'success') {
+      // Mark query as succeeded - used to handle process exit errors gracefully
+      this.querySucceeded = true;
+    } else {
+      logger.warn('Query ended with non-success', { subtype: message.subtype });
+    }
+  }
+
+  /**
+   * Process streaming events for real-time text updates
+   */
+  private processStreamEvent(message: SDKMessage): void {
+    const event = (message as { event?: { type?: string; delta?: { type?: string; text?: string } } }).event;
+    if (event?.type === 'content_block_delta' && event?.delta?.type === 'text_delta') {
+      this.callbacks.onChunk(event.delta.text || '');
+    }
+  }
+
+  /**
+   * Process system messages (init, status, etc.)
+   */
+  private processSystemMessage(message: SDKMessage): void {
+    const systemMsg = message as {
+      subtype?: string;
+      message?: string;
+      slash_commands?: string[];
+      tools?: string[];
+      model?: string;
+      status?: string;
+    };
+
+    logger.debug('System message', {
+      subtype: systemMsg.subtype,
+      message: systemMsg.message,
+      hasSlashCommands: !!systemMsg.slash_commands,
+    });
+
+    // Handle init message - capture available slash commands
+    if (systemMsg.subtype === 'init' && systemMsg.slash_commands) {
+      logger.info('SDK init received', {
+        slashCommandCount: systemMsg.slash_commands.length,
+        slashCommands: systemMsg.slash_commands,
+        model: systemMsg.model,
+      });
+      // Cache the slash commands for later retrieval
+      // The init message only has names, we'll get full details via supportedCommands()
+      this.cachedSlashCommands = systemMsg.slash_commands.map((name) => ({
+        name,
+        description: '',
+        argumentHint: '',
+      }));
+      // Emit slash commands to renderer
+      this.callbacks.onSlashCommands(this.cachedSlashCommands);
+    }
+
+    // Handle status messages (like compacting)
+    if (systemMsg.subtype === 'status' && systemMsg.status) {
+      this.callbacks.onChunk(`\n_${systemMsg.status}_\n`);
+    }
+
+    // Emit other system messages to the UI
+    if (systemMsg.message) {
+      this.callbacks.onChunk(`\n_${systemMsg.message}_\n`);
+    }
+  }
+}
+
+export default SDKMessageHandler;

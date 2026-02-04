@@ -49,8 +49,14 @@ export const useFilesStore = defineStore('files', () => {
     }
   }
 
-  async function loadFileTree() {
+  async function loadFileTree(): Promise<void> {
     if (!workingDirectory.value) {
+      return;
+    }
+
+    // Prevent concurrent loads - if already loading, skip this request
+    if (isLoading.value) {
+      logger.debug('loadFileTree already in progress, skipping duplicate call');
       return;
     }
 
@@ -78,11 +84,11 @@ export const useFilesStore = defineStore('files', () => {
     }
   }
 
-  function selectFile(filePath: string | null) {
+  function selectFile(filePath: string | null): void {
     selectedFile.value = filePath;
   }
 
-  function toggleDirectory(dirPath: string) {
+  function toggleDirectory(dirPath: string): void {
     if (expandedDirs.has(dirPath)) {
       expandedDirs.delete(dirPath);
     } else {
@@ -90,11 +96,11 @@ export const useFilesStore = defineStore('files', () => {
     }
   }
 
-  function expandDirectory(dirPath: string) {
+  function expandDirectory(dirPath: string): void {
     expandedDirs.add(dirPath);
   }
 
-  function collapseDirectory(dirPath: string) {
+  function collapseDirectory(dirPath: string): void {
     expandedDirs.delete(dirPath);
   }
 
@@ -102,7 +108,7 @@ export const useFilesStore = defineStore('files', () => {
     return expandedDirs.has(dirPath);
   }
 
-  async function setWorkingDirectory(directory: string) {
+  async function setWorkingDirectory(directory: string): Promise<void> {
     const settingsStore = useSettingsStore();
     await settingsStore.setWorkingDirectory(directory);
   }
@@ -111,7 +117,7 @@ export const useFilesStore = defineStore('files', () => {
    * Apply incremental changes to the file tree
    * This avoids full tree reload on every file change
    */
-  function applyFileChanges(changes: FileChange[]) {
+  function applyFileChanges(changes: FileChange[]): void {
     for (const change of changes) {
       const pathParts = getRelativePathParts(change.path);
       if (!pathParts) continue;
@@ -182,7 +188,7 @@ export const useFilesStore = defineStore('files', () => {
   /**
    * Add a new node to the tree
    */
-  function addNodeToTree(pathParts: string[], fullPath: string) {
+  function addNodeToTree(pathParts: string[], fullPath: string): void {
     const { parent, name } = findParentNode(pathParts);
     if (!parent || !name) return;
 
@@ -224,7 +230,7 @@ export const useFilesStore = defineStore('files', () => {
   /**
    * Remove a node from the tree
    */
-  function removeNodeFromTree(pathParts: string[]) {
+  function removeNodeFromTree(pathParts: string[]): void {
     const { parent, name } = findParentNode(pathParts);
     if (!parent || !name) return;
 
@@ -238,7 +244,7 @@ export const useFilesStore = defineStore('files', () => {
   /**
    * Update a node in the tree (mark as modified)
    */
-  function updateNodeInTree(pathParts: string[]) {
+  function updateNodeInTree(pathParts: string[]): void {
     const { parent, name } = findParentNode(pathParts);
     if (!parent || !name) return;
 
@@ -249,7 +255,7 @@ export const useFilesStore = defineStore('files', () => {
     }
   }
 
-  function setupFileWatcher() {
+  function setupFileWatcher(): void {
     // Clean up existing watcher
     if (fileWatcherUnsubscribe) {
       fileWatcherUnsubscribe();
@@ -270,11 +276,11 @@ export const useFilesStore = defineStore('files', () => {
     });
   }
 
-  function clearError() {
+  function clearError(): void {
     error.value = null;
   }
 
-  function reset() {
+  function reset(): void {
     fileTree.value = [];
     selectedFile.value = null;
     expandedDirs.clear();
@@ -288,7 +294,7 @@ export const useFilesStore = defineStore('files', () => {
 
   // Initialize with existing working directory if available
   // Also watch for settings changes in case config loads after this store initializes
-  async function initialize() {
+  async function initialize(): Promise<void> {
     try {
       const settingsStore = useSettingsStore();
       const { watch } = await import('vue');
@@ -334,7 +340,7 @@ export const useFilesStore = defineStore('files', () => {
 
   // Cleanup function that uses useEventCleanup for the settings watcher
   // and manually cleans up the file watcher (since it can be re-setup)
-  function cleanupStore() {
+  function cleanupStore(): void {
     cleanup(); // From useEventCleanup
     if (fileWatcherUnsubscribe) {
       fileWatcherUnsubscribe();

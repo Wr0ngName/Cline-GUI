@@ -12,6 +12,7 @@ import { formatTime } from '../../utils/date';
 import Spinner from '../shared/Spinner.vue';
 
 interface Props {
+  /** The chat message to display */
   message: ChatMessage;
 }
 

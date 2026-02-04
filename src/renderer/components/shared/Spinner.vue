@@ -4,7 +4,9 @@
  */
 
 interface Props {
+  /** Spinner size preset */
   size?: 'xs' | 'sm' | 'md' | 'lg';
+  /** Spinner color (CSS color value) */
   color?: string;
 }
 

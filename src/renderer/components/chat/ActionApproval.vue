@@ -12,6 +12,7 @@ import Button from '../shared/Button.vue';
 import Icon from '../shared/Icon.vue';
 
 interface Props {
+  /** The pending action requiring user approval */
   action: PendingAction;
 }
 

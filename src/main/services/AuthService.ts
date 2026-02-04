@@ -26,6 +26,25 @@ export interface OAuthFlowState {
   output: string;
 }
 
+/**
+ * Result of OAuth flow completion
+ */
+export interface OAuthFlowResult {
+  success: boolean;
+  token?: string;
+  error?: string;
+}
+
+/**
+ * Resource handlers for cleanup during OAuth flow
+ */
+interface OAuthResourceHandlers {
+  dataHandler: { dispose: () => void } | null;
+  pollInterval: ReturnType<typeof setInterval> | null;
+  resolved: boolean;
+  cleanup: () => void;
+}
+
 export class AuthService {
   private pendingOAuthFlow: OAuthFlowState | null = null;
 
@@ -307,12 +326,52 @@ export class AuthService {
    * - Sends CR+LF to submit
    * - Looks for sk-ant-oat01-... token in output
    */
-  async completeOAuthFlow(code: string): Promise<{ success: boolean; token?: string; error?: string }> {
+  async completeOAuthFlow(code: string): Promise<OAuthFlowResult> {
+    // Validate flow state
+    const validationError = this.validateOAuthFlowState(code);
+    if (validationError) {
+      return validationError;
+    }
+
+    const { pty: ptyProcess, configDir } = this.pendingOAuthFlow!;
+
+    return new Promise((resolve) => {
+      const handlers = this.createResourceHandlers();
+      let output = this.pendingOAuthFlow!.output;
+
+      try {
+        // Listen for PTY output
+        handlers.dataHandler = ptyProcess!.onData((data: string) => {
+          output += data;
+          this.checkOAuthResult(output, configDir, handlers, resolve);
+        });
+
+        // Send code to PTY
+        this.sendCodeToPty(ptyProcess!, code);
+
+        // Setup polling for result
+        this.setupOAuthPolling(handlers, () => output, configDir, resolve);
+
+        // Handle PTY exit
+        this.setupPtyExitHandler(ptyProcess!, handlers, () => output, configDir, resolve);
+      } catch (error) {
+        handlers.cleanup();
+        logger.error('Error completing OAuth flow:', error);
+        this.cleanupOAuthFlow();
+        resolve({ success: false, error: `Authentication error: ${error}` });
+      }
+    });
+  }
+
+  /**
+   * Validate OAuth flow state before completing.
+   * Returns error result if validation fails, null if valid.
+   */
+  private validateOAuthFlowState(code: string): OAuthFlowResult | null {
     if (!this.pendingOAuthFlow) {
       return { success: false, error: 'No pending authentication flow. Please start login again.' };
     }
 
-    // Validate code format before sending
     if (!this.isValidOAuthCode(code)) {
       logger.warn('Invalid OAuth code format', {
         codeLength: code?.length ?? 0,
@@ -321,9 +380,8 @@ export class AuthService {
       return { success: false, error: 'Invalid authorization code format. Please copy the full code from the browser.' };
     }
 
-    const { pty: ptyProcess, configDir, createdAt } = this.pendingOAuthFlow;
+    const { pty: ptyProcess, createdAt } = this.pendingOAuthFlow;
 
-    // Check expiration
     if (Date.now() - createdAt > MAIN_CONSTANTS.AUTH.OAUTH_TIMEOUT_MS) {
       this.cleanupOAuthFlow();
       return { success: false, error: 'Authentication flow expired. Please start again.' };
@@ -334,177 +392,229 @@ export class AuthService {
       return { success: false, error: 'Authentication process not running. Please start again.' };
     }
 
-    return new Promise((resolve) => {
-      let dataHandler: { dispose: () => void } | null = null;
-      let pollInterval: ReturnType<typeof setInterval> | null = null;
-      let resolved = false;
-      let output = this.pendingOAuthFlow!.output;
+    return null;
+  }
 
-      /**
-       * Cleanup function to dispose all resources.
-       * Safe to call multiple times.
-       */
-      const cleanup = () => {
-        if (dataHandler) {
-          dataHandler.dispose();
-          dataHandler = null;
+  /**
+   * Create resource handlers for OAuth flow cleanup.
+   */
+  private createResourceHandlers(): OAuthResourceHandlers {
+    const handlers: OAuthResourceHandlers = {
+      dataHandler: null,
+      pollInterval: null,
+      resolved: false,
+      cleanup: () => {
+        if (handlers.dataHandler) {
+          handlers.dataHandler.dispose();
+          handlers.dataHandler = null;
         }
-        if (pollInterval) {
-          clearInterval(pollInterval);
-          pollInterval = null;
+        if (handlers.pollInterval) {
+          clearInterval(handlers.pollInterval);
+          handlers.pollInterval = null;
         }
-      };
+      },
+    };
+    return handlers;
+  }
 
-      try {
-        // Listen for more output
-        dataHandler = ptyProcess.onData((data: string) => {
-          output += data;
-          checkResult();
-        });
+  /**
+   * Send OAuth code to PTY character by character.
+   * Ink/Node.js terminal UIs need individual keystrokes.
+   */
+  private sendCodeToPty(ptyProcess: IPty, code: string): void {
+    for (const char of code) {
+      ptyProcess.write(char);
+    }
 
-        // Send the code character by character (like mautrix-claude sidecar)
-        // Ink/Node.js terminal UIs often need to see individual keystrokes
-        for (const char of code) {
-          ptyProcess.write(char);
-        }
+    // Send CR+LF to submit (like mautrix-claude sidecar)
+    setTimeout(() => {
+      ptyProcess.write('\r');
+      setTimeout(() => {
+        ptyProcess.write('\n');
+      }, MAIN_CONSTANTS.AUTH.OAUTH_POLL_INTERVAL_MS / 5);
+    }, MAIN_CONSTANTS.AUTH.OAUTH_POLL_INTERVAL_MS / 10);
+  }
 
-        // Send CR+LF to submit (like mautrix-claude sidecar)
-        setTimeout(() => {
-          ptyProcess.write('\r');
-          setTimeout(() => {
-            ptyProcess.write('\n');
-          }, MAIN_CONSTANTS.AUTH.OAUTH_POLL_INTERVAL_MS / 5);
-        }, MAIN_CONSTANTS.AUTH.OAUTH_POLL_INTERVAL_MS / 10);
+  /**
+   * Check OAuth result in PTY output.
+   * Looks for token, credentials file, success message, or error indicators.
+   */
+  private checkOAuthResult(
+    output: string,
+    configDir: string,
+    handlers: OAuthResourceHandlers,
+    resolve: (result: OAuthFlowResult) => void
+  ): boolean {
+    if (handlers.resolved) return true;
 
-        const checkResult = (): boolean => {
-          if (resolved) return true;
+    const clean = this.stripAnsi(output);
 
-          const clean = this.stripAnsi(output);
+    // Check for token in output
+    const tokenResult = this.extractTokenFromOutput(clean);
+    if (tokenResult) {
+      handlers.resolved = true;
+      handlers.cleanup();
+      logger.info('OAuth authentication successful');
+      this.cleanupOAuthFlow();
+      resolve({ success: true, token: tokenResult });
+      return true;
+    }
 
-          // Look for OAuth token in output (sk-ant-oat01-...)
-          // Match format from mautrix-claude: r'(sk-ant-oat01-[A-Za-z0-9_\-]+)'
-          const tokenMatch = clean.match(/(sk-ant-oat01-[A-Za-z0-9_-]+)/);
-          if (tokenMatch) {
-            let token = tokenMatch[1];
+    // Check credentials file
+    const credsToken = this.extractTokenFromCredentialsFile(configDir);
+    if (credsToken) {
+      handlers.resolved = true;
+      handlers.cleanup();
+      logger.info('OAuth authentication successful via credentials file');
+      this.cleanupOAuthFlow();
+      resolve({ success: true, token: credsToken });
+      return true;
+    }
 
-            // OAuth tokens are ~91 chars. If longer and ends with "Store" (from CLI output
-            // "Store your token securely"), the regex over-matched due to missing whitespace
-            if (token.length > MAIN_CONSTANTS.AUTH.OAUTH_TOKEN_EXPECTED_LENGTH && token.endsWith('Store')) {
-              token = token.slice(0, -5); // Remove "Store"
-            }
+    // Check for success message and defer to credentials file
+    if (clean.includes('Successfully authenticated') || clean.includes('logged in')) {
+      this.scheduleCredentialsFileCheck(configDir, handlers, resolve);
+    }
 
-            // Validate token length (mautrix-claude requires > 80 chars)
-            if (token.length <= 80) {
-              logger.warn('OAuth token may be truncated', { length: token.length });
-            }
+    // Check for error indicators
+    if (this.hasErrorIndicators(clean)) {
+      handlers.resolved = true;
+      handlers.cleanup();
+      logger.error('OAuth error detected in output');
+      this.cleanupOAuthFlow();
+      resolve({ success: false, error: 'Invalid code. Please try again.' });
+      return true;
+    }
 
-            resolved = true;
-            cleanup();
-            logger.info('OAuth authentication successful');
-            this.cleanupOAuthFlow();
-            resolve({ success: true, token });
-            return true;
-          }
+    return false;
+  }
 
-          // Check for credentials file
-          const credsFile = path.join(configDir, '.credentials.json');
-          if (fs.existsSync(credsFile)) {
-            try {
-              const creds = JSON.parse(fs.readFileSync(credsFile, 'utf8'));
-              // Extract oauthToken - try various formats the CLI might use
-              const token = creds.oauthToken || creds.claudeAiOauth?.accessToken;
-              if (token && typeof token === 'string' && token.startsWith('sk-ant-')) {
-                resolved = true;
-                cleanup();
-                logger.info('OAuth authentication successful via credentials file');
-                this.cleanupOAuthFlow();
-                resolve({ success: true, token });
-                return true;
-              }
-            } catch {
-              // Credentials file not ready yet
-            }
-          }
+  /**
+   * Extract OAuth token from CLI output.
+   */
+  private extractTokenFromOutput(cleanOutput: string): string | null {
+    const tokenMatch = cleanOutput.match(/(sk-ant-oat01-[A-Za-z0-9_-]+)/);
+    if (!tokenMatch) return null;
 
-          // Check for success message
-          if (clean.includes('Successfully authenticated') || clean.includes('logged in')) {
-            // Check credentials file after a short delay
-            setTimeout(() => {
-              if (resolved) return;
-              try {
-                const creds = JSON.parse(fs.readFileSync(path.join(configDir, '.credentials.json'), 'utf8'));
-                const token = creds.oauthToken || creds.claudeAiOauth?.accessToken;
-                if (token && typeof token === 'string' && token.startsWith('sk-ant-')) {
-                  resolved = true;
-                  cleanup();
-                  logger.info('OAuth authentication successful');
-                  this.cleanupOAuthFlow();
-                  resolve({ success: true, token });
-                }
-              } catch {
-                // Credentials file not ready after success message
-              }
-            }, MAIN_CONSTANTS.AUTH.OAUTH_CREDENTIALS_CHECK_DELAY_MS);
-          }
+    let token = tokenMatch[1];
 
-          // Check for error indicators
-          const lowerClean = clean.toLowerCase();
-          if (
-            (lowerClean.includes('invalid code') || lowerClean.includes('error:') || lowerClean.includes('failed')) &&
-            !lowerClean.includes('no error')
-          ) {
-            resolved = true;
-            cleanup();
-            logger.error('OAuth error detected in output');
-            this.cleanupOAuthFlow();
-            resolve({ success: false, error: 'Invalid code. Please try again.' });
-            return true;
-          }
+    // OAuth tokens are ~91 chars. If longer and ends with "Store" (from CLI output
+    // "Store your token securely"), the regex over-matched due to missing whitespace
+    if (token.length > MAIN_CONSTANTS.AUTH.OAUTH_TOKEN_EXPECTED_LENGTH && token.endsWith('Store')) {
+      token = token.slice(0, -5);
+    }
 
-          return false;
-        };
+    if (token.length <= 80) {
+      logger.warn('OAuth token may be truncated', { length: token.length });
+    }
 
-        // Poll for result
-        let attempts = 0;
-        pollInterval = setInterval(() => {
-          attempts++;
-          if (checkResult()) {
-            cleanup();
-            return;
-          }
-          if (attempts >= MAIN_CONSTANTS.AUTH.OAUTH_POLL_MAX_ATTEMPTS) {
-            if (!resolved) {
-              resolved = true;
-              cleanup();
-              logger.error('Timeout waiting for OAuth completion');
-              this.cleanupOAuthFlow();
-              resolve({ success: false, error: 'Timeout waiting for authentication to complete' });
-            }
-          }
-        }, MAIN_CONSTANTS.AUTH.OAUTH_POLL_INTERVAL_MS);
+    return token;
+  }
 
-        // Handle PTY exit
-        ptyProcess.onExit(({ exitCode }) => {
-          logger.info(`OAuth PTY exited with code ${exitCode}`);
-          // Give a moment for any final output
-          setTimeout(() => {
-            if (!resolved) {
-              checkResult();
-              if (!resolved) {
-                resolved = true;
-                cleanup();
-                this.cleanupOAuthFlow();
-                resolve({ success: false, error: 'Authentication failed. Please try again.' });
-              }
-            }
-          }, MAIN_CONSTANTS.CLAUDE.INTERRUPT_DELAY_MS);
-        });
-      } catch (error) {
-        cleanup();
-        logger.error('Error completing OAuth flow:', error);
-        this.cleanupOAuthFlow();
-        resolve({ success: false, error: `Authentication error: ${error}` });
+  /**
+   * Extract OAuth token from credentials file.
+   */
+  private extractTokenFromCredentialsFile(configDir: string): string | null {
+    const credsFile = path.join(configDir, '.credentials.json');
+    if (!fs.existsSync(credsFile)) return null;
+
+    try {
+      const creds = JSON.parse(fs.readFileSync(credsFile, 'utf8'));
+      const token = creds.oauthToken || creds.claudeAiOauth?.accessToken;
+      if (token && typeof token === 'string' && token.startsWith('sk-ant-')) {
+        return token;
       }
+    } catch {
+      // Credentials file not ready yet
+    }
+    return null;
+  }
+
+  /**
+   * Schedule a delayed check of the credentials file after success message.
+   */
+  private scheduleCredentialsFileCheck(
+    configDir: string,
+    handlers: OAuthResourceHandlers,
+    resolve: (result: OAuthFlowResult) => void
+  ): void {
+    setTimeout(() => {
+      if (handlers.resolved) return;
+      const token = this.extractTokenFromCredentialsFile(configDir);
+      if (token) {
+        handlers.resolved = true;
+        handlers.cleanup();
+        logger.info('OAuth authentication successful');
+        this.cleanupOAuthFlow();
+        resolve({ success: true, token });
+      }
+    }, MAIN_CONSTANTS.AUTH.OAUTH_CREDENTIALS_CHECK_DELAY_MS);
+  }
+
+  /**
+   * Check if output contains error indicators.
+   */
+  private hasErrorIndicators(cleanOutput: string): boolean {
+    const lowerClean = cleanOutput.toLowerCase();
+    return (
+      (lowerClean.includes('invalid code') ||
+        lowerClean.includes('error:') ||
+        lowerClean.includes('failed')) &&
+      !lowerClean.includes('no error')
+    );
+  }
+
+  /**
+   * Setup polling interval for OAuth result.
+   */
+  private setupOAuthPolling(
+    handlers: OAuthResourceHandlers,
+    getOutput: () => string,
+    configDir: string,
+    resolve: (result: OAuthFlowResult) => void
+  ): void {
+    let attempts = 0;
+    handlers.pollInterval = setInterval(() => {
+      attempts++;
+      if (this.checkOAuthResult(getOutput(), configDir, handlers, resolve)) {
+        handlers.cleanup();
+        return;
+      }
+      if (attempts >= MAIN_CONSTANTS.AUTH.OAUTH_POLL_MAX_ATTEMPTS) {
+        if (!handlers.resolved) {
+          handlers.resolved = true;
+          handlers.cleanup();
+          logger.error('Timeout waiting for OAuth completion');
+          this.cleanupOAuthFlow();
+          resolve({ success: false, error: 'Timeout waiting for authentication to complete' });
+        }
+      }
+    }, MAIN_CONSTANTS.AUTH.OAUTH_POLL_INTERVAL_MS);
+  }
+
+  /**
+   * Setup PTY exit handler.
+   */
+  private setupPtyExitHandler(
+    ptyProcess: IPty,
+    handlers: OAuthResourceHandlers,
+    getOutput: () => string,
+    configDir: string,
+    resolve: (result: OAuthFlowResult) => void
+  ): void {
+    ptyProcess.onExit(({ exitCode }) => {
+      logger.info(`OAuth PTY exited with code ${exitCode}`);
+      setTimeout(() => {
+        if (!handlers.resolved) {
+          this.checkOAuthResult(getOutput(), configDir, handlers, resolve);
+          if (!handlers.resolved) {
+            handlers.resolved = true;
+            handlers.cleanup();
+            this.cleanupOAuthFlow();
+            resolve({ success: false, error: 'Authentication failed. Please try again.' });
+          }
+        }
+      }, MAIN_CONSTANTS.CLAUDE.INTERRUPT_DELAY_MS);
     });
   }
 

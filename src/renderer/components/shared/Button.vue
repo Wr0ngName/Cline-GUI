@@ -6,10 +6,15 @@
 import Icon from './Icon.vue';
 
 interface Props {
+  /** Button style variant */
   variant?: 'primary' | 'secondary' | 'ghost' | 'danger' | 'success';
+  /** Button size preset */
   size?: 'sm' | 'md' | 'lg';
+  /** Whether the button is disabled */
   disabled?: boolean;
+  /** Whether to show a loading spinner */
   loading?: boolean;
+  /** HTML button type attribute */
   type?: 'button' | 'submit' | 'reset';
 }
 

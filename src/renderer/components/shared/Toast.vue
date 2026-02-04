@@ -8,8 +8,11 @@ import type { IconName } from './Icon.vue';
 import Icon from './Icon.vue';
 
 interface Props {
+  /** Toast type determines icon and color scheme */
   type?: 'info' | 'success' | 'warning' | 'error';
+  /** Message content to display */
   message: string;
+  /** Whether the toast can be dismissed */
   dismissible?: boolean;
 }
 

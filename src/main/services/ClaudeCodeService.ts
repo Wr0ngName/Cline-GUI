@@ -1,8 +1,15 @@
 /**
  * Service for integrating with @anthropic-ai/claude-code
+ *
  * Uses the Claude Code SDK query() function with canUseTool callback
  * for custom permission UI integration.
- * Supports both OAuth tokens (Pro/Max) and API keys
+ * Supports both OAuth tokens (Pro/Max) and API keys.
+ *
+ * This service orchestrates the following modules:
+ * - PermissionManager: Handles tool permission requests
+ * - SDKMessageHandler: Processes SDK messages
+ * - AuthValidator: Validates authentication credentials
+ * - ErrorHandler: Converts errors to user-friendly messages
  */
 
 import { spawn, type ChildProcess } from 'node:child_process';
@@ -11,13 +18,7 @@ import * as path from 'node:path';
 
 import { query } from '@anthropic-ai/claude-agent-sdk';
 import type {
-  SDKMessage,
-  SDKAssistantMessage,
-  SDKResultMessage,
   Query,
-  CanUseTool,
-  PermissionResult,
-  PermissionUpdate,
   SpawnOptions,
   SpawnedProcess,
 } from '@anthropic-ai/claude-agent-sdk';
@@ -29,382 +30,62 @@ import {
   ActionResponse,
   SlashCommandInfo,
 } from '../../shared/types';
-import { MAIN_CONSTANTS } from '../constants/app';
 import { createSender } from '../utils/ipc-helpers';
 import logger from '../utils/logger';
 
 import ConfigService from './ConfigService';
-
-interface PendingPermission {
-  actionId: string;
-  toolName: string;
-  input: Record<string, unknown>;
-  resolve: (result: PermissionResult) => void;
-  reject: (error: Error) => void;
-  suggestions?: PermissionUpdate[];
-}
+import {
+  PermissionManager,
+  SDKMessageHandler,
+  AuthValidator,
+  ErrorHandler,
+} from './claude';
 
 export class ClaudeCodeService {
-  private configService: ConfigService;
+  private permissionManager: PermissionManager;
+  private messageHandler: SDKMessageHandler;
+  private authValidator: AuthValidator;
+  private errorHandler: ErrorHandler;
   private abortController: AbortController | null = null;
   private currentQuery: Query | null = null;
-  private pendingPermissions: Map<string, PendingPermission> = new Map();
-  private actionCounter = 0;
-  // Track if we received a successful result from the SDK
-  // Used to handle process exit errors that occur after successful completion
-  private querySucceeded = false;
-  // Cached slash commands from SDK init message
-  private cachedSlashCommands: SlashCommandInfo[] = [];
   // Bound sender function for DRY IPC communication
   private send: (channel: string, ...args: unknown[]) => boolean;
 
   constructor(configService: ConfigService, getMainWindow: () => BrowserWindow | null) {
-    this.configService = configService;
     // Create bound sender using the provided window getter
     this.send = createSender(getMainWindow);
+
+    // Initialize modules
+    this.authValidator = new AuthValidator(configService);
+    this.errorHandler = new ErrorHandler();
+    this.permissionManager = new PermissionManager(
+      configService,
+      (action: PendingAction) => this.emitToolUse(action)
+    );
+    this.messageHandler = new SDKMessageHandler({
+      onChunk: (chunk: string) => this.emitChunk(chunk),
+      onSlashCommands: (commands: SlashCommandInfo[]) => this.emitSlashCommands(commands),
+    });
+
     logger.info('ClaudeCodeService initialized');
-  }
-
-  /**
-   * Check if authentication is configured (OAuth or API key)
-   */
-  private async hasAuthInternal(): Promise<boolean> {
-    return await this.configService.hasAuth();
-  }
-
-  /**
-   * Validate OAuth token format
-   * Valid OAuth tokens from Claude setup-token have format: sk-ant-oat01-...
-   */
-  private validateOAuthToken(token: string): { valid: boolean; error?: string } {
-    if (!token || token.trim().length === 0) {
-      return { valid: false, error: 'Token is empty' };
-    }
-
-    // OAuth tokens from setup-token should start with sk-ant-oat01-
-    if (!token.startsWith('sk-ant-oat01-')) {
-      // Could be a different token format, log warning but allow
-      logger.warn('OAuth token does not have expected sk-ant-oat01- prefix', {
-        prefix: token.substring(0, 12),
-        length: token.length,
-      });
-    }
-
-    // OAuth tokens are typically 80+ characters
-    if (token.length < MAIN_CONSTANTS.AUTH.OAUTH_TOKEN_MIN_LENGTH) {
-      return { valid: false, error: `Token too short (${token.length} chars, expected 80+)` };
-    }
-
-    return { valid: true };
-  }
-
-  /**
-   * Validate API key format
-   * Valid API keys have format: sk-ant-api03-... or sk-...
-   */
-  private validateApiKey(key: string): { valid: boolean; error?: string } {
-    if (!key || key.trim().length === 0) {
-      return { valid: false, error: 'API key is empty' };
-    }
-
-    if (!key.startsWith('sk-')) {
-      return { valid: false, error: 'API key must start with sk-' };
-    }
-
-    if (key.length < MAIN_CONSTANTS.AUTH.API_KEY_MIN_LENGTH) {
-      return { valid: false, error: `API key too short (${key.length} chars)` };
-    }
-
-    return { valid: true };
-  }
-
-  /**
-   * Set up environment variables for Claude Code SDK authentication
-   */
-  private async setupAuthEnv(): Promise<Record<string, string>> {
-    const env: Record<string, string> = {};
-
-    // Check for OAuth token first (from Claude Pro/Max login)
-    const oauthToken = await this.configService.getOAuthToken();
-    if (oauthToken) {
-      const validation = this.validateOAuthToken(oauthToken);
-      if (!validation.valid) {
-        logger.error('Invalid OAuth token', { error: validation.error });
-        throw new Error(`Invalid OAuth token: ${validation.error}. Please log out and log in again.`);
-      }
-      env['CLAUDE_CODE_OAUTH_TOKEN'] = oauthToken;
-      logger.debug('Using OAuth token for authentication', { tokenLength: oauthToken.length });
-      return env;
-    }
-
-    // Fall back to API key
-    const apiKey = await this.configService.getApiKey();
-    if (apiKey) {
-      const validation = this.validateApiKey(apiKey);
-      if (!validation.valid) {
-        logger.error('Invalid API key', { error: validation.error });
-        throw new Error(`Invalid API key: ${validation.error}. Please check your API key.`);
-      }
-      env['ANTHROPIC_API_KEY'] = apiKey;
-      logger.debug('Using API key for authentication', { keyLength: apiKey.length });
-      return env;
-    }
-
-    logger.warn('No authentication credentials configured');
-    return env;
-  }
-
-  /**
-   * Generate a unique action ID
-   */
-  private generateActionId(): string {
-    return `action_${Date.now()}_${++this.actionCounter}`;
-  }
-
-  /**
-   * Create the canUseTool callback for custom permission handling
-   * This is called by the SDK when Claude wants to use a tool
-   */
-  private createCanUseToolCallback(): CanUseTool {
-    return async (toolName, input, options): Promise<PermissionResult> => {
-      const actionId = this.generateActionId();
-
-      logger.info('Tool permission requested', { actionId, toolName, input });
-
-      // Check if operation was aborted
-      if (options.signal.aborted) {
-        return {
-          behavior: 'deny',
-          message: 'Operation was cancelled',
-          interrupt: true,
-        };
-      }
-
-      // Auto-approve read operations if configured
-      const config = await this.configService.getConfig();
-      if (config.autoApproveReads && this.isReadOnlyTool(toolName)) {
-        logger.debug('Auto-approving read operation', { toolName });
-        return {
-          behavior: 'allow',
-          updatedInput: input,
-        };
-      }
-
-      // Create pending action for UI
-      const action = this.createPendingAction(actionId, toolName, input);
-      if (!action) {
-        logger.warn('Could not create action for tool', { toolName });
-        return {
-          behavior: 'deny',
-          message: `Unknown tool: ${toolName}`,
-        };
-      }
-
-      // Send to renderer for user approval
-      this.emitToolUse(action);
-
-      // Create promise that will be resolved when user responds
-      return new Promise<PermissionResult>((resolve, reject) => {
-        const pendingPermission: PendingPermission = {
-          actionId,
-          toolName,
-          input,
-          resolve,
-          reject,
-          suggestions: options.suggestions,
-        };
-
-        this.pendingPermissions.set(actionId, pendingPermission);
-
-        // Set up abort handler
-        options.signal.addEventListener('abort', () => {
-          const pending = this.pendingPermissions.get(actionId);
-          if (pending) {
-            this.pendingPermissions.delete(actionId);
-            resolve({
-              behavior: 'deny',
-              message: 'Operation was cancelled',
-              interrupt: true,
-            });
-          }
-        });
-
-        // Timeout after configured duration (SDK requirement)
-        setTimeout(() => {
-          const pending = this.pendingPermissions.get(actionId);
-          if (pending) {
-            this.pendingPermissions.delete(actionId);
-            logger.warn('Permission request timed out', { actionId });
-            resolve({
-              behavior: 'deny',
-              message: 'Permission request timed out',
-              interrupt: false,
-            });
-          }
-        }, MAIN_CONSTANTS.CLAUDE.PERMISSION_TIMEOUT_MS);
-      });
-    };
-  }
-
-  /**
-   * Check if a tool is read-only (safe to auto-approve)
-   */
-  private isReadOnlyTool(toolName: string): boolean {
-    const readOnlyTools = ['Read', 'Glob', 'Grep', 'LS', 'ListFiles'];
-    return readOnlyTools.includes(toolName);
-  }
-
-  /**
-   * Create a PendingAction from tool info for UI display
-   */
-  private createPendingAction(
-    actionId: string,
-    toolName: string,
-    input: Record<string, unknown>
-  ): PendingAction | null {
-    const baseFields = {
-      id: actionId,
-      toolName,
-      input,
-      status: 'pending' as const,
-      timestamp: Date.now(),
-    };
-
-    switch (toolName) {
-      case 'Edit':
-        return {
-          ...baseFields,
-          type: 'file-edit' as const,
-          description: `Edit file: ${input.file_path}`,
-          details: {
-            filePath: input.file_path as string,
-            originalContent: input.old_string as string | undefined,
-            newContent: input.new_string as string,
-          },
-        };
-
-      case 'Write':
-        return {
-          ...baseFields,
-          type: 'file-create' as const,
-          description: `Write file: ${input.file_path}`,
-          details: {
-            filePath: input.file_path as string,
-            content: input.content as string,
-          },
-        };
-
-      case 'Bash': {
-        const cmd = input.command as string;
-        return {
-          ...baseFields,
-          type: 'bash-command' as const,
-          description: `Run command: ${cmd.length > 50 ? cmd.slice(0, 50) + '...' : cmd}`,
-          details: {
-            command: cmd,
-            workingDirectory: (input.cwd as string) || '',
-          },
-        };
-      }
-
-      case 'Read':
-        return {
-          ...baseFields,
-          type: 'read-file' as const,
-          description: `Read file: ${input.file_path}`,
-          details: {
-            filePath: input.file_path as string,
-          },
-        };
-
-      case 'Glob':
-        return {
-          ...baseFields,
-          type: 'read-file' as const,
-          description: `Search files: ${input.pattern}`,
-          details: {
-            filePath: (input.path as string) || '.',
-          },
-        };
-
-      case 'Grep':
-        return {
-          ...baseFields,
-          type: 'read-file' as const,
-          description: `Search content: ${input.pattern}`,
-          details: {
-            filePath: (input.path as string) || '.',
-          },
-        };
-
-      default:
-        // Handle unknown tools generically
-        return {
-          ...baseFields,
-          type: 'bash-command' as const,
-          description: `Tool: ${toolName}`,
-          details: {
-            command: JSON.stringify(input),
-            workingDirectory: '',
-          },
-        };
-    }
   }
 
   /**
    * Handle action response from renderer (approve/reject)
    */
   handleActionResponse(response: ActionResponse): void {
-    const pending = this.pendingPermissions.get(response.actionId);
-    if (!pending) {
-      logger.warn('No pending permission found for action', { actionId: response.actionId });
-      return;
-    }
-
-    this.pendingPermissions.delete(response.actionId);
-
-    if (response.approved) {
-      logger.info('Action approved by user', {
-        actionId: response.actionId,
-        toolName: pending.toolName,
-        alwaysAllow: response.alwaysAllow,
-      });
-
-      const result: PermissionResult = {
-        behavior: 'allow',
-        updatedInput: response.updatedInput || pending.input,
-      };
-
-      // Include permission updates if user chose "always allow"
-      if (response.alwaysAllow && pending.suggestions) {
-        result.updatedPermissions = pending.suggestions;
-      }
-
-      pending.resolve(result);
-    } else {
-      logger.info('Action rejected by user', {
-        actionId: response.actionId,
-        toolName: pending.toolName,
-        message: response.denyMessage,
-      });
-
-      pending.resolve({
-        behavior: 'deny',
-        message: response.denyMessage || 'User rejected this action',
-        interrupt: !response.denyMessage, // Interrupt if no guidance provided
-      });
-    }
+    this.permissionManager.handleActionResponse(response);
   }
 
   /**
    * Send a message to Claude using the Claude Code SDK
    */
   async sendMessage(message: string, workingDirectory: string): Promise<void> {
-    // Reset query state
-    this.querySucceeded = false;
+    // Reset state for new query
+    this.messageHandler.reset();
 
     // Check if auth is configured
-    if (!(await this.hasAuthInternal())) {
+    if (!(await this.authValidator.hasAuth())) {
       this.emitError('Not authenticated. Please login with your Claude account or add an API key in Settings.');
       return;
     }
@@ -422,7 +103,7 @@ export class ClaudeCodeService {
       });
 
       // Set up authentication environment
-      const authEnv = await this.setupAuthEnv();
+      const authEnv = await this.authValidator.setupAuthEnv();
 
       // CRITICAL: Set auth env vars in actual process.env BEFORE calling query()
       // This matches the mautrix-claude pattern that works.
@@ -443,105 +124,12 @@ export class ClaudeCodeService {
           // for completeness - the SDK should see them either way now
           env: authEnv,
           // Use canUseTool for custom permission UI
-          canUseTool: this.createCanUseToolCallback(),
+          canUseTool: this.permissionManager.createCanUseToolCallback(),
           // Stream partial messages for real-time updates
           includePartialMessages: true,
           // Use Electron as Node.js runtime (with Windows bundled Node.js support)
           spawnClaudeCodeProcess: (options: SpawnOptions): SpawnedProcess => {
-            let spawnFile: string = process.execPath;
-            let spawnArgs: string[] = options.args;
-            let extraEnv: Record<string, string> = { ELECTRON_RUN_AS_NODE: '1' };
-
-            // On Windows, use bundled Node.js executable instead of ELECTRON_RUN_AS_NODE
-            // Windows GUI apps (like Electron) have known stdout capture issues
-            // See: https://github.com/electron/electron/issues/4552
-            if (process.platform === 'win32') {
-              const resourcesPath = process.resourcesPath || path.dirname(app.getAppPath());
-              const bundledNodeExe = path.join(resourcesPath, 'node.exe');
-
-              if (fs.existsSync(bundledNodeExe)) {
-                logger.info('Windows: using bundled Node.js for SDK spawn', { bundledNodeExe });
-                spawnFile = bundledNodeExe;
-                extraEnv = {}; // No ELECTRON_RUN_AS_NODE needed with real Node.js
-
-                // CRITICAL: Vanilla Node.js cannot read from .asar archives.
-                // Files are unpacked to app.asar.unpacked/ via forge's asar.unpack config.
-                // We must rewrite paths from app.asar to app.asar.unpacked for the SDK's cli.js
-                spawnArgs = spawnArgs.map(arg => {
-                  if (typeof arg === 'string' && arg.includes('app.asar') && !arg.includes('app.asar.unpacked')) {
-                    const rewrittenArg = arg.replace(/app\.asar([/\\])/g, 'app.asar.unpacked$1');
-                    if (rewrittenArg !== arg) {
-                      logger.debug('Windows: rewrote asar path to unpacked', {
-                        original: arg.slice(0, 100),
-                        rewritten: rewrittenArg.slice(0, 100),
-                      });
-                    }
-                    return rewrittenArg;
-                  }
-                  return arg;
-                });
-              } else {
-                logger.warn('Windows: bundled Node.js not found, falling back to ELECTRON_RUN_AS_NODE', {
-                  expectedPath: bundledNodeExe,
-                });
-              }
-            }
-
-            logger.debug('Spawning SDK process', {
-              argsCount: spawnArgs.length,
-              cwd: options.cwd,
-              hasOAuthToken: !!options.env?.CLAUDE_CODE_OAUTH_TOKEN,
-              hasApiKey: !!options.env?.ANTHROPIC_API_KEY,
-            });
-
-            // CRITICAL: Inherit process.env so child has PATH, HOME, certs, etc.
-            // Then overlay SDK-provided env (includes CLAUDE_CODE_OAUTH_TOKEN)
-            // Then our additions (ELECTRON_RUN_AS_NODE on non-Windows)
-            const childProcess: ChildProcess = spawn(spawnFile, spawnArgs, {
-              cwd: options.cwd,
-              env: {
-                ...process.env,  // Inherit parent environment (mautrix-claude does this)
-                ...options.env,  // SDK-provided env vars
-                ...extraEnv,     // Our additions
-              },
-              stdio: ['pipe', 'pipe', 'pipe'],
-              signal: options.signal,
-            });
-
-            // Capture stderr for debugging failed spawns
-            let stderrData = '';
-            if (childProcess.stderr) {
-              childProcess.stderr.on('data', (data) => {
-                stderrData += data.toString();
-                // Log stderr in real-time for debugging
-                logger.debug('SDK process stderr', { data: data.toString().slice(0, 500) });
-              });
-            }
-
-            // Add process lifecycle event handlers for better error handling
-            childProcess.on('spawn', () => {
-              logger.debug('SDK process spawned successfully', { pid: childProcess.pid });
-            });
-
-            childProcess.on('error', (error) => {
-              logger.error('SDK process spawn error', { error: error.message, code: (error as NodeJS.ErrnoException).code });
-            });
-
-            childProcess.on('exit', (code, signal) => {
-              if (code !== 0 && code !== null && signal !== 'SIGTERM' && signal !== 'SIGINT') {
-                logger.warn('SDK process exited unexpectedly', {
-                  code,
-                  signal,
-                  pid: childProcess.pid,
-                  stderr: stderrData.slice(0, 1000), // Include stderr for debugging
-                });
-              } else {
-                logger.debug('SDK process exited', { code, signal });
-              }
-            });
-
-            // ChildProcess satisfies SpawnedProcess interface
-            return childProcess as SpawnedProcess;
+            return this.spawnSDKProcess(options);
           },
         },
       });
@@ -550,191 +138,213 @@ export class ClaudeCodeService {
 
       // Process the async generator
       for await (const sdkMessage of queryIterator) {
-        await this.handleSDKMessage(sdkMessage);
+        await this.messageHandler.handleMessage(sdkMessage);
       }
 
       // Signal completion
       this.emitDone();
       logger.info('Message completed');
     } catch (error) {
-      if ((error as Error).name === 'AbortError') {
-        logger.info('Request aborted');
-        return;
-      }
-
-      const errorMessage = (error as Error).message || '';
-
-      // Handle process exit errors that occur after successful query completion
-      // The SDK throws when the underlying process exits with non-zero code,
-      // even if the query completed successfully. This is a known issue.
-      if (this.querySucceeded && errorMessage.includes('process exited')) {
-        logger.warn('Process exit error after successful query (ignoring)', {
-          error: errorMessage,
-        });
-        // Query succeeded, so emit done instead of error
-        this.emitDone();
-        return;
-      }
-
-      logger.error('Failed to send message', error);
-
-      // Provide user-friendly error messages based on error type
-      const userMessage = this.getHumanReadableError(errorMessage);
-      this.emitError(userMessage);
+      this.handleQueryError(error as Error);
     } finally {
-      this.abortController = null;
-      this.currentQuery = null;
-      this.querySucceeded = false; // Reset for next query
-      // Clear any pending permissions
-      this.pendingPermissions.clear();
+      this.cleanupQuery(originalEnv);
+    }
+  }
 
-      // CRITICAL: Restore original process.env values
-      // This prevents credential leakage between queries if they somehow differ
-      Object.entries(originalEnv).forEach(([key, value]) => {
-        if (value === undefined) {
-          delete process.env[key];
-        } else {
-          process.env[key] = value;
+  /**
+   * Spawn the SDK process with platform-specific handling
+   */
+  private spawnSDKProcess(options: SpawnOptions): SpawnedProcess {
+    let spawnFile: string = process.execPath;
+    let spawnArgs: string[] = options.args;
+    let extraEnv: Record<string, string> = { ELECTRON_RUN_AS_NODE: '1' };
+
+    // On Windows, use bundled Node.js executable instead of ELECTRON_RUN_AS_NODE
+    // Windows GUI apps (like Electron) have known stdout capture issues
+    // See: https://github.com/electron/electron/issues/4552
+    if (process.platform === 'win32') {
+      const result = this.getWindowsSpawnConfig(options, spawnArgs);
+      spawnFile = result.spawnFile;
+      spawnArgs = result.spawnArgs;
+      extraEnv = result.extraEnv;
+    }
+
+    logger.debug('Spawning SDK process', {
+      argsCount: spawnArgs.length,
+      cwd: options.cwd,
+      hasOAuthToken: !!options.env?.CLAUDE_CODE_OAUTH_TOKEN,
+      hasApiKey: !!options.env?.ANTHROPIC_API_KEY,
+    });
+
+    // CRITICAL: Inherit process.env so child has PATH, HOME, certs, etc.
+    // Then overlay SDK-provided env (includes CLAUDE_CODE_OAUTH_TOKEN)
+    // Then our additions (ELECTRON_RUN_AS_NODE on non-Windows)
+    const childProcess: ChildProcess = spawn(spawnFile, spawnArgs, {
+      cwd: options.cwd,
+      env: {
+        ...process.env,  // Inherit parent environment (mautrix-claude does this)
+        ...options.env,  // SDK-provided env vars
+        ...extraEnv,     // Our additions
+      },
+      stdio: ['pipe', 'pipe', 'pipe'],
+      signal: options.signal,
+    });
+
+    this.setupProcessLogging(childProcess);
+
+    // ChildProcess satisfies SpawnedProcess interface
+    return childProcess as SpawnedProcess;
+  }
+
+  /**
+   * Get Windows-specific spawn configuration
+   */
+  private getWindowsSpawnConfig(
+    _options: SpawnOptions,
+    originalArgs: string[]
+  ): { spawnFile: string; spawnArgs: string[]; extraEnv: Record<string, string> } {
+    const resourcesPath = process.resourcesPath || path.dirname(app.getAppPath());
+    const bundledNodeExe = path.join(resourcesPath, 'node.exe');
+
+    if (fs.existsSync(bundledNodeExe)) {
+      logger.info('Windows: using bundled Node.js for SDK spawn', { bundledNodeExe });
+
+      // CRITICAL: Vanilla Node.js cannot read from .asar archives.
+      // Files are unpacked to app.asar.unpacked/ via forge's asar.unpack config.
+      // We must rewrite paths from app.asar to app.asar.unpacked for the SDK's cli.js
+      const spawnArgs = originalArgs.map(arg => {
+        if (typeof arg === 'string' && arg.includes('app.asar') && !arg.includes('app.asar.unpacked')) {
+          const rewrittenArg = arg.replace(/app\.asar([/\\])/g, 'app.asar.unpacked$1');
+          if (rewrittenArg !== arg) {
+            logger.debug('Windows: rewrote asar path to unpacked', {
+              original: arg.slice(0, 100),
+              rewritten: rewrittenArg.slice(0, 100),
+            });
+          }
+          return rewrittenArg;
         }
+        return arg;
       });
-      logger.debug('Restored original process.env');
-    }
-  }
 
-  /**
-   * Handle messages from the Claude Code SDK
-   */
-  private async handleSDKMessage(message: SDKMessage): Promise<void> {
-    // Log all SDK messages for debugging
-    logger.debug('SDK message received', {
-      type: message.type,
-      subtype: (message as { subtype?: string }).subtype,
-      hasContent: !!(message as SDKAssistantMessage).message?.content,
+      return {
+        spawnFile: bundledNodeExe,
+        spawnArgs,
+        extraEnv: {}, // No ELECTRON_RUN_AS_NODE needed with real Node.js
+      };
+    }
+
+    logger.warn('Windows: bundled Node.js not found, falling back to ELECTRON_RUN_AS_NODE', {
+      expectedPath: bundledNodeExe,
     });
 
-    switch (message.type) {
-      case 'assistant':
-        await this.processAssistantMessage(message as SDKAssistantMessage);
-        break;
-
-      case 'result': {
-        const resultMsg = message as SDKResultMessage;
-        // Log full result details for debugging
-        logger.info('SDK result message', {
-          subtype: resultMsg.subtype,
-          numTurns: resultMsg.num_turns,
-          duration: resultMsg.duration_ms,
-          // Include any error info if present
-          error: (resultMsg as { error?: string }).error,
-        });
-        if (resultMsg.subtype === 'success') {
-          // Mark query as succeeded - used to handle process exit errors gracefully
-          this.querySucceeded = true;
-        } else {
-          logger.warn('Query ended with non-success', { subtype: resultMsg.subtype });
-        }
-        break;
-      }
-
-      case 'stream_event':
-        this.handleStreamEvent(message);
-        break;
-
-      case 'system': {
-        const systemMsg = message as {
-          subtype?: string;
-          message?: string;
-          slash_commands?: string[];
-          tools?: string[];
-          model?: string;
-          status?: string;
-        };
-        logger.debug('System message', {
-          subtype: systemMsg.subtype,
-          message: systemMsg.message,
-          hasSlashCommands: !!systemMsg.slash_commands,
-        });
-
-        // Handle init message - capture available slash commands
-        if (systemMsg.subtype === 'init' && systemMsg.slash_commands) {
-          logger.info('SDK init received', {
-            slashCommandCount: systemMsg.slash_commands.length,
-            slashCommands: systemMsg.slash_commands,
-            model: systemMsg.model,
-          });
-          // Cache the slash commands for later retrieval
-          // The init message only has names, we'll get full details via supportedCommands()
-          this.cachedSlashCommands = systemMsg.slash_commands.map((name) => ({
-            name,
-            description: '',
-            argumentHint: '',
-          }));
-          // Emit slash commands to renderer
-          this.emitSlashCommands(this.cachedSlashCommands);
-        }
-
-        // Handle status messages (like compacting)
-        if (systemMsg.subtype === 'status' && systemMsg.status) {
-          this.emitChunk(`\n_${systemMsg.status}_\n`);
-        }
-
-        // Emit other system messages to the UI
-        if (systemMsg.message) {
-          this.emitChunk(`\n_${systemMsg.message}_\n`);
-        }
-        break;
-      }
-
-      default:
-        logger.debug('Unknown SDK message type', { type: message.type });
-    }
+    return {
+      spawnFile: process.execPath,
+      spawnArgs: originalArgs,
+      extraEnv: { ELECTRON_RUN_AS_NODE: '1' },
+    };
   }
 
   /**
-   * Process assistant message and extract text/tool use
-   * Note: Text content is streamed via handleStreamEvent's content_block_delta events.
-   * We do NOT emit text here because with includePartialMessages:true we get multiple
-   * assistant messages (partial and final) which would cause duplication.
-   * For slash commands that don't stream, their output comes through system messages.
+   * Set up logging for the spawned process
    */
-  private async processAssistantMessage(message: SDKAssistantMessage): Promise<void> {
-    const content = message.message.content;
+  private setupProcessLogging(childProcess: ChildProcess): void {
+    // Capture stderr for debugging failed spawns
+    let stderrData = '';
+    if (childProcess.stderr) {
+      childProcess.stderr.on('data', (data) => {
+        stderrData += data.toString();
+        // Log stderr in real-time for debugging
+        logger.debug('SDK process stderr', { data: data.toString().slice(0, 500) });
+      });
+    }
 
-    // Log message content for debugging
-    logger.debug('Assistant message content', {
-      blockCount: content.length,
-      blockTypes: content.map(b => b.type),
+    // Add process lifecycle event handlers for better error handling
+    childProcess.on('spawn', () => {
+      logger.debug('SDK process spawned successfully', { pid: childProcess.pid });
     });
 
-    for (const block of content) {
-      if (block.type === 'text') {
-        // Log warnings for auth errors (don't emit, just log)
-        const textPreview = block.text.slice(0, 200);
-        if (block.text.toLowerCase().includes('401') ||
-            block.text.toLowerCase().includes('unauthorized') ||
-            block.text.toLowerCase().includes('invalid')) {
-          logger.warn('Assistant message contains error keywords', { textPreview });
-        }
+    childProcess.on('error', (error) => {
+      logger.error('SDK process spawn error', {
+        error: error.message,
+        code: (error as NodeJS.ErrnoException).code,
+      });
+    });
+
+    childProcess.on('exit', (code, signal) => {
+      if (code !== 0 && code !== null && signal !== 'SIGTERM' && signal !== 'SIGINT') {
+        logger.warn('SDK process exited unexpectedly', {
+          code,
+          signal,
+          pid: childProcess.pid,
+          stderr: stderrData.slice(0, 1000), // Include stderr for debugging
+        });
+      } else {
+        logger.debug('SDK process exited', { code, signal });
       }
-      // Tool use is handled via canUseTool callback, not here
-    }
+    });
   }
 
   /**
-   * Handle streaming events for real-time text updates
+   * Handle query errors
    */
-  private handleStreamEvent(message: SDKMessage): void {
-    const event = (message as { event?: { type?: string; delta?: { type?: string; text?: string } } }).event;
-    if (event?.type === 'content_block_delta' && event?.delta?.type === 'text_delta') {
-      this.emitChunk(event.delta.text || '');
+  private handleQueryError(error: Error): void {
+    if (this.errorHandler.isAbortError(error)) {
+      logger.info('Request aborted');
+      return;
     }
+
+    const errorMessage = error.message || '';
+
+    // Handle process exit errors that occur after successful query completion
+    // The SDK throws when the underlying process exits with non-zero code,
+    // even if the query completed successfully. This is a known issue.
+    if (this.errorHandler.isPostSuccessProcessExitError(errorMessage, this.messageHandler.didQuerySucceed())) {
+      logger.warn('Process exit error after successful query (ignoring)', {
+        error: errorMessage,
+      });
+      // Query succeeded, so emit done instead of error
+      this.emitDone();
+      return;
+    }
+
+    logger.error('Failed to send message', error);
+
+    // Provide user-friendly error messages based on error type
+    const userMessage = this.errorHandler.getHumanReadableError(errorMessage);
+    this.emitError(userMessage);
+  }
+
+  /**
+   * Clean up after query completion
+   */
+  private cleanupQuery(originalEnv: Record<string, string | undefined>): void {
+    this.abortController = null;
+    this.currentQuery = null;
+
+    // Clear any pending permissions
+    this.permissionManager.clearPendingPermissions();
+
+    // CRITICAL: Restore original process.env values
+    // This prevents credential leakage between queries if they somehow differ
+    Object.entries(originalEnv).forEach(([key, value]) => {
+      if (value === undefined) {
+        delete process.env[key];
+      } else {
+        process.env[key] = value;
+      }
+    });
+    logger.debug('Restored original process.env');
   }
 
   /**
    * Approve a pending action (called from IPC handler)
    */
-  async approveAction(actionId: string, updatedInput?: Record<string, unknown>, alwaysAllow?: boolean): Promise<void> {
-    this.handleActionResponse({
+  async approveAction(
+    actionId: string,
+    updatedInput?: Record<string, unknown>,
+    alwaysAllow?: boolean
+  ): Promise<void> {
+    this.permissionManager.handleActionResponse({
       actionId,
       approved: true,
       updatedInput,
@@ -746,7 +356,7 @@ export class ClaudeCodeService {
    * Reject a pending action (called from IPC handler)
    */
   async rejectAction(actionId: string, message?: string): Promise<void> {
-    this.handleActionResponse({
+    this.permissionManager.handleActionResponse({
       actionId,
       approved: false,
       denyMessage: message,
@@ -770,21 +380,14 @@ export class ClaudeCodeService {
       logger.info('Request abort requested');
     }
     // Clear pending permissions
-    for (const [, pending] of this.pendingPermissions) {
-      pending.resolve({
-        behavior: 'deny',
-        message: 'Operation was cancelled',
-        interrupt: true,
-      });
-    }
-    this.pendingPermissions.clear();
+    this.permissionManager.clearPendingPermissions();
   }
 
   /**
    * Check if any authentication is configured
    */
   async hasAuth(): Promise<boolean> {
-    return await this.configService.hasAuth();
+    return await this.authValidator.hasAuth();
   }
 
   /**
@@ -799,45 +402,6 @@ export class ClaudeCodeService {
    */
   private emitToolUse(action: PendingAction): void {
     this.send(IPC_CHANNELS.CLAUDE_TOOL_USE, action);
-  }
-
-  /**
-   * Convert technical error messages to user-friendly messages
-   */
-  private getHumanReadableError(errorMessage: string): string {
-    const lowerError = errorMessage.toLowerCase();
-
-    // Authentication errors
-    if (lowerError.includes('401') || lowerError.includes('unauthorized') ||
-        lowerError.includes('invalid bearer') || lowerError.includes('invalid token')) {
-      return 'Authentication failed. Your login session may have expired. Please log out and log in again.';
-    }
-
-    // Rate limiting
-    if (lowerError.includes('429') || lowerError.includes('rate limit') ||
-        lowerError.includes('too many requests')) {
-      return 'Rate limit exceeded. Please wait a moment before sending another message.';
-    }
-
-    // Network errors
-    if (lowerError.includes('network') || lowerError.includes('econnrefused') ||
-        lowerError.includes('enotfound') || lowerError.includes('etimedout')) {
-      return 'Network error. Please check your internet connection and try again.';
-    }
-
-    // Process exit errors
-    if (lowerError.includes('process exited') || lowerError.includes('exit code')) {
-      return 'The Claude process ended unexpectedly. Please try again. If the problem persists, restart the application.';
-    }
-
-    // API errors
-    if (lowerError.includes('500') || lowerError.includes('502') ||
-        lowerError.includes('503') || lowerError.includes('504')) {
-      return 'Claude service is temporarily unavailable. Please try again in a few moments.';
-    }
-
-    // Fallback to original message or generic error
-    return errorMessage || 'Failed to communicate with Claude. Please try again.';
   }
 
   /**
@@ -866,7 +430,7 @@ export class ClaudeCodeService {
    * Returns cached commands from the last SDK init message
    */
   getSlashCommands(): SlashCommandInfo[] {
-    return this.cachedSlashCommands;
+    return this.messageHandler.getSlashCommands();
   }
 
   /**
@@ -875,21 +439,21 @@ export class ClaudeCodeService {
    */
   async fetchSlashCommandDetails(): Promise<SlashCommandInfo[]> {
     if (!this.currentQuery) {
-      return this.cachedSlashCommands;
+      return this.messageHandler.getSlashCommands();
     }
 
     try {
       const commands = await this.currentQuery.supportedCommands();
-      this.cachedSlashCommands = commands.map((cmd) => ({
+      const slashCommands = commands.map((cmd) => ({
         name: cmd.name,
         description: cmd.description,
         argumentHint: cmd.argumentHint,
       }));
       logger.info('Fetched slash command details', { count: commands.length });
-      return this.cachedSlashCommands;
+      return slashCommands;
     } catch (error) {
       logger.warn('Failed to fetch slash command details', error);
-      return this.cachedSlashCommands;
+      return this.messageHandler.getSlashCommands();
     }
   }
 }
