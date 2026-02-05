@@ -1,14 +1,13 @@
 #!/bin/bash
-# Download Git for Windows (full) for bundling with the Electron app
+# Download Git for Windows and extract only files needed for bash
 # Claude Code CLI requires git-bash on Windows
 #
-# Uses tar.bz2 format which can be extracted with standard Unix tools
+# Extracts only essential files to minimize bundle size and RAM usage during build
 
 set -e
 
 GIT_VERSION="2.53.0"
 GIT_DIR="vendor/git-bash-win-x64"
-# Full Git for Windows includes bash.exe (MinGit does NOT)
 GIT_URL="https://github.com/git-for-windows/git/releases/download/v${GIT_VERSION}.windows.1/Git-${GIT_VERSION}-64-bit.tar.bz2"
 GIT_ARCHIVE="Git-${GIT_VERSION}-64-bit.tar.bz2"
 
@@ -26,26 +25,90 @@ echo "Downloading Git for Windows v${GIT_VERSION}..."
 # Download
 curl -L -o "$GIT_ARCHIVE" "$GIT_URL"
 
-# Extract using tar (available on all Unix systems)
-echo "Extracting Git for Windows..."
-tar -xjf "$GIT_ARCHIVE" -C "$GIT_DIR"
+echo "Extracting only essential bash files (minimal bundle)..."
 
-# Remove dev/ directory - contains POSIX special files (symlinks to /dev/fd/, /dev/stdin etc)
-# that Squirrel.Windows/NuGet cannot package. MSYS2 recreates these at runtime if needed.
-echo "Removing dev/ directory (POSIX special files incompatible with Squirrel.Windows)..."
-rm -rf "$GIT_DIR/dev"
+# Extract only specific files needed for bash to run
+# This dramatically reduces bundle size and build RAM requirements
+# The files are extracted with their directory structure preserved
+tar -xjf "$GIT_ARCHIVE" -C "$GIT_DIR" \
+    usr/bin/bash.exe \
+    usr/bin/sh.exe \
+    usr/bin/env.exe \
+    usr/bin/cat.exe \
+    usr/bin/ls.exe \
+    usr/bin/cp.exe \
+    usr/bin/mv.exe \
+    usr/bin/rm.exe \
+    usr/bin/mkdir.exe \
+    usr/bin/grep.exe \
+    usr/bin/sed.exe \
+    usr/bin/awk.exe \
+    usr/bin/head.exe \
+    usr/bin/tail.exe \
+    usr/bin/wc.exe \
+    usr/bin/sort.exe \
+    usr/bin/uniq.exe \
+    usr/bin/tr.exe \
+    usr/bin/cut.exe \
+    usr/bin/dirname.exe \
+    usr/bin/basename.exe \
+    usr/bin/pwd.exe \
+    usr/bin/echo.exe \
+    usr/bin/printf.exe \
+    usr/bin/test.exe \
+    usr/bin/expr.exe \
+    usr/bin/true.exe \
+    usr/bin/false.exe \
+    usr/bin/sleep.exe \
+    usr/bin/date.exe \
+    usr/bin/touch.exe \
+    usr/bin/chmod.exe \
+    usr/bin/which.exe \
+    usr/bin/readlink.exe \
+    usr/bin/realpath.exe \
+    usr/bin/tee.exe \
+    usr/bin/xargs.exe \
+    usr/bin/find.exe \
+    usr/bin/diff.exe \
+    usr/bin/cmp.exe \
+    usr/bin/id.exe \
+    usr/bin/whoami.exe \
+    usr/bin/uname.exe \
+    usr/bin/hostname.exe \
+    usr/bin/stty.exe \
+    usr/bin/tty.exe \
+    usr/bin/kill.exe \
+    usr/bin/ps.exe \
+    usr/bin/msys-2.0.dll \
+    usr/bin/msys-iconv-2.dll \
+    usr/bin/msys-intl-8.dll \
+    usr/bin/msys-gcc_s-seh-1.dll \
+    usr/bin/msys-pcre2-8-0.dll \
+    usr/bin/msys-gmp-10.dll \
+    usr/bin/msys-mpfr-6.dll \
+    usr/bin/msys-readline8.dll \
+    usr/bin/msys-ncursesw6.dll \
+    etc/nsswitch.conf \
+    etc/fstab \
+    etc/profile \
+    etc/bash.bashrc \
+    2>/dev/null || echo "Note: Some optional files may not exist in archive"
 
-# Clean up archive
+# Clean up archive immediately to free disk space
 rm -f "$GIT_ARCHIVE"
 
 # Verify bash.exe exists
 if [ -f "$GIT_DIR/usr/bin/bash.exe" ]; then
-    echo "Git for Windows downloaded successfully to $GIT_DIR/"
+    echo ""
+    echo "Minimal git-bash bundle created successfully!"
     echo "Bash location: $GIT_DIR/usr/bin/bash.exe"
-    ls -la "$GIT_DIR/usr/bin/bash.exe"
+    echo ""
+    echo "Extracted files:"
+    ls -la "$GIT_DIR/usr/bin/"
+    echo ""
+    echo "Bundle size:"
+    du -sh "$GIT_DIR"
 else
     echo "ERROR: bash.exe not found after extraction!"
-    echo "Contents of $GIT_DIR/usr/bin/:"
-    ls -la "$GIT_DIR/usr/bin/" 2>/dev/null | head -20 || echo "Directory doesn't exist"
     exit 1
 fi
