@@ -113,6 +113,8 @@ const config: ForgeConfig = {
       options: {
         icon: './resources/icons/icon.png',
         categories: ['Development'],
+        // Git is required by Claude Code CLI
+        requires: ['git'],
         scripts: {
           postun: './resources/linux/postrm.rpm',
         },
@@ -124,6 +126,8 @@ const config: ForgeConfig = {
         categories: ['Development'],
         maintainer: 'wrongname',
         homepage: 'https://dev.web.wr0ng.name/wrongname/cline-gui',
+        // Git is required by Claude Code CLI
+        depends: ['git'],
         scripts: {
           postrm: './resources/linux/postrm',
         },
