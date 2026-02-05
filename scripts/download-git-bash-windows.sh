@@ -30,7 +30,12 @@ curl -L -o "$GIT_ARCHIVE" "$GIT_URL"
 echo "Extracting Git for Windows..."
 tar -xjf "$GIT_ARCHIVE" -C "$GIT_DIR"
 
-# Clean up
+# Remove dev/ directory - contains POSIX special files (symlinks to /dev/fd/, /dev/stdin etc)
+# that Squirrel.Windows/NuGet cannot package. MSYS2 recreates these at runtime if needed.
+echo "Removing dev/ directory (POSIX special files incompatible with Squirrel.Windows)..."
+rm -rf "$GIT_DIR/dev"
+
+# Clean up archive
 rm -f "$GIT_ARCHIVE"
 
 # Verify bash.exe exists
