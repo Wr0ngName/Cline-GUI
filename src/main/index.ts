@@ -11,6 +11,7 @@
 import started from 'electron-squirrel-startup';
 
 import { debugLog } from './utils/debugLog';
+import { extractGitBashOnInstall } from './utils/gitBashExtractor';
 
 debugLog('=== App starting ===');
 debugLog(`process.execPath: ${process.execPath}`);
@@ -18,6 +19,15 @@ debugLog(`process.argv: ${JSON.stringify(process.argv)}`);
 debugLog(`process.cwd(): ${process.cwd()}`);
 debugLog(`__dirname: ${__dirname}`);
 debugLog(`electron-squirrel-startup returned: ${started}`);
+
+// Extract git-bash on install/update (before electron-squirrel-startup exits)
+if (process.platform === 'win32' && process.argv[1]?.startsWith('--squirrel-')) {
+  const squirrelEvent = process.argv[1];
+  if (squirrelEvent === '--squirrel-install' || squirrelEvent === '--squirrel-updated') {
+    debugLog(`Extracting git-bash on ${squirrelEvent}...`);
+    extractGitBashOnInstall();
+  }
+}
 
 if (started) {
   // Squirrel event handled (install/update/uninstall), exit immediately

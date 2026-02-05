@@ -20,11 +20,12 @@ const isWindowsBuild = process.platform === 'win32' ||
 const nodeExePath = './vendor/node-win-x64/node.exe';
 const hasNodeExe = fs.existsSync(nodeExePath);
 
-// Check if bundled Git Bash exists for Windows builds
+// Check if bundled Git Bash zip exists for Windows builds
 // Claude Code CLI requires git-bash on Windows for Unix-style commands
-const gitBashDir = './vendor/git-bash-win-x64';
-const gitBashExe = `${gitBashDir}/usr/bin/bash.exe`;
-const hasGitBash = fs.existsSync(gitBashExe);
+// We bundle as a zip to avoid slow NuGet/Mono processing during Squirrel build
+const gitBashZip = './vendor/git-bash-win-x64/git-bash.zip';
+const gitBashVersionFile = './vendor/git-bash-win-x64/version.txt';
+const hasGitBashZip = fs.existsSync(gitBashZip) && fs.existsSync(gitBashVersionFile);
 
 const config: ForgeConfig = {
   hooks: {
@@ -38,7 +39,7 @@ const config: ForgeConfig = {
           console.warn('\x1b[33m⚠ WARNING: Building for Windows without bundled Node.js!\x1b[0m');
           console.warn('  OAuth login will not work. Run: ./scripts/download-node-windows.sh');
         }
-        if (!hasGitBash) {
+        if (!hasGitBashZip) {
           console.warn('\x1b[33m⚠ WARNING: Building for Windows without bundled Git Bash!\x1b[0m');
           console.warn('  Claude Code CLI requires Git Bash. Run: ./scripts/download-git-bash-windows.sh');
         }
@@ -87,13 +88,14 @@ const config: ForgeConfig = {
     appCategoryType: 'public.app-category.developer-tools',
     // Bundle dependencies for Windows:
     // - Node.js: Required because Windows GUI apps can't capture stdout from ELECTRON_RUN_AS_NODE
-    // - Git Bash: Required by Claude Code CLI for Unix-style commands
+    // - Git Bash (as zip): Required by Claude Code CLI for Unix-style commands
+    //   Bundled as zip to avoid slow NuGet/Mono processing; extracted on first launch
     // Run scripts/download-node-windows.sh and scripts/download-git-bash-windows.sh before building
     // Also include app-update.yml for electron-updater
     extraResource: [
       './resources/app-update.yml',
       ...(isWindowsBuild && hasNodeExe ? [nodeExePath] : []),
-      ...(isWindowsBuild && hasGitBash ? [gitBashDir] : []),
+      ...(isWindowsBuild && hasGitBashZip ? [gitBashZip, gitBashVersionFile] : []),
     ],
   },
   rebuildConfig: {
