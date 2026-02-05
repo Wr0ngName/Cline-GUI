@@ -79,7 +79,28 @@ tar -xjf "$GIT_ARCHIVE" -C "$GIT_DIR" \
     usr/bin/tty.exe \
     usr/bin/kill.exe \
     usr/bin/ps.exe \
+    usr/bin/curl.exe \
+    usr/bin/wget.exe \
+    usr/bin/ssh.exe \
+    usr/bin/scp.exe \
+    usr/bin/tar.exe \
+    usr/bin/gzip.exe \
+    usr/bin/gunzip.exe \
+    usr/bin/bzip2.exe \
+    usr/bin/bunzip2.exe \
+    usr/bin/unzip.exe \
     usr/bin/msys-2.0.dll \
+    usr/bin/msys-crypto-3.dll \
+    usr/bin/msys-ssl-3.dll \
+    usr/bin/msys-z.dll \
+    usr/bin/msys-bz2-1.dll \
+    usr/bin/msys-curl-4.dll \
+    usr/bin/msys-nghttp2-14.dll \
+    usr/bin/msys-idn2-0.dll \
+    usr/bin/msys-psl-5.dll \
+    usr/bin/msys-ssh2-1.dll \
+    usr/bin/msys-unistring-5.dll \
+    usr/bin/msys-zstd-1.dll \
     usr/bin/msys-iconv-2.dll \
     usr/bin/msys-intl-8.dll \
     usr/bin/msys-gcc_s-seh-1.dll \
