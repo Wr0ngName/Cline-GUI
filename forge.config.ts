@@ -90,6 +90,8 @@ const config: ForgeConfig = {
   makers: [
     new MakerSquirrel({
       name: 'cline-gui',
+      authors: 'wrongname',
+      description: 'Desktop GUI for Claude Code - AI-powered coding assistant',
       setupIcon: './resources/icons/icon.ico',
     }),
     new MakerZIP({}, ['darwin']),
