@@ -131,8 +131,13 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="fixed inset-0 bg-surface-900/90 flex items-center justify-center z-50">
-    <div class="bg-white dark:bg-surface-800 rounded-2xl shadow-2xl w-full max-w-2xl mx-4 overflow-hidden">
+  <div class="fixed inset-0 bg-surface-900/90 flex flex-col z-50">
+    <!-- Drag region for window controls (macOS traffic lights / Windows buttons) -->
+    <div class="h-8 w-full drag-region flex-shrink-0" />
+
+    <!-- Wizard content centered below drag region -->
+    <div class="flex-1 flex items-center justify-center overflow-auto">
+      <div class="bg-white dark:bg-surface-800 rounded-2xl shadow-2xl w-full max-w-2xl mx-4 overflow-hidden my-4">
       <!-- Progress bar -->
       <div class="h-1 bg-surface-200 dark:bg-surface-700">
         <div
@@ -347,6 +352,7 @@ onMounted(() => {
           </Button>
         </div>
       </div>
+    </div>
     </div>
   </div>
 </template>
