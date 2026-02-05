@@ -1,17 +1,16 @@
 #!/bin/bash
-# Download portable Git Bash for Windows x64
-# Used for bundling with the Electron app to run Claude CLI on Windows
-# (Claude Code CLI requires git-bash on Windows)
+# Download Git for Windows (full) for bundling with the Electron app
+# Claude Code CLI requires git-bash on Windows
 #
-# NOTE: We use PortableGit (not MinGit) because MinGit doesn't include bash.exe
+# Uses tar.bz2 format which can be extracted with standard Unix tools
 
 set -e
 
 GIT_VERSION="2.53.0"
 GIT_DIR="vendor/git-bash-win-x64"
-# PortableGit includes bash.exe, MinGit does NOT
-GIT_URL="https://github.com/git-for-windows/git/releases/download/v${GIT_VERSION}.windows.1/PortableGit-${GIT_VERSION}-64-bit.7z.exe"
-GIT_ARCHIVE="PortableGit-${GIT_VERSION}-64-bit.7z.exe"
+# Full Git for Windows includes bash.exe (MinGit does NOT)
+GIT_URL="https://github.com/git-for-windows/git/releases/download/v${GIT_VERSION}.windows.1/Git-${GIT_VERSION}-64-bit.tar.bz2"
+GIT_ARCHIVE="Git-${GIT_VERSION}-64-bit.tar.bz2"
 
 # Create vendor directory
 mkdir -p "$GIT_DIR"
@@ -22,37 +21,26 @@ if [ -f "$GIT_DIR/usr/bin/bash.exe" ]; then
     exit 0
 fi
 
-echo "Downloading PortableGit v${GIT_VERSION} for Windows x64..."
+echo "Downloading Git for Windows v${GIT_VERSION}..."
 
 # Download
 curl -L -o "$GIT_ARCHIVE" "$GIT_URL"
 
-# Extract - PortableGit is a self-extracting 7z archive
-echo "Extracting PortableGit..."
-# Use 7z to extract (the .exe is actually a 7z self-extractor)
-if command -v 7z &> /dev/null; then
-    7z x -o"$GIT_DIR" "$GIT_ARCHIVE" -y
-elif command -v 7za &> /dev/null; then
-    7za x -o"$GIT_DIR" "$GIT_ARCHIVE" -y
-elif command -v p7zip &> /dev/null; then
-    p7zip -d "$GIT_ARCHIVE" -o"$GIT_DIR"
-else
-    echo "ERROR: 7z/7za/p7zip not found. Install with: apt install p7zip-full"
-    rm -f "$GIT_ARCHIVE"
-    exit 1
-fi
+# Extract using tar (available on all Unix systems)
+echo "Extracting Git for Windows..."
+tar -xjf "$GIT_ARCHIVE" -C "$GIT_DIR"
 
 # Clean up
 rm -f "$GIT_ARCHIVE"
 
 # Verify bash.exe exists
 if [ -f "$GIT_DIR/usr/bin/bash.exe" ]; then
-    echo "Git Bash downloaded successfully to $GIT_DIR/"
+    echo "Git for Windows downloaded successfully to $GIT_DIR/"
     echo "Bash location: $GIT_DIR/usr/bin/bash.exe"
     ls -la "$GIT_DIR/usr/bin/bash.exe"
 else
     echo "ERROR: bash.exe not found after extraction!"
     echo "Contents of $GIT_DIR/usr/bin/:"
-    ls -la "$GIT_DIR/usr/bin/" | head -20
+    ls -la "$GIT_DIR/usr/bin/" 2>/dev/null | head -20 || echo "Directory doesn't exist"
     exit 1
 fi
