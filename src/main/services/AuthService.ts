@@ -505,7 +505,11 @@ export class AuthService {
             if (!resolved) {
               // Build a more helpful error message based on what we found
               let errorMsg = `Authentication process exited (code ${exitCode}).`;
-              if (errorPatterns.moduleNotFound) {
+
+              // Check for specific known errors
+              if (cleanOutput.includes('requires git-bash')) {
+                errorMsg = 'Claude Code on Windows requires Git Bash. Please install Git for Windows from https://git-scm.com/downloads/win and restart the application.';
+              } else if (errorPatterns.moduleNotFound) {
                 errorMsg += ' Module not found error - CLI may be corrupted.';
               } else if (errorPatterns.permissionDenied) {
                 errorMsg += ' Permission denied - check file permissions.';
@@ -513,8 +517,9 @@ export class AuthService {
                 errorMsg += ' File not found - CLI installation may be incomplete.';
               } else if (output.length === 0) {
                 errorMsg += ' No output received - process may have crashed immediately.';
+              } else {
+                errorMsg += ' Check logs for details.';
               }
-              errorMsg += ' Check logs for details.';
 
               logger.error('PTY exited before getting URL', {
                 exitCode,
