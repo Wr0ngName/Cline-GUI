@@ -83,6 +83,8 @@ tar -xjf "$GIT_ARCHIVE" -C "$GIT_DIR" \
     usr/bin/wget.exe \
     usr/bin/ssh.exe \
     usr/bin/scp.exe \
+    usr/bin/less.exe \
+    usr/bin/more.exe \
     usr/bin/tar.exe \
     usr/bin/gzip.exe \
     usr/bin/gunzip.exe \
