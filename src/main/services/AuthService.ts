@@ -53,12 +53,55 @@ export class AuthService {
   }
 
   /**
+   * Get file stats safely, returns null on error
+   */
+  private safeFileStat(filePath: string): { size: number; mode: string; isFile: boolean; isDir: boolean } | null {
+    try {
+      const stat = fs.statSync(filePath);
+      return {
+        size: stat.size,
+        mode: stat.mode.toString(8),
+        isFile: stat.isFile(),
+        isDir: stat.isDirectory(),
+      };
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Read first N bytes of a file to verify content type
+   */
+  private readFileHead(filePath: string, bytes: number = 100): string | null {
+    try {
+      const fd = fs.openSync(filePath, 'r');
+      const buffer = Buffer.alloc(bytes);
+      fs.readSync(fd, buffer, 0, bytes, 0);
+      fs.closeSync(fd);
+      // Return printable ASCII only
+      return Array.from(buffer)
+        .map(b => (b >= 32 && b <= 126) ? String.fromCharCode(b) : '.')
+        .join('');
+    } catch {
+      return null;
+    }
+  }
+
+  /**
    * Find the Claude CLI executable path.
    * Prioritizes the bundled CLI in the app resources.
    */
   private findClaudeCli(): string {
+    logger.info('Finding Claude CLI...');
+
     // First, try the bundled CLI in the app's resources (unpacked from asar)
     const resourcesPath = process.resourcesPath || path.dirname(app.getAppPath());
+    logger.info('Resource paths', {
+      resourcesPath,
+      appPath: app.getAppPath(),
+      isPackaged: app.isPackaged,
+    });
+
     const bundledCliPaths = [
       // In packaged app: resources/app.asar.unpacked/node_modules/@anthropic-ai/claude-code/cli.js
       path.join(resourcesPath, 'app.asar.unpacked', 'node_modules', '@anthropic-ai', 'claude-code', 'cli.js'),
@@ -66,8 +109,18 @@ export class AuthService {
       path.join(app.getAppPath(), 'node_modules', '@anthropic-ai', 'claude-code', 'cli.js'),
     ];
 
+    // Log all bundled paths we're checking
     for (const cliPath of bundledCliPaths) {
-      if (fs.existsSync(cliPath)) {
+      const exists = fs.existsSync(cliPath);
+      const stat = this.safeFileStat(cliPath);
+      const head = exists ? this.readFileHead(cliPath, 50) : null;
+      logger.info('Checking bundled CLI path', {
+        path: cliPath,
+        exists,
+        stat,
+        contentHead: head,
+      });
+      if (exists) {
         logger.info(`Found bundled Claude CLI at: ${cliPath}`);
         return cliPath;
       }
@@ -93,7 +146,9 @@ export class AuthService {
 
     // Check each path
     for (const p of possiblePaths) {
-      if (fs.existsSync(p)) {
+      const exists = fs.existsSync(p);
+      logger.debug('Checking system CLI path', { path: p, exists });
+      if (exists) {
         logger.info(`Found Claude CLI at: ${p}`);
         return p;
       }
@@ -130,8 +185,29 @@ export class AuthService {
     // Clean up any existing flow
     this.cleanupOAuthFlow();
 
+    // DEBUG: Log system info for locale/encoding investigation
+    const homeDir = os.homedir();
+    const tmpDir = os.tmpdir();
+    const locale = process.env.LANG || process.env.LC_ALL || process.env.LANGUAGE || 'not set';
+    const codepage = process.env.CHCP || 'not set';
+    logger.info('OAuth flow system info', {
+      platform: process.platform,
+      arch: process.arch,
+      nodeVersion: process.version,
+      homeDir,
+      homeDirBuffer: Buffer.from(homeDir).toString('hex'),
+      tmpDir,
+      tmpDirBuffer: Buffer.from(tmpDir).toString('hex'),
+      locale,
+      codepage,
+      resourcesPath: process.resourcesPath,
+      execPath: process.execPath,
+      appPath: app.getAppPath(),
+    });
+
     // Create temp config directory
-    const configDir = path.join(os.tmpdir(), `claude-oauth-${Date.now()}`);
+    const configDir = path.join(tmpDir, `claude-oauth-${Date.now()}`);
+    logger.info('Creating config directory', { configDir, configDirBuffer: Buffer.from(configDir).toString('hex') });
     fs.mkdirSync(configDir, { recursive: true });
 
     const claudeCli = this.findClaudeCli();
@@ -157,10 +233,42 @@ export class AuthService {
         const resourcesPath = process.resourcesPath || path.dirname(app.getAppPath());
         const bundledNodeExe = path.join(resourcesPath, 'node.exe');
 
-        if (fs.existsSync(bundledNodeExe)) {
+        // Log detailed info about bundled node.exe
+        const nodeExeExists = fs.existsSync(bundledNodeExe);
+        const nodeExeStat = this.safeFileStat(bundledNodeExe);
+        logger.info('Windows: checking bundled Node.js', {
+          bundledNodeExe,
+          exists: nodeExeExists,
+          stat: nodeExeStat,
+        });
+
+        // Also check what's in the resources directory
+        try {
+          const resourcesContent = fs.readdirSync(resourcesPath);
+          logger.info('Resources directory contents', {
+            resourcesPath,
+            files: resourcesContent.slice(0, 20), // First 20 items
+            totalFiles: resourcesContent.length,
+          });
+        } catch (err) {
+          logger.error('Failed to read resources directory', { resourcesPath, error: String(err) });
+        }
+
+        if (nodeExeExists) {
           logger.info('Windows: using bundled Node.js');
           spawnFile = bundledNodeExe;
           spawnArgs = [claudeCli, 'setup-token'];
+
+          // Try to verify node.exe is actually executable by checking its version
+          try {
+            const nodeVersion = execSync(`"${bundledNodeExe}" --version`, {
+              encoding: 'utf8',
+              timeout: 5000,
+            }).trim();
+            logger.info('Bundled Node.js version', { nodeVersion });
+          } catch (err) {
+            logger.warn('Failed to get bundled Node.js version', { error: String(err) });
+          }
         } else {
           // Fallback to ELECTRON_RUN_AS_NODE via PowerShell (may not capture output)
           logger.warn('Windows: bundled Node.js not found, falling back to ELECTRON_RUN_AS_NODE');
@@ -185,13 +293,16 @@ export class AuthService {
       spawnArgs = ['setup-token'];
     }
 
-    logger.info(`Starting OAuth flow on ${process.platform}`);
-    logger.info(`Spawn file: ${spawnFile}`);
-    logger.info(`Spawn args: ${JSON.stringify(spawnArgs)}`);
-    logger.info(`CLI path: ${claudeCli}`);
-    logger.info(`CLI path exists: ${fs.existsSync(claudeCli)}`);
-    logger.info(`Spawn file exists: ${fs.existsSync(spawnFile)}`);
-    logger.info(`Extra env: ${JSON.stringify(extraEnv)}`);
+    logger.info('OAuth spawn configuration', {
+      spawnFile,
+      spawnFileBuffer: Buffer.from(spawnFile).toString('hex'),
+      spawnArgs,
+      claudeCli,
+      claudeCliBuffer: Buffer.from(claudeCli).toString('hex'),
+      cliExists: fs.existsSync(claudeCli),
+      spawnFileExists: fs.existsSync(spawnFile),
+      extraEnv,
+    });
 
     // Environment without browser auto-open (like mautrix-claude sidecar)
     const env: Record<string, string> = {
@@ -209,21 +320,61 @@ export class AuthService {
       delete env.DISPLAY;
     }
 
+    // Log key environment variables (not all, for security)
+    logger.info('OAuth environment (selected vars)', {
+      BROWSER: env.BROWSER,
+      CLAUDE_CONFIG_DIR: env.CLAUDE_CONFIG_DIR,
+      TERM: env.TERM,
+      NO_COLOR: env.NO_COLOR,
+      PATH_length: env.PATH?.length,
+      USERPROFILE: env.USERPROFILE,
+      USERNAME: env.USERNAME,
+      ELECTRON_RUN_AS_NODE: env.ELECTRON_RUN_AS_NODE,
+    });
+
+    const cwd = os.homedir();
+    const cwdHasNonAscii = Array.from(cwd).some(c => c.charCodeAt(0) > 127);
+    logger.info('PTY spawn cwd', {
+      cwd,
+      cwdBuffer: Buffer.from(cwd).toString('hex'),
+      hasNonAscii: cwdHasNonAscii,
+    });
+
     return new Promise((resolve) => {
       try {
-        logger.info('Creating PTY process...');
+        logger.info('Creating PTY process...', {
+          spawnFile,
+          spawnArgs,
+          cols: MAIN_CONSTANTS.AUTH.OAUTH_TERMINAL_COLS,
+          rows: MAIN_CONSTANTS.AUTH.OAUTH_TERMINAL_ROWS,
+          cwd,
+          envKeys: Object.keys(env).length,
+        });
+
+        // Verify spawn file exists and is accessible right before spawn
+        const spawnFileCheck = this.safeFileStat(spawnFile);
+        logger.info('Pre-spawn file verification', {
+          spawnFile,
+          exists: fs.existsSync(spawnFile),
+          stat: spawnFileCheck,
+        });
+
         // Create PTY - use wide terminal to prevent URL line-wrapping
         // This is the pattern from mautrix-claude sidecar
         const ptyProcess = pty.spawn(spawnFile, spawnArgs, {
           name: 'xterm-256color',
           cols: MAIN_CONSTANTS.AUTH.OAUTH_TERMINAL_COLS,
           rows: MAIN_CONSTANTS.AUTH.OAUTH_TERMINAL_ROWS,
-          cwd: os.homedir(),
+          cwd,
           env,
         });
-        logger.info(`PTY process created, pid: ${ptyProcess.pid}`);
+        logger.info(`PTY process created, pid: ${ptyProcess.pid}`, {
+          pid: ptyProcess.pid,
+          // Log process info if available
+          processInfo: typeof ptyProcess.process === 'string' ? ptyProcess.process : 'N/A',
+        });
 
-        // Handle PTY errors
+        // Handle PTY errors - first handler for immediate logging
         ptyProcess.onExit(({ exitCode, signal }) => {
           if (exitCode !== 0 && exitCode !== null) {
             logger.warn(`PTY process ended abnormally: exitCode=${exitCode}, signal=${signal}`);
@@ -231,9 +382,11 @@ export class AuthService {
         });
 
         let output = '';
+        let rawOutput = ''; // Keep raw output for debugging
         let authUrl = '';
         const startTime = Date.now();
         let resolved = false;
+        let dataChunkCount = 0;
 
         const checkForUrl = () => {
           // Remove ANSI escape codes for parsing
@@ -262,14 +415,36 @@ export class AuthService {
 
         // Handle PTY output
         ptyProcess.onData((data: string) => {
+          dataChunkCount++;
           output += data;
+          rawOutput += data;
+
+          // Log each data chunk for debugging (first 500 chars, hex encoded for non-ASCII safety)
+          const dataPreview = data.length > 500 ? data.slice(0, 500) + '...' : data;
+          // Sanitize non-printable characters for log readability
+          const sanitizedPreview = Array.from(dataPreview.slice(0, 100))
+            .map(c => c.charCodeAt(0) < 32 || c.charCodeAt(0) > 126 ? '?' : c)
+            .join('');
+          logger.debug(`PTY data chunk #${dataChunkCount}`, {
+            length: data.length,
+            totalLength: output.length,
+            dataHex: Buffer.from(dataPreview).toString('hex').slice(0, 200),
+            dataPreview: sanitizedPreview,
+          });
+
           checkForUrl();
         });
 
         // Timeout after configured duration
         const timeoutId = setTimeout(() => {
           if (!resolved) {
-            logger.error('Timeout waiting for OAuth URL');
+            logger.error('Timeout waiting for OAuth URL', {
+              outputLength: output.length,
+              dataChunkCount,
+              elapsedMs: Date.now() - startTime,
+              rawOutputHex: Buffer.from(rawOutput.slice(0, 1000)).toString('hex'),
+              cleanOutput: this.stripAnsi(output).slice(0, 500),
+            });
             this.cleanupOAuthFlow();
             resolve({ authUrl: '', error: 'Timeout waiting for authentication URL. Is Claude CLI installed?' });
           }
@@ -277,14 +452,78 @@ export class AuthService {
 
         ptyProcess.onExit(({ exitCode, signal }) => {
           clearTimeout(timeoutId);
-          logger.debug('PTY process exited', { exitCode, signal });
+          const elapsedMs = Date.now() - startTime;
+
+          // Log full output on exit for debugging
+          const cleanOutput = this.stripAnsi(output);
+
+          // Analyze the output for common error patterns
+          const errorPatterns = {
+            moduleNotFound: cleanOutput.includes('Cannot find module') || cleanOutput.includes('MODULE_NOT_FOUND'),
+            syntaxError: cleanOutput.includes('SyntaxError'),
+            permissionDenied: cleanOutput.includes('EACCES') || cleanOutput.includes('permission denied'),
+            fileNotFound: cleanOutput.includes('ENOENT') || cleanOutput.includes('no such file'),
+            nodeError: cleanOutput.includes('node:') || cleanOutput.includes('Error:'),
+            crashDump: cleanOutput.includes('FATAL ERROR') || cleanOutput.includes('Segmentation fault'),
+          };
+
+          logger.info('PTY process exited', {
+            exitCode,
+            signal,
+            elapsedMs,
+            outputLength: output.length,
+            dataChunkCount,
+            resolved,
+            errorPatterns,
+            immediateExit: elapsedMs < 500,
+            noOutput: output.length === 0,
+          });
+
+          // If process exited immediately with no output, that's suspicious
+          if (elapsedMs < 500 && output.length === 0 && exitCode !== 0) {
+            logger.error('PTY exited immediately with no output - likely spawn failure', {
+              exitCode,
+              signal,
+              spawnFile,
+              spawnArgs,
+              cwd,
+            });
+          }
+
+          logger.debug('PTY final output (clean)', {
+            length: cleanOutput.length,
+            content: cleanOutput.slice(0, 2000),
+          });
+          logger.debug('PTY final output (raw hex)', {
+            length: rawOutput.length,
+            hex: Buffer.from(rawOutput.slice(0, 1000)).toString('hex'),
+          });
+
           // Give time for output to be processed
           setTimeout(() => {
             checkForUrl();
             if (!resolved) {
-              logger.error('PTY exited before getting URL', { exitCode });
+              // Build a more helpful error message based on what we found
+              let errorMsg = `Authentication process exited (code ${exitCode}).`;
+              if (errorPatterns.moduleNotFound) {
+                errorMsg += ' Module not found error - CLI may be corrupted.';
+              } else if (errorPatterns.permissionDenied) {
+                errorMsg += ' Permission denied - check file permissions.';
+              } else if (errorPatterns.fileNotFound) {
+                errorMsg += ' File not found - CLI installation may be incomplete.';
+              } else if (output.length === 0) {
+                errorMsg += ' No output received - process may have crashed immediately.';
+              }
+              errorMsg += ' Check logs for details.';
+
+              logger.error('PTY exited before getting URL', {
+                exitCode,
+                outputLength: output.length,
+                cleanOutputPreview: cleanOutput.slice(0, 500),
+                errorPatterns,
+              });
               this.cleanupOAuthFlow();
-              resolve({ authUrl: '', error: `Authentication process exited (code ${exitCode}). Check logs for details.` });
+              resolve({ authUrl: '', error: errorMsg });
             }
           }, MAIN_CONSTANTS.AUTH.OAUTH_PROCESS_EXIT_DELAY_MS);
         });
