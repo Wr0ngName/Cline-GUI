@@ -32,8 +32,11 @@ tar -xjf "$GIT_ARCHIVE" -C "$GIT_DIR"
 
 # Remove dev/ directory - contains POSIX special files (symlinks to /dev/fd/, /dev/stdin etc)
 # that Squirrel.Windows/NuGet cannot package. MSYS2 recreates these at runtime if needed.
-echo "Removing dev/ directory (POSIX special files incompatible with Squirrel.Windows)..."
-rm -rf "$GIT_DIR/dev"
+# Safety check: only remove if GIT_DIR is set and the path exists within vendor/
+if [ -n "$GIT_DIR" ] && [[ "$GIT_DIR" == vendor/* ]] && [ -d "$GIT_DIR/dev" ]; then
+    echo "Removing dev/ directory (POSIX special files incompatible with Squirrel.Windows)..."
+    rm -rf "$GIT_DIR/dev"
+fi
 
 # Clean up archive
 rm -f "$GIT_ARCHIVE"
