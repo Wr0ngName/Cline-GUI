@@ -88,6 +88,44 @@ export class AuthService {
   }
 
   /**
+   * Find the bundled Git Bash executable for Windows.
+   * Claude Code CLI requires git-bash on Windows for Unix-style commands.
+   * Returns the path to bash.exe if found, null otherwise.
+   */
+  private findBundledGitBash(): string | null {
+    if (process.platform !== 'win32') {
+      return null;
+    }
+
+    const resourcesPath = process.resourcesPath || path.dirname(app.getAppPath());
+
+    // Check for bundled MinGit in resources
+    const bundledGitBashPaths = [
+      // In packaged app: resources/git-bash-win-x64/usr/bin/bash.exe
+      path.join(resourcesPath, 'git-bash-win-x64', 'usr', 'bin', 'bash.exe'),
+      // Also check bin directory (some MinGit versions)
+      path.join(resourcesPath, 'git-bash-win-x64', 'bin', 'bash.exe'),
+    ];
+
+    for (const bashPath of bundledGitBashPaths) {
+      const exists = fs.existsSync(bashPath);
+      const stat = this.safeFileStat(bashPath);
+      logger.info('Checking bundled Git Bash path', {
+        path: bashPath,
+        exists,
+        stat,
+      });
+      if (exists) {
+        logger.info(`Found bundled Git Bash at: ${bashPath}`);
+        return bashPath;
+      }
+    }
+
+    logger.warn('Bundled Git Bash not found in resources');
+    return null;
+  }
+
+  /**
    * Find the Claude CLI executable path.
    * Prioritizes the bundled CLI in the app resources.
    */
@@ -304,6 +342,15 @@ export class AuthService {
       extraEnv,
     });
 
+    // Find bundled Git Bash for Windows (Claude Code CLI requires it)
+    const bundledGitBash = this.findBundledGitBash();
+    if (process.platform === 'win32' && bundledGitBash) {
+      logger.info('Setting CLAUDE_CODE_GIT_BASH_PATH for bundled Git Bash', { path: bundledGitBash });
+      extraEnv.CLAUDE_CODE_GIT_BASH_PATH = bundledGitBash;
+    } else if (process.platform === 'win32') {
+      logger.warn('Windows: No bundled Git Bash found. Claude CLI may require Git Bash to be installed system-wide.');
+    }
+
     // Environment without browser auto-open (like mautrix-claude sidecar)
     const env: Record<string, string> = {
       ...process.env as Record<string, string>,
@@ -324,6 +371,7 @@ export class AuthService {
     logger.info('OAuth environment (selected vars)', {
       BROWSER: env.BROWSER,
       CLAUDE_CONFIG_DIR: env.CLAUDE_CONFIG_DIR,
+      CLAUDE_CODE_GIT_BASH_PATH: env.CLAUDE_CODE_GIT_BASH_PATH,
       TERM: env.TERM,
       NO_COLOR: env.NO_COLOR,
       PATH_length: env.PATH?.length,

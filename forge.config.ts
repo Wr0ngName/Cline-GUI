@@ -20,16 +20,28 @@ const isWindowsBuild = process.platform === 'win32' ||
 const nodeExePath = './vendor/node-win-x64/node.exe';
 const hasNodeExe = fs.existsSync(nodeExePath);
 
+// Check if bundled Git Bash exists for Windows builds
+// Claude Code CLI requires git-bash on Windows for Unix-style commands
+const gitBashDir = './vendor/git-bash-win-x64';
+const gitBashExe = `${gitBashDir}/usr/bin/bash.exe`;
+const hasGitBash = fs.existsSync(gitBashExe);
+
 const config: ForgeConfig = {
   hooks: {
     // Workaround for Electron Forge Vite bug #3738:
     // External modules are not included in the package. Reinstall them after pruning.
     // https://github.com/electron/forge/issues/3738#issuecomment-3199157664
     packageAfterPrune: async (_config, buildPath, _electronVersion, platform) => {
-      // Warn if building for Windows without bundled Node.js
-      if (platform === 'win32' && !hasNodeExe) {
-        console.warn('\x1b[33m⚠ WARNING: Building for Windows without bundled Node.js!\x1b[0m');
-        console.warn('  OAuth login will not work. Run: ./scripts/download-node-windows.sh');
+      // Warn if building for Windows without bundled dependencies
+      if (platform === 'win32') {
+        if (!hasNodeExe) {
+          console.warn('\x1b[33m⚠ WARNING: Building for Windows without bundled Node.js!\x1b[0m');
+          console.warn('  OAuth login will not work. Run: ./scripts/download-node-windows.sh');
+        }
+        if (!hasGitBash) {
+          console.warn('\x1b[33m⚠ WARNING: Building for Windows without bundled Git Bash!\x1b[0m');
+          console.warn('  Claude Code CLI requires Git Bash. Run: ./scripts/download-git-bash-windows.sh');
+        }
       }
       // Dynamically import vite config to get external modules list
       const viteConfig = await import('./vite.main.config');
@@ -73,13 +85,15 @@ const config: ForgeConfig = {
     icon: './resources/icons/icon',
     appBundleId: 'com.cline.gui',
     appCategoryType: 'public.app-category.developer-tools',
-    // Bundle Node.js for Windows (required because Windows GUI apps can't capture
-    // stdout from ELECTRON_RUN_AS_NODE - known Electron limitation)
-    // Run scripts/download-node-windows.sh before building for Windows
+    // Bundle dependencies for Windows:
+    // - Node.js: Required because Windows GUI apps can't capture stdout from ELECTRON_RUN_AS_NODE
+    // - Git Bash: Required by Claude Code CLI for Unix-style commands
+    // Run scripts/download-node-windows.sh and scripts/download-git-bash-windows.sh before building
     // Also include app-update.yml for electron-updater
     extraResource: [
       './resources/app-update.yml',
       ...(isWindowsBuild && hasNodeExe ? [nodeExePath] : []),
+      ...(isWindowsBuild && hasGitBash ? [gitBashDir] : []),
     ],
   },
   rebuildConfig: {
