@@ -46,7 +46,9 @@ if [ -n "$TEMP_DIR" ] && [ -d "$TEMP_DIR/dev" ]; then
 fi
 
 echo "Creating zip archive..."
-(cd "$TEMP_DIR" && zip -r -q "$OLDPWD/$GIT_ZIP" .)
+# Use absolute path since we're cd'ing into temp dir
+GIT_ZIP_ABS="$(pwd)/$GIT_ZIP"
+(cd "$TEMP_DIR" && zip -r -q "$GIT_ZIP_ABS" .)
 
 # Write version file
 echo "$GIT_VERSION" > "$VERSION_FILE"
