@@ -584,23 +584,19 @@ export class AuthService {
   }
 
   /**
-   * Validate OAuth code format.
-   * Claude OAuth codes are alphanumeric strings, typically 40+ characters.
+   * Validate OAuth code - just check it's a non-empty string.
+   * Let the Claude CLI handle the actual validation.
    *
    * @param code - The OAuth code to validate
    * @returns true if valid, false otherwise
    */
   private isValidOAuthCode(code: string): boolean {
-    // OAuth codes should be non-empty alphanumeric strings
-    // Typical length is 40-60 characters, but we're lenient
     if (!code || typeof code !== 'string') {
       return false;
     }
     const trimmed = code.trim();
-    // Allow alphanumeric, hyphens, underscores, and hash (# appears in some OAuth codes)
-    const isValidFormat = /^[a-zA-Z0-9_#-]+$/.test(trimmed);
-    const isValidLength = trimmed.length >= 10 && trimmed.length <= 200;
-    return isValidFormat && isValidLength;
+    // Just check it's non-empty and reasonable length - let CLI validate the actual format
+    return trimmed.length >= 10 && trimmed.length <= 500;
   }
 
   /**
@@ -632,7 +628,7 @@ export class AuthService {
         });
 
         // Send code to PTY
-        this.sendCodeToPty(ptyProcess!, code);
+        this.sendCodeToPty(ptyProcess!, code.trim());
 
         // Setup polling for result
         this.setupOAuthPolling(handlers, () => output, configDir, resolve);
