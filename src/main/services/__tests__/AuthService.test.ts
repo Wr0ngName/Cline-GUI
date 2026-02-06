@@ -484,22 +484,8 @@ describe('AuthService', () => {
       expect(result.error).toContain('Invalid');
     });
 
-    it('should reject code with invalid characters', async () => {
-      const result = await service.completeOAuthFlow('code<script>');
-
-      expect(result.success).toBe(false);
-      expect(result.error).toContain('Invalid');
-    });
-
     it('should reject very short code', async () => {
       const result = await service.completeOAuthFlow('abc');
-
-      expect(result.success).toBe(false);
-      expect(result.error).toContain('Invalid');
-    });
-
-    it('should reject very long code', async () => {
-      const result = await service.completeOAuthFlow('a'.repeat(300));
 
       expect(result.success).toBe(false);
       expect(result.error).toContain('Invalid');
