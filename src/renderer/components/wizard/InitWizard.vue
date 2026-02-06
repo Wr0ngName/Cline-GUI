@@ -124,6 +124,21 @@ async function onAuthenticated() {
   await refreshAuthStatus();
 }
 
+// Window controls
+const isMac = window.electron?.platform === 'darwin';
+
+function minimize() {
+  window.electron?.window.minimize();
+}
+
+function maximize() {
+  window.electron?.window.maximize();
+}
+
+function close() {
+  window.electron?.window.close();
+}
+
 // Initialize
 onMounted(() => {
   refreshAuthStatus();
@@ -132,8 +147,72 @@ onMounted(() => {
 
 <template>
   <div class="fixed inset-0 bg-surface-900/90 flex flex-col z-50">
-    <!-- Drag region for window controls (macOS traffic lights / Windows buttons) -->
-    <div class="h-8 w-full drag-region flex-shrink-0" />
+    <!-- Title bar with drag region and window controls -->
+    <div class="h-10 w-full drag-region flex-shrink-0 flex items-center justify-end px-2">
+      <!-- Window controls (non-macOS) - white icons for dark background -->
+      <div
+        v-if="!isMac"
+        class="flex items-center no-drag"
+      >
+        <button
+          class="w-10 h-8 flex items-center justify-center text-white/70 hover:text-white hover:bg-white/10 transition-colors"
+          title="Minimize"
+          @click="minimize"
+        >
+          <svg
+            class="w-4 h-4"
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+          >
+            <path
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="2"
+              d="M20 12H4"
+            />
+          </svg>
+        </button>
+        <button
+          class="w-10 h-8 flex items-center justify-center text-white/70 hover:text-white hover:bg-white/10 transition-colors"
+          title="Maximize"
+          @click="maximize"
+        >
+          <svg
+            class="w-4 h-4"
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+          >
+            <path
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="2"
+              d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4"
+            />
+          </svg>
+        </button>
+        <button
+          class="w-10 h-8 flex items-center justify-center text-white/70 hover:text-white hover:bg-red-500 transition-colors"
+          title="Close"
+          @click="close"
+        >
+          <svg
+            class="w-4 h-4"
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+          >
+            <path
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="2"
+              d="M6 18L18 6M6 6l12 12"
+            />
+          </svg>
+        </button>
+      </div>
+    </div>
 
     <!-- Wizard content centered below drag region -->
     <div class="flex-1 flex items-center justify-center overflow-auto">
