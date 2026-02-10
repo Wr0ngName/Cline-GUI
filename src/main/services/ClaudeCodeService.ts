@@ -396,6 +396,17 @@ export class ClaudeCodeService {
     const resourcesPath = process.resourcesPath || path.dirname(app.getAppPath());
     const bundledNodeExe = path.join(resourcesPath, 'node.exe');
 
+    // Check for bundled Git Bash (required by Claude Code CLI on Windows)
+    const bundledGitBash = path.join(resourcesPath, 'git-bash', 'usr', 'bin', 'bash.exe');
+    const extraEnv: Record<string, string> = {};
+
+    if (fs.existsSync(bundledGitBash)) {
+      logger.info('Windows: using bundled Git Bash', { bundledGitBash });
+      extraEnv.CLAUDE_CODE_GIT_BASH_PATH = bundledGitBash;
+    } else {
+      logger.warn('Windows: bundled Git Bash not found', { expectedPath: bundledGitBash });
+    }
+
     if (fs.existsSync(bundledNodeExe)) {
       logger.info('Windows: using bundled Node.js for SDK spawn', { bundledNodeExe });
 
@@ -409,7 +420,7 @@ export class ClaudeCodeService {
       return {
         spawnFile: bundledNodeExe,
         spawnArgs,
-        extraEnv: {},
+        extraEnv,
       };
     }
 
@@ -420,7 +431,7 @@ export class ClaudeCodeService {
     return {
       spawnFile: process.execPath,
       spawnArgs: originalArgs,
-      extraEnv: { ELECTRON_RUN_AS_NODE: '1' },
+      extraEnv: { ELECTRON_RUN_AS_NODE: '1', ...extraEnv },
     };
   }
 
