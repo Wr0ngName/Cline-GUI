@@ -7,6 +7,7 @@
 import { computed, ref, watch } from 'vue';
 
 import type { SlashCommandInfo } from '@shared/types';
+import TransitionFade from '../shared/TransitionFade.vue';
 
 interface Props {
   /** Available slash commands */
@@ -104,14 +105,7 @@ defineExpose({ handleKeydown });
 </script>
 
 <template>
-  <Transition
-    enter-active-class="transition ease-out duration-150"
-    enter-from-class="opacity-0 translate-y-2"
-    enter-to-class="opacity-100 translate-y-0"
-    leave-active-class="transition ease-in duration-100"
-    leave-from-class="opacity-100 translate-y-0"
-    leave-to-class="opacity-0 translate-y-2"
-  >
+  <TransitionFade type="slideUp">
     <div
       v-if="show && filteredCommands.length > 0"
       class="absolute bottom-full left-0 right-0 mb-2 bg-white dark:bg-surface-800 border border-surface-200 dark:border-surface-700 rounded-lg shadow-lg max-h-64 overflow-y-auto z-50"
@@ -164,5 +158,5 @@ defineExpose({ handleKeydown });
         </div>
       </div>
     </div>
-  </Transition>
+  </TransitionFade>
 </template>

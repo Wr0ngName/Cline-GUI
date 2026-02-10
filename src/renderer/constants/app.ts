@@ -1,26 +1,34 @@
 /**
  * Renderer process constants
  * Centralized configuration values for the Vue frontend
+ *
+ * NOTE: Shared constants (FILE_CONSTANTS, CONVERSATION_CONSTANTS, PREVIEW_SIZES)
+ * are imported from src/shared/constants.ts to avoid duplication.
  */
+import { FILE_CONSTANTS, CONVERSATION_CONSTANTS, PREVIEW_SIZES } from '../../shared/constants';
+
+// Re-export shared constants for convenience
+export { FILE_CONSTANTS, CONVERSATION_CONSTANTS, PREVIEW_SIZES };
+
 export const CONSTANTS = {
   /** Auto-save configuration */
   AUTO_SAVE: {
     /** Delay before auto-saving changes - 2 seconds */
     DELAY_MS: 2000,
   },
-  /** Conversation-related limits */
+  /** Conversation-related limits (from shared constants) */
   CONVERSATION: {
     /** Maximum length for conversation titles */
-    TITLE_MAX_LENGTH: 50,
+    TITLE_MAX_LENGTH: CONVERSATION_CONSTANTS.TITLE_MAX_LENGTH,
     /** Length at which to truncate titles with ellipsis */
-    TITLE_TRUNCATE_LENGTH: 47,
+    TITLE_TRUNCATE_LENGTH: CONVERSATION_CONSTANTS.TITLE_TRUNCATE_LENGTH,
     /** Timeout for save operations - 30 seconds */
     SAVE_TIMEOUT_MS: 30000,
   },
-  /** File system constants */
+  /** File system constants (from shared constants) */
   FILES: {
     /** Threshold for batch file changes before full tree reload */
-    BATCH_CHANGE_THRESHOLD: 10,
+    BATCH_CHANGE_THRESHOLD: FILE_CONSTANTS.BATCH_CHANGE_THRESHOLD,
   },
   /** Message-related limits */
   MESSAGES: {
@@ -63,6 +71,15 @@ export const CONSTANTS = {
       leave: 'transition-all duration-150 ease-in',
       leaveFrom: 'opacity-100 translate-y-0',
       leaveTo: 'opacity-0 translate-y-2',
+    },
+    /** Slide-down transition for notifications and error banners */
+    SLIDE_DOWN: {
+      enter: 'transition-all duration-200 ease-out',
+      enterFrom: 'opacity-0 -translate-y-2',
+      enterTo: 'opacity-100 translate-y-0',
+      leave: 'transition-all duration-150 ease-in',
+      leaveFrom: 'opacity-100 translate-y-0',
+      leaveTo: 'opacity-0 -translate-y-2',
     },
     /** Scale transition for modal content */
     SCALE: {

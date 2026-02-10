@@ -10,6 +10,7 @@ import type { IconName } from '../shared/Icon.vue';
 
 import { useFilesStore } from '../../stores/files';
 import Icon from '../shared/Icon.vue';
+import TransitionFade from '../shared/TransitionFade.vue';
 
 interface Props {
   /** File or directory node to render */
@@ -102,14 +103,7 @@ function handleClick() {
     </button>
 
     <!-- Children (recursive) -->
-    <Transition
-      enter-active-class="transition-all duration-150 ease-out"
-      enter-from-class="opacity-0 -translate-y-1"
-      enter-to-class="opacity-100 translate-y-0"
-      leave-active-class="transition-all duration-100 ease-in"
-      leave-from-class="opacity-100 translate-y-0"
-      leave-to-class="opacity-0 -translate-y-1"
-    >
+    <TransitionFade type="collapse">
       <div
         v-if="isDirectory && isExpanded && node.children"
         class="overflow-hidden"
@@ -122,6 +116,6 @@ function handleClick() {
           @select="emit('select', $event)"
         />
       </div>
-    </Transition>
+    </TransitionFade>
   </div>
 </template>

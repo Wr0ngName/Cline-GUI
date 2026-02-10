@@ -8,7 +8,7 @@ import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
 
 import { CONSTANTS } from '../constants/app';
-import { generateId } from '../utils/id';
+import { generateId, ID_PREFIXES } from '../utils/id';
 
 /**
  * Per-conversation state tracked for multi-instance support
@@ -226,7 +226,7 @@ export const useChatStore = defineStore('chat', () => {
 
   function addUserMessage(content: string): ChatMessage {
     const message: ChatMessage = {
-      id: generateId('msg'),
+      id: generateId(ID_PREFIXES.MESSAGE),
       role: 'user',
       content,
       timestamp: Date.now(),
@@ -237,7 +237,7 @@ export const useChatStore = defineStore('chat', () => {
 
   function startAssistantMessage(conversationId: string): ChatMessage {
     const message: ChatMessage = {
-      id: generateId('msg'),
+      id: generateId(ID_PREFIXES.MESSAGE),
       role: 'assistant',
       content: '',
       timestamp: Date.now(),

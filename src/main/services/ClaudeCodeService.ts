@@ -18,8 +18,6 @@
  */
 
 import { spawn, type ChildProcess } from 'node:child_process';
-import * as fs from 'node:fs';
-import * as path from 'node:path';
 
 import { query } from '@anthropic-ai/claude-agent-sdk';
 import type {
@@ -27,7 +25,7 @@ import type {
   SpawnOptions,
   SpawnedProcess,
 } from '@anthropic-ai/claude-agent-sdk';
-import { app, BrowserWindow } from 'electron';
+import { BrowserWindow } from 'electron';
 
 import {
   IPC_CHANNELS,
@@ -41,6 +39,7 @@ import {
 } from '../../shared/types';
 import { createSender } from '../utils/ipc-helpers';
 import logger from '../utils/logger';
+import { WindowsPaths } from '../utils/resourcePaths';
 
 import ConfigService from './ConfigService';
 import {
@@ -393,29 +392,27 @@ export class ClaudeCodeService {
     _options: SpawnOptions,
     originalArgs: string[]
   ): { spawnFile: string; spawnArgs: string[]; extraEnv: Record<string, string> } {
-    const resourcesPath = process.resourcesPath || path.dirname(app.getAppPath());
-    const bundledNodeExe = path.join(resourcesPath, 'node.exe');
-
-    // Check for bundled Git Bash (required by Claude Code CLI on Windows)
-    const gitBashBinDir = path.join(resourcesPath, 'git-bash', 'usr', 'bin');
-    const bundledGitBash = path.join(gitBashBinDir, 'bash.exe');
+    const bundledNodeExe = WindowsPaths.getBundledNodeExe();
+    const bundledGitBash = WindowsPaths.getBashExe();
     const extraEnv: Record<string, string> = {};
 
-    if (fs.existsSync(bundledGitBash)) {
+    // Check for bundled Git Bash (required by Claude Code CLI on Windows)
+    if (WindowsPaths.hasBundledGitBash()) {
       logger.info('Windows: using bundled Git Bash', { bundledGitBash });
       extraEnv.CLAUDE_CODE_GIT_BASH_PATH = bundledGitBash;
 
       // Add Git Bash bin directories to PATH so cygpath and other utilities are found
       // The SDK spawns bash but doesn't set up the PATH correctly
-      const gitBashMingwBin = path.join(resourcesPath, 'git-bash', 'mingw64', 'bin');
-      const currentPath = process.env.PATH || '';
-      extraEnv.PATH = `${gitBashBinDir};${gitBashMingwBin};${currentPath}`;
-      logger.info('Windows: added Git Bash to PATH', { gitBashBinDir, gitBashMingwBin });
+      extraEnv.PATH = WindowsPaths.buildEnhancedPath();
+      logger.info('Windows: added Git Bash to PATH', {
+        gitBashBinDir: WindowsPaths.getGitBashBinDir(),
+        gitBashMingwBin: WindowsPaths.getGitBashMingwBin()
+      });
     } else {
       logger.warn('Windows: bundled Git Bash not found', { expectedPath: bundledGitBash });
     }
 
-    if (fs.existsSync(bundledNodeExe)) {
+    if (WindowsPaths.hasBundledNode()) {
       logger.info('Windows: using bundled Node.js for SDK spawn', { bundledNodeExe });
 
       const spawnArgs = originalArgs.map(arg => {

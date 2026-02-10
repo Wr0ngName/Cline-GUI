@@ -22,11 +22,10 @@ import ModelSelector from './components/shared/ModelSelector.vue';
 const settingsStore = useSettingsStore();
 const filesStore = useFilesStore();
 const conversationsStore = useConversationsStore();
-const { isLoading, needsSetup } = storeToRefs(settingsStore);
+const { isLoading, needsSetup, hasCompletedInitialSetup } = storeToRefs(settingsStore);
 
 const showSettings = ref(false);
 const showWizard = ref(false);
-const hasCompletedInitialSetup = ref(false);
 const showHistory = ref(true);
 const sidebarWidth = ref(280);
 const historyWidth = ref(240);
@@ -40,11 +39,13 @@ onMounted(() => {
 
 // Show wizard ONLY on initial app load when setup is needed
 // Do NOT show wizard after logout - user can use Settings panel to re-authenticate
+// The hasCompletedInitialSetup flag is persisted in config, so it survives app restarts
 watch(
-  [isLoading, needsSetup],
-  ([loading, needs]) => {
+  [isLoading, needsSetup, hasCompletedInitialSetup],
+  ([loading, needs, completed]) => {
     // Only show wizard on initial load, not after logout
-    if (!loading && needs && !hasCompletedInitialSetup.value) {
+    // Once user completes wizard, the persisted flag prevents showing it again
+    if (!loading && needs && !completed) {
       showWizard.value = true;
     }
   },
@@ -58,9 +59,10 @@ onUnmounted(() => {
   conversationsStore.cleanup();
 });
 
-function onWizardComplete() {
+async function onWizardComplete() {
   showWizard.value = false;
-  hasCompletedInitialSetup.value = true;
+  // Persist the completion flag so wizard doesn't show again after logout
+  await settingsStore.setHasCompletedInitialSetup(true);
   // Reload config and files after wizard completes
   settingsStore.loadConfig();
   filesStore.initialize();

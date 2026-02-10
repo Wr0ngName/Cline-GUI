@@ -9,7 +9,7 @@ import { ref, computed, watch } from 'vue';
 
 import { getInMemoryMessages } from '../composables/useClaudeChat';
 import { CONSTANTS } from '../constants/app';
-import { generateId } from '../utils/id';
+import { generateId, ID_PREFIXES } from '../utils/id';
 import { logger } from '../utils/logger';
 
 import { useChatStore } from './chat';
@@ -198,6 +198,77 @@ export const useConversationsStore = defineStore('conversations', () => {
   }
 
   /**
+   * Build a conversation object ready for saving.
+   * Centralizes title generation, message cloning, and metadata handling.
+   */
+  function buildConversationPayload(
+    conversationId: string,
+    messages: ChatMessage[],
+    workingDirectory: string
+  ): Conversation {
+    // Deep clone messages to strip ALL Vue reactivity (including nested objects)
+    // Vue proxies can't be cloned across IPC - use JSON round-trip for complete deproxification
+    const rawMessages: ChatMessage[] = JSON.parse(JSON.stringify(messages));
+    const existingConv = conversations.value.find(c => c.id === conversationId);
+
+    // Preserve existing custom title if it was explicitly set via rename
+    const generatedTitle = generateTitle(messages);
+    // Use the customTitle flag to determine if the title was manually set
+    const title = existingConv?.customTitle ? existingConv.title : generatedTitle;
+
+    return {
+      id: conversationId,
+      title,
+      customTitle: existingConv?.customTitle,
+      workingDirectory,
+      messages: rawMessages,
+      createdAt: existingConv?.createdAt || Date.now(),
+      updatedAt: Date.now(),
+    };
+  }
+
+  /**
+   * Update the conversations list after a successful save.
+   */
+  function updateConversationList(conversation: Conversation): void {
+    const index = conversations.value.findIndex((c) => c.id === conversation.id);
+    // Store without messages for list view (saves memory)
+    const listEntry = { ...conversation, messages: [] };
+    if (index !== -1) {
+      conversations.value[index] = listEntry;
+    } else {
+      conversations.value.push(listEntry);
+    }
+  }
+
+  /**
+   * Core save implementation used by both saveCurrentConversation and saveConversation.
+   */
+  async function executeSave(
+    conversation: Conversation,
+    options: { useTimeout: boolean; logPrefix: string }
+  ): Promise<void> {
+    logger.info(`Saving conversation${options.logPrefix}`, {
+      id: conversation.id,
+      messageCount: conversation.messages.length,
+      title: conversation.title?.slice(0, 30),
+    });
+
+    if (options.useTimeout) {
+      const savePromise = window.electron.conversation.save(conversation);
+      const timeoutMs = CONSTANTS.CONVERSATION.SAVE_TIMEOUT_MS;
+      const timeoutPromise = new Promise<never>((_, reject) => {
+        setTimeout(() => reject(new Error(`Save operation timed out after ${timeoutMs / 1000} seconds`)), timeoutMs);
+      });
+      await Promise.race([savePromise, timeoutPromise]);
+    } else {
+      await window.electron.conversation.save(conversation);
+    }
+
+    updateConversationList(conversation);
+  }
+
+  /**
    * Save the current conversation
    * Returns true if save was successful, false otherwise
    */
@@ -232,50 +303,13 @@ export const useConversationsStore = defineStore('conversations', () => {
     error.value = null;
 
     try {
-      // Deep clone messages to strip ALL Vue reactivity (including nested objects)
-      // Vue proxies can't be cloned across IPC - use JSON round-trip for complete deproxification
-      const rawMessages: ChatMessage[] = JSON.parse(JSON.stringify(chatStore.messages));
+      const conversation = buildConversationPayload(
+        currentConversationId.value,
+        chatStore.messages,
+        settingsStore.workingDirectory
+      );
 
-      // Preserve existing custom title if it was explicitly set via rename
-      const existingConv = currentConversation.value;
-      const generatedTitle = generateTitle(chatStore.messages);
-      // Use the customTitle flag to determine if the title was manually set
-      const title = existingConv?.customTitle ? existingConv.title : generatedTitle;
-
-      const conversation: Conversation = {
-        id: currentConversationId.value,
-        title,
-        customTitle: existingConv?.customTitle,  // Preserve the flag
-        workingDirectory: settingsStore.workingDirectory,
-        messages: rawMessages,
-        createdAt: existingConv?.createdAt || Date.now(),
-        updatedAt: Date.now(),
-      };
-
-      logger.info('Saving conversation', {
-        id: conversation.id,
-        messageCount: conversation.messages.length,
-        title: conversation.title?.slice(0, 30),
-        workingDirectory: conversation.workingDirectory,
-      });
-
-      // Add timeout to prevent indefinite hang if main process is unresponsive
-      const savePromise = window.electron.conversation.save(conversation);
-      const timeoutMs = CONSTANTS.CONVERSATION.SAVE_TIMEOUT_MS;
-      const timeoutPromise = new Promise<never>((_, reject) => {
-        setTimeout(() => reject(new Error(`Save operation timed out after ${timeoutMs / 1000} seconds`)), timeoutMs);
-      });
-
-      await Promise.race([savePromise, timeoutPromise]);
-
-      // Update in list
-      const index = conversations.value.findIndex((c) => c.id === conversation.id);
-      if (index !== -1) {
-        conversations.value[index] = { ...conversation, messages: [] }; // Store without messages for list
-      } else {
-        conversations.value.push({ ...conversation, messages: [] });
-      }
-
+      await executeSave(conversation, { useTimeout: true, logPrefix: '' });
       logger.info('Conversation saved successfully', { id: conversation.id });
       return true;
     } catch (err) {
@@ -310,39 +344,13 @@ export const useConversationsStore = defineStore('conversations', () => {
     }
 
     try {
-      const rawMessages: ChatMessage[] = JSON.parse(JSON.stringify(messages));
-      const existingConv = conversations.value.find(c => c.id === conversationId);
+      const conversation = buildConversationPayload(
+        conversationId,
+        messages,
+        settingsStore.workingDirectory
+      );
 
-      // Preserve existing custom title if it was explicitly set via rename
-      const generatedTitle = generateTitle(messages);
-      // Use the customTitle flag to determine if the title was manually set
-      const title = existingConv?.customTitle ? existingConv.title : generatedTitle;
-
-      const conversation: Conversation = {
-        id: conversationId,
-        title,
-        customTitle: existingConv?.customTitle,  // Preserve the flag
-        workingDirectory: settingsStore.workingDirectory,
-        messages: rawMessages,
-        createdAt: existingConv?.createdAt || Date.now(),
-        updatedAt: Date.now(),
-      };
-
-      logger.info('Saving conversation (background)', {
-        id: conversation.id,
-        messageCount: conversation.messages.length,
-      });
-
-      await window.electron.conversation.save(conversation);
-
-      // Update in list
-      const index = conversations.value.findIndex((c) => c.id === conversation.id);
-      if (index !== -1) {
-        conversations.value[index] = { ...conversation, messages: [] };
-      } else {
-        conversations.value.push({ ...conversation, messages: [] });
-      }
-
+      await executeSave(conversation, { useTimeout: false, logPrefix: ' (background)' });
       return true;
     } catch (err) {
       logger.error('Failed to save conversation (background)', { conversationId, error: err });
@@ -358,7 +366,7 @@ export const useConversationsStore = defineStore('conversations', () => {
     chatStore.clearMessages();
 
     // Generate new conversation ID
-    const id = generateId('conv');
+    const id = generateId(ID_PREFIXES.CONVERSATION);
 
     // Update both stores
     currentConversationId.value = id;

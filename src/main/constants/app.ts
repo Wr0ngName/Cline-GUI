@@ -1,7 +1,13 @@
 /**
  * Main process constants
  * Centralized magic numbers for configuration and timeouts
+ *
+ * NOTE: Shared constants (FILE_CONSTANTS, PREVIEW_SIZES) are in src/shared/constants.ts
  */
+import { FILE_CONSTANTS, PREVIEW_SIZES } from '../../shared/constants';
+
+// Re-export for convenience
+export { FILE_CONSTANTS, PREVIEW_SIZES };
 
 export const MAIN_CONSTANTS = {
   AUTH: {
@@ -45,12 +51,12 @@ export const MAIN_CONSTANTS = {
     INTERRUPT_DELAY_MS: 1000,
   },
   FILES: {
-    /** Debounce interval for file watcher events - 300ms */
-    WATCHER_DEBOUNCE_MS: 300,
+    /** Debounce interval for file watcher events (from shared constants) */
+    WATCHER_DEBOUNCE_MS: FILE_CONSTANTS.WATCHER_DEBOUNCE_MS,
     /** Maximum depth for file tree scanning */
     MAX_TREE_DEPTH: 5,
-    /** Threshold for batch file changes before full tree reload */
-    BATCH_CHANGE_THRESHOLD: 10,
+    /** Threshold for batch file changes before full tree reload (from shared constants) */
+    BATCH_CHANGE_THRESHOLD: FILE_CONSTANTS.BATCH_CHANGE_THRESHOLD,
   },
   CONFIG: {
     /** Maximum number of recent projects to keep */

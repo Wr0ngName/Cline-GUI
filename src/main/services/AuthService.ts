@@ -17,7 +17,10 @@ import * as pty from 'node-pty';
 import type { IPty } from 'node-pty';
 
 import { MAIN_CONSTANTS } from '../constants/app';
+import { stripAnsi } from '../utils/ansi';
 import logger from '../utils/logger';
+import { getResourcesPath, WindowsPaths, ClaudeCliPaths } from '../utils/resourcePaths';
+import { sanitizeForLog } from '../utils/stringUtils';
 
 export interface OAuthFlowState {
   pty: IPty | null;
@@ -101,19 +104,16 @@ export class AuthService {
       return null;
     }
 
-    const resourcesPath = process.resourcesPath || path.dirname(app.getAppPath());
+    const bashExePath = WindowsPaths.getBashExe();
 
-    // Git-bash is extracted during install to resources/git-bash/
-    const bashExePath = path.join(resourcesPath, 'git-bash', 'usr', 'bin', 'bash.exe');
-
-    if (fs.existsSync(bashExePath)) {
+    if (WindowsPaths.hasBundledGitBash()) {
       logger.info('Found bundled Git Bash', { bashExePath });
       return bashExePath;
     }
 
     logger.warn('Bundled Git Bash not found (should be extracted during install)', {
       expected: bashExePath,
-      resourcesPath
+      resourcesPath: getResourcesPath()
     });
     return null;
   }
@@ -126,19 +126,14 @@ export class AuthService {
     logger.info('Finding Claude CLI...');
 
     // First, try the bundled CLI in the app's resources (unpacked from asar)
-    const resourcesPath = process.resourcesPath || path.dirname(app.getAppPath());
+    const resourcesPath = getResourcesPath();
     logger.info('Resource paths', {
       resourcesPath,
       appPath: app.getAppPath(),
       isPackaged: app.isPackaged,
     });
 
-    const bundledCliPaths = [
-      // In packaged app: resources/app.asar.unpacked/node_modules/@anthropic-ai/claude-code/cli.js
-      path.join(resourcesPath, 'app.asar.unpacked', 'node_modules', '@anthropic-ai', 'claude-code', 'cli.js'),
-      // In development: node_modules/@anthropic-ai/claude-code/cli.js
-      path.join(app.getAppPath(), 'node_modules', '@anthropic-ai', 'claude-code', 'cli.js'),
-    ];
+    const bundledCliPaths = ClaudeCliPaths.getBundledCliPaths();
 
     // Log all bundled paths we're checking
     for (const cliPath of bundledCliPaths) {
@@ -261,11 +256,11 @@ export class AuthService {
         // On Windows, use bundled Node.js executable instead of ELECTRON_RUN_AS_NODE
         // Windows GUI apps (like Electron) have known stdout capture issues
         // See: https://github.com/electron/electron/issues/4552
-        const resourcesPath = process.resourcesPath || path.dirname(app.getAppPath());
-        const bundledNodeExe = path.join(resourcesPath, 'node.exe');
+        const resourcesPath = getResourcesPath();
+        const bundledNodeExe = WindowsPaths.getBundledNodeExe();
 
         // Log detailed info about bundled node.exe
-        const nodeExeExists = fs.existsSync(bundledNodeExe);
+        const nodeExeExists = WindowsPaths.hasBundledNode();
         const nodeExeStat = this.safeFileStat(bundledNodeExe);
         logger.info('Windows: checking bundled Node.js', {
           bundledNodeExe,
@@ -431,7 +426,7 @@ export class AuthService {
 
         const checkForUrl = () => {
           // Remove ANSI escape codes for parsing
-          const clean = this.stripAnsi(output);
+          const clean = stripAnsi(output);
 
           // Look for the OAuth URL
           const urlMatch = clean.match(/(https:\/\/claude\.ai\/oauth\/authorize\S+)/);
@@ -463,9 +458,7 @@ export class AuthService {
           // Log each data chunk for debugging (first 500 chars, hex encoded for non-ASCII safety)
           const dataPreview = data.length > 500 ? data.slice(0, 500) + '...' : data;
           // Sanitize non-printable characters for log readability
-          const sanitizedPreview = Array.from(dataPreview.slice(0, 100))
-            .map(c => c.charCodeAt(0) < 32 || c.charCodeAt(0) > 126 ? '?' : c)
-            .join('');
+          const sanitizedPreview = sanitizeForLog(dataPreview);
           logger.debug(`PTY data chunk #${dataChunkCount}`, {
             length: data.length,
             totalLength: output.length,
@@ -484,7 +477,7 @@ export class AuthService {
               dataChunkCount,
               elapsedMs: Date.now() - startTime,
               rawOutputHex: Buffer.from(rawOutput.slice(0, 1000)).toString('hex'),
-              cleanOutput: this.stripAnsi(output).slice(0, 500),
+              cleanOutput: stripAnsi(output).slice(0, 500),
             });
             this.cleanupOAuthFlow();
             resolve({ authUrl: '', error: 'Timeout waiting for authentication URL. Is Claude CLI installed?' });
@@ -496,7 +489,7 @@ export class AuthService {
           const elapsedMs = Date.now() - startTime;
 
           // Log full output on exit for debugging
-          const cleanOutput = this.stripAnsi(output);
+          const cleanOutput = stripAnsi(output);
 
           // Analyze the output for common error patterns
           const errorPatterns = {
@@ -728,7 +721,7 @@ export class AuthService {
   ): boolean {
     if (handlers.resolved) return true;
 
-    const clean = this.stripAnsi(output);
+    const clean = stripAnsi(output);
 
     // Check for token in output
     const tokenResult = this.extractTokenFromOutput(clean);
@@ -1002,22 +995,6 @@ export class AuthService {
     logger.info('OAuth flow cleaned up');
   }
 
-  /**
-   * Strip ANSI escape codes from string.
-   */
-  private stripAnsi(str: string): string {
-    /* eslint-disable no-control-regex */
-    // CSI sequences (most common)
-    let clean = str.replace(/\x1b\[[0-9;?]*[a-zA-Z]/g, '');
-    // OSC sequences
-    clean = clean.replace(/\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)/g, '');
-    // DCS, SOS, PM, APC
-    clean = clean.replace(/\x1b[PX^_][^\x1b]*\x1b\\/g, '');
-    // Other single-char escapes
-    clean = clean.replace(/\x1b./g, '');
-    /* eslint-enable no-control-regex */
-    return clean;
-  }
 }
 
 export default AuthService;

@@ -5,10 +5,13 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
+import { CONVERSATION_CONSTANTS } from '../../shared/constants';
+import { generateId, ID_PREFIXES } from '../../shared/id';
 import { Conversation } from '../../shared/types';
 import { MAIN_CONSTANTS } from '../constants/app';
 import logger from '../utils/logger';
 import { getConversationsPath, isPathWithin } from '../utils/paths';
+import { generateTitleFromContent } from '../utils/stringUtils';
 
 export class ConversationService {
   private conversationsDir: string;
@@ -166,7 +169,10 @@ export class ConversationService {
         if (!updated.title && updated.messages.length > 0) {
           const firstUserMessage = updated.messages.find((m) => m.role === 'user');
           if (firstUserMessage) {
-            updated.title = firstUserMessage.content.slice(0, 50) + (firstUserMessage.content.length > 50 ? '...' : '');
+            updated.title = generateTitleFromContent(
+              firstUserMessage.content,
+              CONVERSATION_CONSTANTS.TITLE_MAX_LENGTH
+            );
           }
         }
 
@@ -249,22 +255,13 @@ export class ConversationService {
    */
   create(workingDirectory: string): Conversation {
     return {
-      id: this.generateId(),
+      id: generateId(ID_PREFIXES.CONVERSATION),
       title: '',
       workingDirectory,
       messages: [],
       createdAt: Date.now(),
       updatedAt: Date.now(),
     };
-  }
-
-  /**
-   * Generate a unique conversation ID
-   */
-  private generateId(): string {
-    const timestamp = Date.now().toString(36);
-    const random = Math.random().toString(36).slice(2, 8);
-    return `conv_${timestamp}_${random}`;
   }
 }
 

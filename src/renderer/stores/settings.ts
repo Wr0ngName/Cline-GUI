@@ -28,6 +28,7 @@ export const useSettingsStore = defineStore('settings', () => {
   const recentProjects = computed(() => config.value.recentProjects);
   const theme = computed(() => config.value.theme);
   const selectedModel = computed(() => config.value.selectedModel);
+  const hasCompletedInitialSetup = computed(() => config.value.hasCompletedInitialSetup);
   const needsSetup = computed(() => !workingDirectory.value || !hasAuth.value);
   const isDarkMode = computed(() => {
     if (config.value.theme === 'system') {
@@ -91,6 +92,10 @@ export const useSettingsStore = defineStore('settings', () => {
 
   async function setSelectedModel(model: string): Promise<void> {
     await saveConfig({ selectedModel: model });
+  }
+
+  async function setHasCompletedInitialSetup(completed: boolean): Promise<void> {
+    await saveConfig({ hasCompletedInitialSetup: completed });
   }
 
   function applyFontSize(size: number): void {
@@ -164,6 +169,7 @@ export const useSettingsStore = defineStore('settings', () => {
     recentProjects,
     theme,
     selectedModel,
+    hasCompletedInitialSetup,
     isDarkMode,
     needsSetup,
 
@@ -176,6 +182,7 @@ export const useSettingsStore = defineStore('settings', () => {
     setFontSize,
     setLogLevel,
     setSelectedModel,
+    setHasCompletedInitialSetup,
     applyTheme,
     applyFontSize,
     clearError,

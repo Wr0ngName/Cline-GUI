@@ -1,8 +1,8 @@
 /**
- * Generate a unique ID with a prefix
+ * Re-export ID generation from shared module
+ *
+ * This file maintains backwards compatibility with existing imports
+ * while centralizing ID generation logic in src/shared/id.ts
  */
-export function generateId(prefix: string): string {
-  const timestamp = Date.now().toString(36);
-  const random = Math.random().toString(36).slice(2, 11);
-  return `${prefix}_${timestamp}_${random}`;
-}
+
+export { generateId, ID_PREFIXES } from '../../shared/id';

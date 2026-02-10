@@ -14,6 +14,7 @@ import InputBox from './InputBox.vue';
 import MessageList from './MessageList.vue';
 import ResourceLimitWarning from './ResourceLimitWarning.vue';
 import Toast from '../shared/Toast.vue';
+import TransitionFade from '../shared/TransitionFade.vue';
 
 const chatStore = useChatStore();
 const { pendingActions, error, hasPendingActions, hasBackgroundTasks, backgroundTasksList, sessionUsage, hasSessionUsage, activeQueryCount, maxConcurrentQueries } = storeToRefs(chatStore);
@@ -52,14 +53,7 @@ function handleClearCompletedTasks() {
 <template>
   <div class="flex flex-col h-full">
     <!-- Error toast -->
-    <Transition
-      enter-active-class="transition ease-out duration-200"
-      enter-from-class="opacity-0 -translate-y-2"
-      enter-to-class="opacity-100 translate-y-0"
-      leave-active-class="transition ease-in duration-150"
-      leave-from-class="opacity-100 translate-y-0"
-      leave-to-class="opacity-0 -translate-y-2"
-    >
+    <TransitionFade type="slideDown">
       <div
         v-if="error"
         class="absolute top-0 left-0 right-0 z-10 p-4"
@@ -70,17 +64,10 @@ function handleClearCompletedTasks() {
           @dismiss="clearError"
         />
       </div>
-    </Transition>
+    </TransitionFade>
 
     <!-- Resource limit warning -->
-    <Transition
-      enter-active-class="transition ease-out duration-200"
-      enter-from-class="opacity-0 -translate-y-2"
-      enter-to-class="opacity-100 translate-y-0"
-      leave-active-class="transition ease-in duration-150"
-      leave-from-class="opacity-100 translate-y-0"
-      leave-to-class="opacity-0 -translate-y-2"
-    >
+    <TransitionFade type="slideDown">
       <div
         v-if="activeQueryCount > 0"
         class="px-4 pt-2"
@@ -90,20 +77,13 @@ function handleClearCompletedTasks() {
           :max-count="maxConcurrentQueries"
         />
       </div>
-    </Transition>
+    </TransitionFade>
 
     <!-- Messages -->
     <MessageList />
 
     <!-- Background tasks panel -->
-    <Transition
-      enter-active-class="transition ease-out duration-200"
-      enter-from-class="opacity-0 translate-y-2"
-      enter-to-class="opacity-100 translate-y-0"
-      leave-active-class="transition ease-in duration-150"
-      leave-from-class="opacity-100 translate-y-0"
-      leave-to-class="opacity-0 translate-y-2"
-    >
+    <TransitionFade type="slideUp">
       <div
         v-if="hasBackgroundTasks"
         class="px-4 pt-2"
@@ -114,7 +94,7 @@ function handleClearCompletedTasks() {
           @clear-completed="handleClearCompletedTasks"
         />
       </div>
-    </Transition>
+    </TransitionFade>
 
     <!-- Pending actions -->
     <div
@@ -137,19 +117,12 @@ function handleClearCompletedTasks() {
     </div>
 
     <!-- Context usage bar -->
-    <Transition
-      enter-active-class="transition ease-out duration-200"
-      enter-from-class="opacity-0"
-      enter-to-class="opacity-100"
-      leave-active-class="transition ease-in duration-150"
-      leave-from-class="opacity-100"
-      leave-to-class="opacity-0"
-    >
+    <TransitionFade>
       <ContextUsageBar
         v-if="hasSessionUsage"
         :usage="sessionUsage"
       />
-    </Transition>
+    </TransitionFade>
 
     <!-- Input -->
     <InputBox

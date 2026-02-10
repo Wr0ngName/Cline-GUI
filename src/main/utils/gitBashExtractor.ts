@@ -10,9 +10,9 @@
 
 import { execSync } from 'child_process';
 import * as fs from 'fs';
-import * as path from 'path';
 
 import { debugLog } from './debugLog';
+import { SquirrelPaths } from './resourcePaths';
 
 /**
  * Extract git-bash.zip to resources/git-bash/ during Squirrel install/update.
@@ -24,14 +24,12 @@ export function extractGitBashOnInstall(): void {
   }
 
   try {
-    // In packaged app, process.resourcesPath points to the resources folder
-    const resourcesPath = process.resourcesPath || path.dirname(process.execPath);
-
-    const gitBashZip = path.join(resourcesPath, 'git-bash.zip');
-    const bundledVersionFile = path.join(resourcesPath, 'version.txt');
-    const extractedDir = path.join(resourcesPath, 'git-bash');
-    const extractedVersionFile = path.join(extractedDir, '.version');
-    const bashExePath = path.join(extractedDir, 'usr', 'bin', 'bash.exe');
+    // Use SquirrelPaths which handles app not being initialized yet
+    const gitBashZip = SquirrelPaths.getGitBashZip();
+    const bundledVersionFile = SquirrelPaths.getBundledVersionFile();
+    const extractedDir = SquirrelPaths.getGitBashDir();
+    const extractedVersionFile = SquirrelPaths.getExtractedVersionFile();
+    const bashExePath = SquirrelPaths.getBashExe();
 
     debugLog(`Git Bash extraction: checking ${gitBashZip}`);
 

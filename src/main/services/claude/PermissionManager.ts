@@ -11,6 +11,7 @@ import type {
   PermissionUpdate,
 } from '@anthropic-ai/claude-agent-sdk';
 
+import { generateId, ID_PREFIXES } from '../../../shared/id';
 import { PendingAction, ActionResponse } from '../../../shared/types';
 import { MAIN_CONSTANTS } from '../../constants/app';
 import logger from '../../utils/logger';
@@ -39,7 +40,6 @@ type ToolUseEmitter = (action: PendingAction) => void;
 export class PermissionManager {
   private configService: ConfigService;
   private pendingPermissions: Map<string, PendingPermission> = new Map();
-  private actionCounter = 0;
   private emitToolUse: ToolUseEmitter;
 
   constructor(configService: ConfigService, emitToolUse: ToolUseEmitter) {
@@ -48,19 +48,12 @@ export class PermissionManager {
   }
 
   /**
-   * Generate a unique action ID
-   */
-  private generateActionId(): string {
-    return `action_${Date.now()}_${++this.actionCounter}`;
-  }
-
-  /**
    * Create the canUseTool callback for custom permission handling
    * This is called by the SDK when Claude wants to use a tool
    */
   createCanUseToolCallback(): CanUseTool {
     return async (toolName, input, options): Promise<PermissionResult> => {
-      const actionId = this.generateActionId();
+      const actionId = generateId(ID_PREFIXES.ACTION);
 
       logger.info('Tool permission requested', { actionId, toolName, input });
 

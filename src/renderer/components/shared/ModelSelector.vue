@@ -8,16 +8,18 @@ import { ref, computed, onMounted, onUnmounted } from 'vue';
 import { storeToRefs } from 'pinia';
 
 import type { ModelInfo } from '@shared/types';
+import { useAsyncOperation } from '../../composables/useAsyncOperation';
 import { useSettingsStore } from '../../stores/settings';
 import { logger } from '../../utils/logger';
 import Icon from './Icon.vue';
 import Spinner from './Spinner.vue';
+import TransitionFade from './TransitionFade.vue';
 
 const settingsStore = useSettingsStore();
 const { selectedModel } = storeToRefs(settingsStore);
 
 const models = ref<ModelInfo[]>([]);
-const isLoading = ref(false);
+const { isLoading, execute } = useAsyncOperation();
 const isOpen = ref(false);
 const dropdownRef = ref<HTMLDivElement | null>(null);
 
@@ -47,16 +49,11 @@ function formatModelId(modelId: string): string {
 
 // Load available models
 async function loadModels(): Promise<void> {
-  isLoading.value = true;
-  try {
+  await execute(async () => {
     const loadedModels = await window.electron.claude.getModels();
     models.value = loadedModels;
     logger.debug('Loaded models', { count: loadedModels.length });
-  } catch (err) {
-    logger.warn('Failed to load models', { error: err instanceof Error ? err.message : String(err) });
-  } finally {
-    isLoading.value = false;
-  }
+  }, 'Failed to load models');
 }
 
 // Select a model
@@ -136,14 +133,7 @@ onUnmounted(() => {
     </button>
 
     <!-- Dropdown Menu -->
-    <Transition
-      enter-active-class="transition ease-out duration-100"
-      enter-from-class="opacity-0 scale-95"
-      enter-to-class="opacity-100 scale-100"
-      leave-active-class="transition ease-in duration-75"
-      leave-from-class="opacity-100 scale-100"
-      leave-to-class="opacity-0 scale-95"
-    >
+    <TransitionFade type="scale">
       <div
         v-if="isOpen"
         class="absolute right-0 top-full mt-1 z-50 min-w-[200px] max-w-[280px] rounded-lg shadow-lg border border-surface-200 dark:border-surface-700 bg-white dark:bg-surface-800 py-1 overflow-hidden"
@@ -231,6 +221,6 @@ onUnmounted(() => {
           </button>
         </template>
       </div>
-    </Transition>
+    </TransitionFade>
   </div>
 </template>

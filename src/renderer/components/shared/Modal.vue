@@ -5,7 +5,8 @@
 
 import { onMounted, onUnmounted, watch, ref, nextTick } from 'vue';
 import Icon from './Icon.vue';
-import { generateId } from '../../utils/id';
+import TransitionFade from './TransitionFade.vue';
+import { generateId, ID_PREFIXES } from '../../utils/id';
 
 interface Props {
   /** Whether the modal is open */
@@ -31,7 +32,7 @@ const props = withDefaults(defineProps<Props>(), {
 });
 
 // Generate unique IDs for ARIA attributes using consistent utility
-const modalId = generateId('modal');
+const modalId = generateId(ID_PREFIXES.MODAL);
 const titleId = `${modalId}-title`;
 const descId = `${modalId}-desc`;
 
@@ -104,14 +105,7 @@ const sizeClasses = {
 
 <template>
   <Teleport to="body">
-    <Transition
-      enter-active-class="transition ease-out duration-200"
-      enter-from-class="opacity-0"
-      enter-to-class="opacity-100"
-      leave-active-class="transition ease-in duration-150"
-      leave-from-class="opacity-100"
-      leave-to-class="opacity-0"
-    >
+    <TransitionFade type="fade">
       <div
         v-if="open"
         class="fixed inset-0 z-50 flex items-center justify-center p-4"
@@ -127,14 +121,7 @@ const sizeClasses = {
         />
 
         <!-- Modal content -->
-        <Transition
-          enter-active-class="transition ease-out duration-200"
-          enter-from-class="opacity-0 scale-95"
-          enter-to-class="opacity-100 scale-100"
-          leave-active-class="transition ease-in duration-150"
-          leave-from-class="opacity-100 scale-100"
-          leave-to-class="opacity-0 scale-95"
-        >
+        <TransitionFade type="scale">
           <div
             v-if="open"
             ref="modalContentRef"
@@ -190,8 +177,8 @@ const sizeClasses = {
               <slot name="footer" />
             </div>
           </div>
-        </Transition>
+        </TransitionFade>
       </div>
-    </Transition>
+    </TransitionFade>
   </Teleport>
 </template>

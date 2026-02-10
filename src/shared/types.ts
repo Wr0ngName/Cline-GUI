@@ -301,6 +301,8 @@ export interface AppConfig {
   logLevel: LogLevel;
   /** Selected Claude model (empty means SDK default) */
   selectedModel: string;
+  /** Whether the user has completed the initial setup wizard */
+  hasCompletedInitialSetup: boolean;
 }
 
 /**
@@ -317,6 +319,7 @@ export const DEFAULT_CONFIG: AppConfig = {
   autoApproveReads: true,
   logLevel: 'warn',
   selectedModel: '', // Empty means use SDK default
+  hasCompletedInitialSetup: false,
 };
 
 // Conversation types
