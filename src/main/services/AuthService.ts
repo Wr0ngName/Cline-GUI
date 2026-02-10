@@ -772,23 +772,72 @@ export class AuthService {
 
   /**
    * Extract OAuth token from CLI output.
+   *
+   * The CLI output often has no whitespace between token and following text, e.g.:
+   * "sk-ant-oat01-...suN6cQAAStorethistokensecurely..."
+   *
+   * Real OAuth tokens are base64url-encoded and end with typical base64 patterns
+   * (uppercase letters, digits, = padding). Junk text starts with "Store", "You", etc.
    */
   private extractTokenFromOutput(cleanOutput: string): string | null {
     const tokenMatch = cleanOutput.match(/(sk-ant-oat01-[A-Za-z0-9_-]+)/);
     if (!tokenMatch) return null;
 
     let token = tokenMatch[1];
+    const originalLength = token.length;
 
-    // OAuth tokens are ~91 chars. If longer and ends with "Store" (from CLI output
-    // "Store your token securely"), the regex over-matched due to missing whitespace
-    if (token.length > MAIN_CONSTANTS.AUTH.OAUTH_TOKEN_EXPECTED_LENGTH && token.endsWith('Store')) {
-      token = token.slice(0, -5);
+    // OAuth tokens are typically 91-108 chars. If longer, junk may have been captured.
+    // The regex over-matches because it allows all base64url chars which includes letters
+    // that start the next CLI message like "Store your token securely".
+    if (token.length > 91) {
+      // Strategy 1: Look for known junk patterns (most reliable)
+      const junkPatterns = [
+        'Store',      // "Store your token securely" / "Storethistokensecurely"
+        'You',        // "You won't be able to see it again"
+        'Use',        // "Use this token by setting"
+        'This',       // "This is your..."
+        'Keep',       // "Keep this token..."
+        'Save',       // "Save this token..."
+      ];
+      for (const junk of junkPatterns) {
+        const junkIndex = token.indexOf(junk);
+        // Only trim if junk appears after a reasonable token length (80+ chars)
+        if (junkIndex > 80) {
+          logger.info('Trimming junk from OAuth token', {
+            junkPattern: junk,
+            junkIndex,
+            originalLength,
+          });
+          token = token.substring(0, junkIndex);
+          break;
+        }
+      }
+    }
+
+    // Strategy 2: If still too long, look for transition from base64 to English text
+    // Base64 tokens typically end with uppercase or = padding
+    // English text after has pattern like uppercase followed by lowercase
+    if (token.length > 91) {
+      // Find last occurrence of typical base64 ending pattern followed by capital+lowercase
+      const transitionMatch = token.match(/^(.{80,}?[A-Z0-9=_-]{2,})([A-Z][a-z])/);
+      if (transitionMatch) {
+        logger.info('Trimming OAuth token at case transition', {
+          originalLength,
+          newLength: transitionMatch[1].length,
+        });
+        token = transitionMatch[1];
+      }
     }
 
     if (token.length <= 80) {
       logger.warn('OAuth token may be truncated', { length: token.length });
     }
 
+    if (token.length !== originalLength) {
+      logger.info('OAuth token trimmed', { originalLength, finalLength: token.length });
+    }
+
+    logger.debug('Extracted OAuth token', { length: token.length });
     return token;
   }
 
