@@ -397,12 +397,20 @@ export class ClaudeCodeService {
     const bundledNodeExe = path.join(resourcesPath, 'node.exe');
 
     // Check for bundled Git Bash (required by Claude Code CLI on Windows)
-    const bundledGitBash = path.join(resourcesPath, 'git-bash', 'usr', 'bin', 'bash.exe');
+    const gitBashBinDir = path.join(resourcesPath, 'git-bash', 'usr', 'bin');
+    const bundledGitBash = path.join(gitBashBinDir, 'bash.exe');
     const extraEnv: Record<string, string> = {};
 
     if (fs.existsSync(bundledGitBash)) {
       logger.info('Windows: using bundled Git Bash', { bundledGitBash });
       extraEnv.CLAUDE_CODE_GIT_BASH_PATH = bundledGitBash;
+
+      // Add Git Bash bin directories to PATH so cygpath and other utilities are found
+      // The SDK spawns bash but doesn't set up the PATH correctly
+      const gitBashMingwBin = path.join(resourcesPath, 'git-bash', 'mingw64', 'bin');
+      const currentPath = process.env.PATH || '';
+      extraEnv.PATH = `${gitBashBinDir};${gitBashMingwBin};${currentPath}`;
+      logger.info('Windows: added Git Bash to PATH', { gitBashBinDir, gitBashMingwBin });
     } else {
       logger.warn('Windows: bundled Git Bash not found', { expectedPath: bundledGitBash });
     }
