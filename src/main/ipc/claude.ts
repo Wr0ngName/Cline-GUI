@@ -26,9 +26,13 @@ import logger from '../utils/logger';
  */
 export function setupClaudeIPC(claudeService: ClaudeCodeService): void {
   // Send message to Claude
-  ipcMain.handle(IPC_CHANNELS.CLAUDE_SEND, async (_event, conversationId: string, message: string, workingDir: string) => {
+  ipcMain.handle(IPC_CHANNELS.CLAUDE_SEND, async (_event, conversationId: string, message: string, workingDir: string, resumeSessionId?: string) => {
     try {
-      logger.debug('IPC: claude:send', { conversationId, messageLength: message?.length || 0 });
+      logger.debug('IPC: claude:send', {
+        conversationId,
+        messageLength: message?.length || 0,
+        hasResumeSession: !!resumeSessionId,
+      });
 
       // Validate service
       ensureService(claudeService, 'ClaudeCodeService');
@@ -38,7 +42,7 @@ export function setupClaudeIPC(claudeService: ClaudeCodeService): void {
       validateString(message, 'Message');
       validateString(workingDir, 'Working directory');
 
-      await claudeService.sendMessage(conversationId, message, workingDir);
+      await claudeService.sendMessage(conversationId, message, workingDir, resumeSessionId);
     } catch (error) {
       logger.error('Failed to send message to Claude', { error, conversationId, messageLength: message?.length });
       throw new IpcError(formatErrorMessage('Failed to send message', error), IPC_CHANNELS.CLAUDE_SEND, ERROR_CODES.CLAUDE_SEND_FAILED, error);

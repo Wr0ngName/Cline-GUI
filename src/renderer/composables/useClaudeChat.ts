@@ -30,6 +30,7 @@ let cleanupCommandAction: (() => void) | null = null;
 let cleanupTaskNotification: (() => void) | null = null;
 let cleanupUsageUpdate: (() => void) | null = null;
 let cleanupActiveQueries: (() => void) | null = null;
+let cleanupSessionId: (() => void) | null = null;
 
 // Shared slash commands state (singleton)
 const sharedSlashCommands = shallowRef<SlashCommandInfo[]>([]);
@@ -155,8 +156,16 @@ export function useClaudeChat() {
     conversationMessages.set(currentConvId, [...chatStore.messages]);
 
     try {
-      // Send message via IPC with conversationId
-      await window.electron.claude.send(currentConvId, content, filesStore.workingDirectory);
+      // Get SDK session ID for this conversation (for resume support)
+      const resumeSessionId = conversationsStore.getSdkSessionId(currentConvId);
+
+      logger.info('Sending message to Claude', {
+        conversationId: currentConvId,
+        hasResumeSession: !!resumeSessionId,
+      });
+
+      // Send message via IPC with conversationId and optional resume session ID
+      await window.electron.claude.send(currentConvId, content, filesStore.workingDirectory, resumeSessionId);
     } catch (err) {
       logger.error('Failed to send message', err);
       chatStore.setError(currentConvId, 'Failed to send message to Claude');
@@ -377,6 +386,15 @@ export function useClaudeChat() {
       logger.debug('Active queries changed', { count, maxCount });
       chatStore.updateActiveQueries(count, maxCount);
     });
+
+    // Handle SDK session ID for resume support
+    cleanupSessionId = window.electron.claude.onSessionId((conversationId, sessionId) => {
+      logger.info('Received SDK session ID', {
+        conversationId,
+        sessionIdPreview: sessionId.slice(0, 20) + '...',
+      });
+      conversationsStore.setSdkSessionId(conversationId, sessionId);
+    });
   }
 
   /**
@@ -431,6 +449,10 @@ export function useClaudeChat() {
     if (cleanupActiveQueries) {
       cleanupActiveQueries();
       cleanupActiveQueries = null;
+    }
+    if (cleanupSessionId) {
+      cleanupSessionId();
+      cleanupSessionId = null;
     }
   }
 

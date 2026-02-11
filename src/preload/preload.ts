@@ -11,8 +11,8 @@ import { IPC_CHANNELS, ActionResponse } from '../shared/types';
 const electronAPI: ElectronAPI = {
   // Claude operations - all operations now include conversationId for multi-instance support
   claude: {
-    send: (conversationId: string, message: string, workingDir: string) =>
-      ipcRenderer.invoke(IPC_CHANNELS.CLAUDE_SEND, conversationId, message, workingDir),
+    send: (conversationId: string, message: string, workingDir: string, resumeSessionId?: string) =>
+      ipcRenderer.invoke(IPC_CHANNELS.CLAUDE_SEND, conversationId, message, workingDir, resumeSessionId),
 
     approve: (
       conversationId: string,
@@ -125,6 +125,16 @@ const electronAPI: ElectronAPI = {
       ) => callback(count, maxCount);
       ipcRenderer.on(IPC_CHANNELS.CLAUDE_ACTIVE_QUERIES, handler);
       return () => ipcRenderer.removeListener(IPC_CHANNELS.CLAUDE_ACTIVE_QUERIES, handler);
+    },
+
+    onSessionId: (callback) => {
+      const handler = (
+        _event: Electron.IpcRendererEvent,
+        conversationId: string,
+        sessionId: string
+      ) => callback(conversationId, sessionId);
+      ipcRenderer.on(IPC_CHANNELS.CLAUDE_SESSION_ID, handler);
+      return () => ipcRenderer.removeListener(IPC_CHANNELS.CLAUDE_SESSION_ID, handler);
     },
   },
 

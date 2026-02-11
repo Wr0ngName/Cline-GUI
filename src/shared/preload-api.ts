@@ -29,7 +29,7 @@ export interface ElectronAPI {
   // Claude operations
   claude: {
     /** Send a message to Claude for a specific conversation */
-    send: (conversationId: string, message: string, workingDir: string) => Promise<void>;
+    send: (conversationId: string, message: string, workingDir: string, resumeSessionId?: string) => Promise<void>;
     /** Approve a pending action for a specific conversation */
     approve: (
       conversationId: string,
@@ -69,6 +69,8 @@ export interface ElectronAPI {
     onUsageUpdate: (callback: (conversationId: string, usage: SessionUsage) => void) => () => void;
     /** Active query count changed */
     onActiveQueriesChange: (callback: (count: number, maxCount: number) => void) => () => void;
+    /** SDK session ID received for a conversation (for resume support) */
+    onSessionId: (callback: (conversationId: string, sessionId: string) => void) => () => void;
   };
 
   // File operations

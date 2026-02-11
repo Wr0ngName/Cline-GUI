@@ -348,6 +348,8 @@ export interface Conversation {
   createdAt: number;
   /** Unix timestamp when the conversation was last updated */
   updatedAt: number;
+  /** SDK session ID for resuming conversation context */
+  sdkSessionId?: string;
 }
 
 // Update types
@@ -585,6 +587,8 @@ export const IPC_CHANNELS = {
   CLAUDE_ACTIVE_QUERIES: 'claude:active-queries',
   /** Get current active query status */
   CLAUDE_GET_ACTIVE_QUERIES: 'claude:get-active-queries',
+  /** SDK session ID for conversation continuity */
+  CLAUDE_SESSION_ID: 'claude:session-id',
 
   // File operations
   /** Open directory picker dialog */

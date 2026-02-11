@@ -24,6 +24,10 @@ export const useConversationsStore = defineStore('conversations', () => {
   const error = ref<string | null>(null);
   const isInitialized = ref(false);
 
+  // SDK session IDs per conversation (for resume support)
+  // This is stored in memory, not persisted - sessions are only valid for the current app session
+  const sdkSessionIds = ref<Map<string, string>>(new Map());
+
   // Set up watchers at store creation time for proper reactivity
   const chatStore = useChatStore();
   const { messages: chatMessages } = storeToRefs(chatStore);
@@ -107,6 +111,15 @@ export const useConversationsStore = defineStore('conversations', () => {
         conversations.value[index] = conversation;
       } else {
         conversations.value.push(conversation);
+      }
+
+      // Restore SDK session ID from persisted data (for resume support after app restart)
+      if (conversation.sdkSessionId) {
+        sdkSessionIds.value.set(id, conversation.sdkSessionId);
+        logger.info('Restored SDK session ID from saved conversation', {
+          id,
+          sessionIdPreview: conversation.sdkSessionId.slice(0, 20) + '...',
+        });
       }
 
       // Update current conversation ID in both stores
@@ -216,6 +229,9 @@ export const useConversationsStore = defineStore('conversations', () => {
     // Use the customTitle flag to determine if the title was manually set
     const title = existingConv?.customTitle ? existingConv.title : generatedTitle;
 
+    // Get SDK session ID from in-memory map (for persistence)
+    const sdkSessionId = sdkSessionIds.value.get(conversationId);
+
     return {
       id: conversationId,
       title,
@@ -224,6 +240,7 @@ export const useConversationsStore = defineStore('conversations', () => {
       messages: rawMessages,
       createdAt: existingConv?.createdAt || Date.now(),
       updatedAt: Date.now(),
+      sdkSessionId,
     };
   }
 
@@ -461,6 +478,32 @@ export const useConversationsStore = defineStore('conversations', () => {
   }
 
   /**
+   * Set SDK session ID for a conversation (for resume support)
+   */
+  function setSdkSessionId(conversationId: string, sessionId: string): void {
+    sdkSessionIds.value.set(conversationId, sessionId);
+    logger.info('Stored SDK session ID for conversation', {
+      conversationId,
+      sessionIdPreview: sessionId.slice(0, 20) + '...',
+    });
+  }
+
+  /**
+   * Get SDK session ID for a conversation (for resume support)
+   */
+  function getSdkSessionId(conversationId: string): string | undefined {
+    return sdkSessionIds.value.get(conversationId);
+  }
+
+  /**
+   * Clear SDK session ID for a conversation
+   */
+  function clearSdkSessionId(conversationId: string): void {
+    sdkSessionIds.value.delete(conversationId);
+    logger.debug('Cleared SDK session ID for conversation', { conversationId });
+  }
+
+  /**
    * Initialize the store - load conversations and enable auto-save
    */
   async function initialize(): Promise<void> {
@@ -526,5 +569,10 @@ export const useConversationsStore = defineStore('conversations', () => {
     clearError,
     initialize,
     cleanup,
+
+    // SDK session management (for resume support)
+    setSdkSessionId,
+    getSdkSessionId,
+    clearSdkSessionId,
   };
 });

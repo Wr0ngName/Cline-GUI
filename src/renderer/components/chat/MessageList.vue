@@ -1,9 +1,14 @@
 <script setup lang="ts">
 /**
  * Message list component - displays chat messages
+ *
+ * Auto-scroll behavior:
+ * - Scrolls to bottom when new messages arrive IF user is already at bottom
+ * - Scrolls during streaming IF user is at bottom
+ * - Does NOT scroll if user has scrolled up to read previous messages
  */
 
-import { ref, watch, nextTick } from 'vue';
+import { ref, watch, nextTick, onMounted, onUnmounted } from 'vue';
 import { storeToRefs } from 'pinia';
 
 import { useChatStore } from '../../stores/chat';
@@ -11,21 +16,75 @@ import MessageItem from './MessageItem.vue';
 import Icon from '../shared/Icon.vue';
 
 const chatStore = useChatStore();
-const { messages, hasMessages } = storeToRefs(chatStore);
+const { messages, hasMessages, currentStreamingContent } = storeToRefs(chatStore);
 
 const listRef = ref<HTMLDivElement | null>(null);
 
-// Auto-scroll to bottom when new messages arrive
+// Track if user is at/near bottom of scroll (within threshold)
+const SCROLL_THRESHOLD = 50; // pixels from bottom to consider "at bottom"
+const isUserAtBottom = ref(true);
+
+/**
+ * Check if scroll position is at/near bottom
+ */
+function checkIfAtBottom(): boolean {
+  if (!listRef.value) return true;
+  const { scrollTop, scrollHeight, clientHeight } = listRef.value;
+  return scrollHeight - scrollTop - clientHeight <= SCROLL_THRESHOLD;
+}
+
+/**
+ * Scroll to bottom of container
+ */
+function scrollToBottom(): void {
+  if (listRef.value) {
+    listRef.value.scrollTop = listRef.value.scrollHeight;
+  }
+}
+
+/**
+ * Handle scroll events to track user position
+ */
+function handleScroll(): void {
+  isUserAtBottom.value = checkIfAtBottom();
+}
+
+// Auto-scroll to bottom when new messages arrive (if user is at bottom)
 watch(
   () => messages.value.length,
   () => {
     nextTick(() => {
-      if (listRef.value) {
-        listRef.value.scrollTop = listRef.value.scrollHeight;
+      if (isUserAtBottom.value) {
+        scrollToBottom();
       }
     });
   }
 );
+
+// Auto-scroll during streaming (if user is at bottom)
+watch(
+  currentStreamingContent,
+  () => {
+    nextTick(() => {
+      if (isUserAtBottom.value) {
+        scrollToBottom();
+      }
+    });
+  }
+);
+
+// Set up scroll listener
+onMounted(() => {
+  if (listRef.value) {
+    listRef.value.addEventListener('scroll', handleScroll, { passive: true });
+  }
+});
+
+onUnmounted(() => {
+  if (listRef.value) {
+    listRef.value.removeEventListener('scroll', handleScroll);
+  }
+});
 </script>
 
 <template>

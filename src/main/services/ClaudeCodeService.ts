@@ -161,8 +161,9 @@ export class ClaudeCodeService {
    * @param conversationId - The conversation this message belongs to
    * @param message - The message content
    * @param workingDirectory - The working directory for file operations
+   * @param resumeSessionId - Optional SDK session ID to resume conversation context
    */
-  async sendMessage(conversationId: string, message: string, workingDirectory: string): Promise<void> {
+  async sendMessage(conversationId: string, message: string, workingDirectory: string, resumeSessionId?: string): Promise<void> {
     // Check resource limits
     if (this.activeQueries.size >= this.maxConcurrentQueries && !this.activeQueries.has(conversationId)) {
       const errorMsg = `Maximum concurrent conversations (${this.maxConcurrentQueries}) reached. ` +
@@ -231,6 +232,7 @@ export class ClaudeCodeService {
       },
       onTaskNotification: (notification: TaskNotification) => this.emitTaskNotification(conversationId, notification),
       onUsageUpdate: (usage: SessionUsage) => this.emitUsageUpdate(conversationId, usage),
+      onSessionId: (sessionId: string) => this.emitSessionId(conversationId, sessionId),
     });
 
     if (isSlashCommand) {
@@ -273,10 +275,17 @@ export class ClaudeCodeService {
           canUseTool: permissionManager.createCanUseToolCallback(),
           includePartialMessages: true,
           ...(selectedModel ? { model: selectedModel } : {}),
+          ...(resumeSessionId ? { resume: resumeSessionId } : {}),
           spawnClaudeCodeProcess: (options: SpawnOptions): SpawnedProcess => {
             return this.spawnSDKProcess(options, conversationId);
           },
         },
+      });
+
+      logger.info('SDK query options', {
+        conversationId,
+        hasResume: !!resumeSessionId,
+        resumeSessionId: resumeSessionId?.slice(0, 20) + (resumeSessionId && resumeSessionId.length > 20 ? '...' : ''),
       });
 
       // Create and store the query instance
@@ -671,6 +680,14 @@ export class ClaudeCodeService {
    */
   private emitUsageUpdate(conversationId: string, usage: SessionUsage): void {
     this.send(IPC_CHANNELS.CLAUDE_USAGE_UPDATE, conversationId, usage);
+  }
+
+  /**
+   * Emit session ID to the renderer for conversation continuity
+   */
+  private emitSessionId(conversationId: string, sessionId: string): void {
+    logger.info('Emitting SDK session ID to renderer', { conversationId, sessionId: sessionId.slice(0, 20) + '...' });
+    this.send(IPC_CHANNELS.CLAUDE_SESSION_ID, conversationId, sessionId);
   }
 
   /**

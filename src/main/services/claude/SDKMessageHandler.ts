@@ -24,6 +24,7 @@ export interface MessageHandlerCallbacks {
   onSlashCommands: (commands: SlashCommandInfo[]) => void;
   onTaskNotification: (notification: TaskNotification) => void;
   onUsageUpdate: (usage: SessionUsage) => void;
+  onSessionId?: (sessionId: string) => void;
 }
 
 /**
@@ -341,37 +342,47 @@ export class SDKMessageHandler {
       hasSlashCommands: !!systemMsg.slash_commands,
     });
 
-    // Handle init message - capture available slash commands
-    if (systemMsg.subtype === 'init' && systemMsg.slash_commands) {
+    // Handle init message - capture available slash commands and session ID
+    if (systemMsg.subtype === 'init') {
       logger.info('SDK init received', {
-        slashCommandCount: systemMsg.slash_commands.length,
+        slashCommandCount: systemMsg.slash_commands?.length || 0,
         slashCommands: systemMsg.slash_commands,
         model: systemMsg.model,
+        sessionId: systemMsg.sessionId,
       });
 
-      // Always merge SDK commands with existing cache (built-in + any previous SDK commands)
-      // This preserves descriptions from built-in commands and supportedCommands()
-      const commandMap = new Map<string, SlashCommandInfo>();
-
-      // Add existing cached commands first (preserves descriptions)
-      for (const cmd of this.cachedSlashCommands) {
-        commandMap.set(cmd.name, cmd);
+      // Emit session ID if present (for conversation continuity)
+      if (systemMsg.sessionId && this.callbacks.onSessionId) {
+        logger.info('SDK session ID received', { sessionId: systemMsg.sessionId });
+        this.callbacks.onSessionId(systemMsg.sessionId);
       }
 
-      // Add new SDK commands (only if not already present - preserve existing descriptions)
-      for (const name of systemMsg.slash_commands) {
-        if (!commandMap.has(name)) {
-          commandMap.set(name, { name, description: '', argumentHint: '' });
+      // Process slash commands if present
+      if (systemMsg.slash_commands) {
+        // Always merge SDK commands with existing cache (built-in + any previous SDK commands)
+        // This preserves descriptions from built-in commands and supportedCommands()
+        const commandMap = new Map<string, SlashCommandInfo>();
+
+        // Add existing cached commands first (preserves descriptions)
+        for (const cmd of this.cachedSlashCommands) {
+          commandMap.set(cmd.name, cmd);
         }
-      }
 
-      this.cachedSlashCommands = Array.from(commandMap.values());
-      logger.info('Merged built-in and SDK commands from init', {
-        total: this.cachedSlashCommands.length,
-        sdkCount: systemMsg.slash_commands.length,
-      });
-      // Emit slash commands to renderer
-      this.callbacks.onSlashCommands(this.cachedSlashCommands);
+        // Add new SDK commands (only if not already present - preserve existing descriptions)
+        for (const name of systemMsg.slash_commands) {
+          if (!commandMap.has(name)) {
+            commandMap.set(name, { name, description: '', argumentHint: '' });
+          }
+        }
+
+        this.cachedSlashCommands = Array.from(commandMap.values());
+        logger.info('Merged built-in and SDK commands from init', {
+          total: this.cachedSlashCommands.length,
+          sdkCount: systemMsg.slash_commands.length,
+        });
+        // Emit slash commands to renderer
+        this.callbacks.onSlashCommands(this.cachedSlashCommands);
+      }
     }
 
     // Handle status messages (like compacting)
