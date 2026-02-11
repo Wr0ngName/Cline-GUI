@@ -146,12 +146,17 @@ build:linux:manual:
         -e DEBUG="electron-forge:*,electron-packager:*,electron-winstaller:*" \
         electronuserland/builder:wine-mono \
         bash -c "
-          set -ex
+          set -e
 
           # Diagnostics
           echo '=== Wine/Mono versions ==='
-          wine64 --version || true
-          mono --version | head -1 || true
+          wine64 --version || echo 'wine64 not available'
+          mono --version | head -1 || echo 'mono not available'
+
+          # Check Wine can run basic executables
+          echo '=== Testing Wine ==='
+          echo 'int main() { return 0; }' > /tmp/test.c
+          x86_64-w64-mingw32-gcc -o /tmp/test.exe /tmp/test.c 2>/dev/null && wine64 /tmp/test.exe && echo 'Wine test: OK' || echo 'Wine test: FAILED (mingw not available or wine broken)'
 
           # Install Node 20 (base image has Node 18)
           curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
@@ -167,14 +172,32 @@ build:linux:manual:
             ./scripts/download-git-bash-windows.sh
           fi
 
-          # Build
+          # Build - capture output to find errors
           echo '=== Building Windows installer ==='
-          npm run make -- --platform=win32
+          npm run make -- --platform=win32 2>&1 | tee /tmp/build.log
+          BUILD_EXIT=\${PIPESTATUS[0]}
+
+          echo '=== Build exit code:' \$BUILD_EXIT '==='
+
+          # Check for Squirrel-specific errors in log
+          if grep -i -E '(error|exception|failed)' /tmp/build.log | grep -i squirrel; then
+            echo '=== Squirrel errors found in build log ==='
+          fi
 
           # Verify output
           echo '=== Build output ==='
-          ls -la out/make/squirrel.windows/x64/
-          test -f out/make/squirrel.windows/x64/*.exe
+          ls -la out/make/squirrel.windows/x64/ 2>/dev/null || echo 'Output directory does not exist!'
+
+          # Check if exe was created
+          if ! ls out/make/squirrel.windows/x64/*.exe 1>/dev/null 2>&1; then
+            echo '=== ERROR: No .exe file created! ==='
+            echo '=== Last 100 lines of build log: ==='
+            tail -100 /tmp/build.log
+            exit 1
+          fi
+
+          echo '=== SUCCESS: Windows installer created ==='
+          ls -la out/make/squirrel.windows/x64/*.exe
 
           # For online builds, copy to out-online/ to avoid artifact conflicts
           if [ '${CLINE_ONLINE_BUILD:-false}' = 'true' ]; then
