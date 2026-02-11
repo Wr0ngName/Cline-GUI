@@ -143,20 +143,11 @@ build:linux:manual:
         -v "$CI_PROJECT_DIR:/app" \
         -w /app \
         -e CLINE_ONLINE_BUILD=${CLINE_ONLINE_BUILD:-false} \
-        -e DEBUG="electron-forge:*,electron-packager:*,electron-winstaller:*" \
+        -e DEBUG="electron-winstaller:*" \
+        -e WINEDEBUG=err+all,warn+all \
         electronuserland/builder:wine-mono \
         bash -c "
           set -e
-
-          # Diagnostics
-          echo '=== Wine/Mono versions ==='
-          wine64 --version || echo 'wine64 not available'
-          mono --version | head -1 || echo 'mono not available'
-
-          # Check Wine can run basic executables
-          echo '=== Testing Wine ==='
-          echo 'int main() { return 0; }' > /tmp/test.c
-          x86_64-w64-mingw32-gcc -o /tmp/test.exe /tmp/test.c 2>/dev/null && wine64 /tmp/test.exe && echo 'Wine test: OK' || echo 'Wine test: FAILED (mingw not available or wine broken)'
 
           # Install Node 20 (base image has Node 18)
           curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
@@ -172,27 +163,34 @@ build:linux:manual:
             ./scripts/download-git-bash-windows.sh
           fi
 
-          # Build - capture output to find errors
+          # Build with output to file so we can check it after
           echo '=== Building Windows installer ==='
-          npm run make -- --platform=win32 2>&1 | tee /tmp/build.log
-          BUILD_EXIT=\${PIPESTATUS[0]}
+          npm run make -- --platform=win32 2>&1 | tee /tmp/make.log; MAKE_EXIT=\${PIPESTATUS[0]}
 
-          echo '=== Build exit code:' \$BUILD_EXIT '==='
+          echo '=== npm run make exit code:' \$MAKE_EXIT '==='
 
-          # Check for Squirrel-specific errors in log
-          if grep -i -E '(error|exception|failed)' /tmp/build.log | grep -i squirrel; then
-            echo '=== Squirrel errors found in build log ==='
-          fi
+          # Show the last part of the log
+          echo '=== Last 200 lines of make log ==='
+          tail -200 /tmp/make.log
+
+          # Check for wine errors in log
+          echo '=== Wine/Mono errors in log ==='
+          grep -i -E '(wine|mono|err:|warn:|exception|error)' /tmp/make.log | tail -50 || echo 'No wine/mono errors found'
+
+          # Check for any .log files created by Squirrel
+          echo '=== Squirrel log files ==='
+          find /tmp -name '*.log' -type f 2>/dev/null | while read f; do
+            echo \"=== \$f ===\"
+            cat \"\$f\" 2>/dev/null | tail -50
+          done
 
           # Verify output
-          echo '=== Build output ==='
-          ls -la out/make/squirrel.windows/x64/ 2>/dev/null || echo 'Output directory does not exist!'
+          echo '=== Build output directory ==='
+          ls -laR out/make/ 2>/dev/null || echo 'No make directory!'
 
           # Check if exe was created
           if ! ls out/make/squirrel.windows/x64/*.exe 1>/dev/null 2>&1; then
             echo '=== ERROR: No .exe file created! ==='
-            echo '=== Last 100 lines of build log: ==='
-            tail -100 /tmp/build.log
             exit 1
           fi
 
