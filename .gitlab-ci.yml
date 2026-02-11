@@ -143,8 +143,7 @@ build:linux:manual:
         -v "$CI_PROJECT_DIR:/app" \
         -w /app \
         -e CLINE_ONLINE_BUILD=${CLINE_ONLINE_BUILD:-false} \
-        -e DEBUG="electron-winstaller:*" \
-        -e WINEDEBUG=err+all,warn+all \
+        -e DEBUG="electron-windows-installer:*" \
         electronuserland/builder:wine-mono \
         bash -c "
           set -e
