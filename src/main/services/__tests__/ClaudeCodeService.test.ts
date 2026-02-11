@@ -146,17 +146,17 @@ describe('ClaudeCodeService', () => {
     });
 
     it('should validate OAuth token prefix', async () => {
-      // Valid length but wrong prefix - should log warning but proceed
-      mockConfigService.getOAuthToken.mockResolvedValue('invalid-token-that-is-definitely-long-enough-to-pass-the-length-validation-check');
-
-      // This should proceed (with warning) since length is valid
-      const mockIterator = createMockQueryIterator([]);
-      mockQuery.mockReturnValue(mockIterator);
+      // Wrong prefix - should reject
+      mockConfigService.getOAuthToken.mockResolvedValue('invalid-token-without-proper-prefix');
 
       await service.sendMessage(TEST_CONV_ID, 'Hello', '/home/user');
 
-      // Should have called query (proceeds despite wrong prefix)
-      expect(mockQuery).toHaveBeenCalled();
+      // Should emit error for invalid token prefix
+      expect(mockSend).toHaveBeenCalledWith(
+        IPC_CHANNELS.CLAUDE_ERROR,
+        TEST_CONV_ID,
+        expect.stringContaining('Invalid OAuth token')
+      );
     });
 
     it('should validate API key format', async () => {

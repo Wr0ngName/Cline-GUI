@@ -36,25 +36,16 @@ export class AuthValidator {
 
   /**
    * Validate OAuth token format
-   * Valid OAuth tokens from Claude setup-token have format: sk-ant-oat01-...
+   * OAuth tokens start with sk-ant- prefix
    */
   validateOAuthToken(token: string): ValidationResult {
     if (!token || token.trim().length === 0) {
       return { valid: false, error: 'Token is empty' };
     }
 
-    // OAuth tokens from setup-token should start with sk-ant-oat01-
-    if (!token.startsWith('sk-ant-oat01-')) {
-      // Could be a different token format, log warning but allow
-      logger.warn('OAuth token does not have expected sk-ant-oat01- prefix', {
-        prefix: token.substring(0, 12),
-        length: token.length,
-      });
-    }
-
-    // OAuth tokens are typically 80+ characters
-    if (token.length < MAIN_CONSTANTS.AUTH.OAUTH_TOKEN_MIN_LENGTH) {
-      return { valid: false, error: `Token too short (${token.length} chars, expected 80+)` };
+    // OAuth tokens should start with sk-ant-
+    if (!token.startsWith('sk-ant-')) {
+      return { valid: false, error: 'Token must start with sk-ant-' };
     }
 
     return { valid: true };

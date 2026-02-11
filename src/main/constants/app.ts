@@ -37,10 +37,6 @@ export const MAIN_CONSTANTS = {
     OAUTH_CODE_MAX_LENGTH: 500,
     /** Delay before cleaning up PTY resources - 1 second */
     PTY_CLEANUP_DELAY_MS: 1000,
-    /** Minimum OAuth token length for validation */
-    OAUTH_TOKEN_MIN_LENGTH: 50,
-    /** Expected OAuth token length (for detecting over-matched regex) */
-    OAUTH_TOKEN_EXPECTED_LENGTH: 91,
     /** Minimum API key length for validation */
     API_KEY_MIN_LENGTH: 40,
   },

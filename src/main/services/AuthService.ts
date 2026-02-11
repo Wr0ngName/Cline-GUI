@@ -598,7 +598,7 @@ export class AuthService {
    * Based on mautrix-claude sidecar pattern:
    * - Sends code character by character (Ink/Node.js UIs need individual keystrokes)
    * - Sends CR+LF to submit
-   * - Looks for sk-ant-oat01-... token in output
+   * - Reads token from credentials file (primary) or output (fallback)
    */
   async completeOAuthFlow(code: string): Promise<OAuthFlowResult> {
     // Validate flow state
@@ -723,18 +723,7 @@ export class AuthService {
 
     const clean = stripAnsi(output);
 
-    // Check for token in output
-    const tokenResult = this.extractTokenFromOutput(clean);
-    if (tokenResult) {
-      handlers.resolved = true;
-      handlers.cleanup();
-      logger.info('OAuth authentication successful');
-      this.cleanupOAuthFlow();
-      resolve({ success: true, token: tokenResult });
-      return true;
-    }
-
-    // Check credentials file
+    // ALWAYS check credentials file first - it's the only reliable source
     const credsToken = this.extractTokenFromCredentialsFile(configDir);
     if (credsToken) {
       handlers.resolved = true;
@@ -745,9 +734,28 @@ export class AuthService {
       return true;
     }
 
-    // Check for success message and defer to credentials file
-    if (clean.includes('Successfully authenticated') || clean.includes('logged in')) {
+    // Check for success message or token pattern - defer to credentials file
+    const hasSuccessIndicator =
+      clean.includes('Successfully authenticated') ||
+      clean.includes('logged in') ||
+      clean.includes('sk-ant-');
+
+    if (hasSuccessIndicator) {
+      logger.info('OAuth success indicator detected, waiting for credentials file');
       this.scheduleCredentialsFileCheck(configDir, handlers, resolve);
+    }
+
+    // Fallback: try to extract token from output if credentials file not ready yet
+    // This is unreliable due to no whitespace between token and following text,
+    // but can work if we detect known junk patterns to trim
+    const tokenResult = this.extractTokenFromOutput(clean);
+    if (tokenResult) {
+      handlers.resolved = true;
+      handlers.cleanup();
+      logger.info('OAuth authentication successful (extracted from output)');
+      this.cleanupOAuthFlow();
+      resolve({ success: true, token: tokenResult });
+      return true;
     }
 
     // Check for error indicators
@@ -764,73 +772,53 @@ export class AuthService {
   }
 
   /**
-   * Extract OAuth token from CLI output.
+   * Extract OAuth token from CLI output (fallback method).
    *
    * The CLI output often has no whitespace between token and following text, e.g.:
-   * "sk-ant-oat01-...suN6cQAAStorethistokensecurely..."
+   * "sk-ant-...AAStorethistokensecurely..."
    *
-   * Real OAuth tokens are base64url-encoded and end with typical base64 patterns
-   * (uppercase letters, digits, = padding). Junk text starts with "Store", "You", etc.
+   * We ONLY trim at known junk patterns - no length assumptions.
+   * Returns null if no token found or if we can't reliably extract it.
    */
   private extractTokenFromOutput(cleanOutput: string): string | null {
-    const tokenMatch = cleanOutput.match(/(sk-ant-oat01-[A-Za-z0-9_-]+)/);
+    // Match any sk-ant- token (don't assume specific format after prefix)
+    const tokenMatch = cleanOutput.match(/(sk-ant-[A-Za-z0-9_-]+)/);
     if (!tokenMatch) return null;
 
     let token = tokenMatch[1];
     const originalLength = token.length;
 
-    // OAuth tokens are typically 91-108 chars. If longer, junk may have been captured.
-    // The regex over-matches because it allows all base64url chars which includes letters
-    // that start the next CLI message like "Store your token securely".
-    if (token.length > 91) {
-      // Strategy 1: Look for known junk patterns (most reliable)
-      const junkPatterns = [
-        'Store',      // "Store your token securely" / "Storethistokensecurely"
-        'You',        // "You won't be able to see it again"
-        'Use',        // "Use this token by setting"
-        'This',       // "This is your..."
-        'Keep',       // "Keep this token..."
-        'Save',       // "Save this token..."
-      ];
-      for (const junk of junkPatterns) {
-        const junkIndex = token.indexOf(junk);
-        // Only trim if junk appears after a reasonable token length (80+ chars)
-        if (junkIndex > 80) {
-          logger.info('Trimming junk from OAuth token', {
-            junkPattern: junk,
-            junkIndex,
-            originalLength,
-          });
-          token = token.substring(0, junkIndex);
-          break;
-        }
-      }
-    }
+    // Only trim at known junk patterns that indicate where the token ends
+    const junkPatterns = [
+      'Store',      // "Store your token securely" / "Storethistokensecurely"
+      'You',        // "You won't be able to see it again"
+      'Use',        // "Use this token by setting"
+      'This',       // "This is your..."
+      'Keep',       // "Keep this token..."
+      'Save',       // "Save this token..."
+      'Please',     // "Please save..."
+      'Copy',       // "Copy this token..."
+      'Note',       // "Note: ..."
+    ];
 
-    // Strategy 2: If still too long, look for transition from base64 to English text
-    // Base64 tokens typically end with uppercase or = padding
-    // English text after has pattern like uppercase followed by lowercase
-    if (token.length > 91) {
-      // Find last occurrence of typical base64 ending pattern followed by capital+lowercase
-      const transitionMatch = token.match(/^(.{80,}?[A-Z0-9=_-]{2,})([A-Z][a-z])/);
-      if (transitionMatch) {
-        logger.info('Trimming OAuth token at case transition', {
+    for (const junk of junkPatterns) {
+      const junkIndex = token.indexOf(junk);
+      if (junkIndex > 0) {
+        logger.info('Trimming junk from OAuth token', {
+          junkPattern: junk,
+          junkIndex,
           originalLength,
-          newLength: transitionMatch[1].length,
         });
-        token = transitionMatch[1];
+        token = token.substring(0, junkIndex);
+        break;
       }
-    }
-
-    if (token.length <= 80) {
-      logger.warn('OAuth token may be truncated', { length: token.length });
     }
 
     if (token.length !== originalLength) {
       logger.info('OAuth token trimmed', { originalLength, finalLength: token.length });
     }
 
-    logger.debug('Extracted OAuth token', { length: token.length });
+    logger.debug('Extracted OAuth token from output', { length: token.length });
     return token;
   }
 

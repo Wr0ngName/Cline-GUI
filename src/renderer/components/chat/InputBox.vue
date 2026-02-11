@@ -41,12 +41,17 @@ const canSend = computed(() => {
 
 const placeholder = computed(() => {
   if (!hasAuth.value) {
-    return 'Please log in or configure your API key in Settings...';
+    return 'Please log in via Settings (gear icon in top right) to start chatting...';
   }
   if (!hasWorkingDirectory.value) {
     return 'Please select a working directory first...';
   }
   return 'Ask Claude anything... (try /compact, /help, /cost)';
+});
+
+// Disable input when not authenticated or loading
+const isDisabled = computed(() => {
+  return !hasAuth.value || isLoading.value;
 });
 
 // Check if current input looks like a CLI command
@@ -131,8 +136,9 @@ function handleInput(event: Event) {
           ref="inputRef"
           v-model="message"
           :placeholder="placeholder"
-          :disabled="isLoading"
+          :disabled="isDisabled"
           class="input-base resize-none min-h-[44px] max-h-[200px] pr-4"
+          :class="{ 'opacity-60 cursor-not-allowed': isDisabled }"
           rows="1"
           @keydown="handleKeydown"
           @input="handleInput"
