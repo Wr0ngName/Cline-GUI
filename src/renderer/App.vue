@@ -27,6 +27,7 @@ const { isLoading, needsSetup, hasCompletedInitialSetup } = storeToRefs(settings
 const showSettings = ref(false);
 const showWizard = ref(false);
 const showHistory = ref(true);
+const showFiles = ref(true);
 const sidebarWidth = ref(280);
 const historyWidth = ref(240);
 
@@ -78,6 +79,10 @@ function closeSettings() {
 
 function toggleHistory() {
   showHistory.value = !showHistory.value;
+}
+
+function toggleFiles() {
+  showFiles.value = !showFiles.value;
 }
 
 // Window controls
@@ -154,6 +159,26 @@ const isMac = window.electron?.platform === 'darwin';
               stroke-linejoin="round"
               stroke-width="2"
               d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
+            />
+          </svg>
+        </button>
+        <button
+          class="btn-icon"
+          :class="{ 'bg-surface-200 dark:bg-surface-700': showFiles }"
+          title="Toggle file browser"
+          @click="toggleFiles"
+        >
+          <svg
+            class="w-5 h-5"
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+          >
+            <path
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="2"
+              d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"
             />
           </svg>
         </button>
@@ -273,13 +298,23 @@ const isMac = window.electron?.platform === 'darwin';
       </Transition>
 
       <!-- Files Sidebar -->
-      <aside
-        class="sidebar flex flex-col"
-        :style="{ width: `${sidebarWidth}px` }"
+      <Transition
+        enter-active-class="transition-all duration-200 ease-out"
+        enter-from-class="w-0 opacity-0"
+        enter-to-class="opacity-100"
+        leave-active-class="transition-all duration-150 ease-in"
+        leave-from-class="opacity-100"
+        leave-to-class="w-0 opacity-0"
       >
-        <WorkingDirectory />
-        <FileTree class="flex-1" />
-      </aside>
+        <aside
+          v-if="showFiles"
+          class="sidebar flex flex-col"
+          :style="{ width: `${sidebarWidth}px` }"
+        >
+          <WorkingDirectory />
+          <FileTree class="flex-1" />
+        </aside>
+      </Transition>
 
       <!-- Chat area -->
       <section class="flex-1 flex flex-col relative bg-white dark:bg-surface-800">
