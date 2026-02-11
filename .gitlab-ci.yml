@@ -145,9 +145,9 @@ build:linux:manual:
         -v "$CI_PROJECT_DIR:/app" \
         -w /app \
         -e CLINE_ONLINE_BUILD=false \
-        -e DEBUG="electron-forge:*,electron-packager:*" \
+        -e DEBUG="electron-forge:*,electron-packager:*,electron-winstaller:*" \
         electronuserland/builder:wine-mono \
-        bash -c "curl -fsSL https://deb.nodesource.com/setup_20.x | bash - && apt-get install -y nodejs bzip2 && npm ci && ./scripts/download-node-windows.sh && ./scripts/download-git-bash-windows.sh && npm run make -- --platform=win32 && ls -la out/make/squirrel.windows/x64/ && test -f out/make/squirrel.windows/x64/*.exe"
+        bash -c "curl -fsSL https://deb.nodesource.com/setup_20.x | bash - && apt-get install -y nodejs bzip2 && npm ci && ./scripts/download-node-windows.sh && ./scripts/download-git-bash-windows.sh && npm run make -- --platform=win32 --verbose 2>&1 || (echo '=== Squirrel maker failed, checking logs ===' && find /app -name '*.log' -exec cat {} \; && find /tmp -name '*.log' -exec cat {} \; && exit 1) && ls -la out/make/squirrel.windows/x64/ && test -f out/make/squirrel.windows/x64/*.exe"
 
 # Windows ONLINE build template (light bundle - downloads dependencies at install)
 # Does NOT download Node.js or Git - installer will download them during Squirrel install
@@ -191,9 +191,9 @@ build:windows:online:
         -v "$CI_PROJECT_DIR:/app" \
         -w /app \
         -e CLINE_ONLINE_BUILD=true \
-        -e DEBUG="electron-forge:*,electron-packager:*" \
+        -e DEBUG="electron-forge:*,electron-packager:*,electron-winstaller:*" \
         electronuserland/builder:wine-mono \
-        bash -c "curl -fsSL https://deb.nodesource.com/setup_20.x | bash - && apt-get install -y nodejs && npm ci && npm run make -- --platform=win32 && ls -la out/make/squirrel.windows/x64/ && test -f out/make/squirrel.windows/x64/*.exe && mkdir -p out-online && cp -r out/make/squirrel.windows out-online/"
+        bash -c "curl -fsSL https://deb.nodesource.com/setup_20.x | bash - && apt-get install -y nodejs && npm ci && npm run make -- --platform=win32 --verbose 2>&1 || (echo '=== Build failed, searching for logs ===' && find /app -name '*.log' 2>/dev/null | head -20 | xargs -I{} sh -c 'echo \"=== {} ===\"  && cat {}' && find /tmp -name '*.log' 2>/dev/null | head -20 | xargs -I{} sh -c 'echo \"=== {} ===\" && cat {}' && exit 1) && echo '=== Checking output ===' && ls -la out/make/squirrel.windows/x64/ && test -f out/make/squirrel.windows/x64/*.exe && mkdir -p out-online && cp -r out/make/squirrel.windows out-online/"
   artifacts:
     name: "cline-gui-windows-online-${CI_COMMIT_REF_SLUG}"
     paths:
