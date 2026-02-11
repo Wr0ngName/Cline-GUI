@@ -121,11 +121,20 @@ build:linux:manual:
       when: manual
       allow_failure: true
 
-# Windows build template
+# =============================================================================
+# Windows Build Templates
+# =============================================================================
+# Two variants:
+# - OFFLINE (full bundle): Node.js + Git bundled, larger download, instant install
+# - ONLINE (light bundle): Downloads Node.js + Git during install, smaller download
+#
+# Auto-update always downloads the OFFLINE (full) bundle for reliability
+
+# Windows OFFLINE build template (full bundle with Node.js + Git)
 # Requires wine-mono for Squirrel.Windows target
 # Install Node 20 via NodeSource (base image has Node 18)
 # Downloads portable Node.js and Git for Windows to bundle with the app
-.build_windows:
+.build_windows_offline:
   stage: build
   tags:
     - shell
@@ -135,14 +144,32 @@ build:linux:manual:
       docker run --rm \
         -v "$CI_PROJECT_DIR:/app" \
         -w /app \
+        -e CLINE_ONLINE_BUILD=false \
         electronuserland/builder:wine-mono \
-        bash -c "curl -fsSL https://deb.nodesource.com/setup_20.x | bash - && apt-get install -y nodejs bzip2 zip && npm ci && ./scripts/download-node-windows.sh && ./scripts/download-git-bash-windows.sh && npm run make -- --platform=win32"
+        bash -c "curl -fsSL https://deb.nodesource.com/setup_20.x | bash - && apt-get install -y nodejs bzip2 && npm ci && ./scripts/download-node-windows.sh && ./scripts/download-git-bash-windows.sh && npm run make -- --platform=win32"
 
-# Windows build for tags (with artifacts for release)
+# Windows ONLINE build template (light bundle - downloads dependencies at install)
+# Does NOT download Node.js or Git - installer will download them during Squirrel install
+.build_windows_online:
+  stage: build
+  tags:
+    - shell
+  extends: .docker_cleanup
+  script:
+    - |
+      docker run --rm \
+        -v "$CI_PROJECT_DIR:/app" \
+        -w /app \
+        -e CLINE_ONLINE_BUILD=true \
+        electronuserland/builder:wine-mono \
+        bash -c "curl -fsSL https://deb.nodesource.com/setup_20.x | bash - && apt-get install -y nodejs && npm ci && npm run make -- --platform=win32"
+
+# Windows OFFLINE build for tags (with artifacts for release)
+# This is the main installer used for auto-updates
 build:windows:
-  extends: .build_windows
+  extends: .build_windows_offline
   artifacts:
-    name: "cline-gui-windows-${CI_COMMIT_REF_SLUG}"
+    name: "cline-gui-windows-offline-${CI_COMMIT_REF_SLUG}"
     paths:
       - out/make/**/*.exe
       - out/make/**/*.nupkg
@@ -151,9 +178,38 @@ build:windows:
   rules:
     - if: $CI_COMMIT_TAG
 
-# Windows build for manual testing (no artifacts - too large for GitLab limit)
+# Windows ONLINE build for tags (smaller download, longer install)
+# Provides an alternative for users with slow connections who want smaller initial download
+# Outputs to out-online/ to avoid conflicts with offline build
+build:windows:online:
+  extends: .build_windows_online
+  script:
+    - |
+      docker run --rm \
+        -v "$CI_PROJECT_DIR:/app" \
+        -w /app \
+        -e CLINE_ONLINE_BUILD=true \
+        electronuserland/builder:wine-mono \
+        bash -c "curl -fsSL https://deb.nodesource.com/setup_20.x | bash - && apt-get install -y nodejs && npm ci && npm run make -- --platform=win32 && mkdir -p out-online && cp -r out/make/squirrel.windows out-online/"
+  artifacts:
+    name: "cline-gui-windows-online-${CI_COMMIT_REF_SLUG}"
+    paths:
+      - out-online/squirrel.windows/**/*.exe
+    expire_in: 1 week
+  rules:
+    - if: $CI_COMMIT_TAG
+
+# Windows OFFLINE build for manual testing
 build:windows:manual:
-  extends: .build_windows
+  extends: .build_windows_offline
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+      when: manual
+      allow_failure: true
+
+# Windows ONLINE build for manual testing
+build:windows:online:manual:
+  extends: .build_windows_online
   rules:
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
       when: manual
@@ -185,6 +241,7 @@ build:windows:manual:
 # =============================================================================
 
 # Upload artifacts to GitLab Package Registry for auto-updates
+# Publishes both OFFLINE (for auto-update) and ONLINE (for initial download) Windows builds
 publish:packages:
   stage: release
   tags:
@@ -193,6 +250,8 @@ publish:packages:
     - job: build:linux
       artifacts: true
     - job: build:windows
+      artifacts: true
+    - job: build:windows:online
       artifacts: true
   script:
     - |
@@ -233,22 +292,52 @@ publish:packages:
         fi
       done
 
-      # Upload Windows installer (replace spaces in filename with dashes for URL)
+      # Upload Windows OFFLINE installer (replace spaces in filename with dashes for URL)
+      # This is the main installer used for auto-updates
       for file in out/make/squirrel.windows/x64/*.exe; do
         if [ -f "$file" ]; then
           WIN_NAME=$(basename "$file" | tr ' ' '-')
           WIN_URL="${PACKAGE_REGISTRY_URL}/releases/${VERSION}/${WIN_NAME}"
-          echo "Uploading $file as ${WIN_NAME}..."
+          echo "Uploading OFFLINE installer: $file as ${WIN_NAME}..."
           curl --header "JOB-TOKEN: ${CI_JOB_TOKEN}" \
                --upload-file "$file" \
                "${WIN_URL}"
           echo "WIN_NAME=${WIN_NAME}" >> release-info/urls.env
           echo "WIN_URL=${WIN_URL}" >> release-info/urls.env
+
+          # Also upload with -offline suffix for clarity in release notes
+          WIN_OFFLINE_NAME="${WIN_NAME%.exe}-offline.exe"
+          if [ "${WIN_OFFLINE_NAME}" != "${WIN_NAME}" ]; then
+            WIN_OFFLINE_URL="${PACKAGE_REGISTRY_URL}/releases/${VERSION}/${WIN_OFFLINE_NAME}"
+            echo "Uploading as ${WIN_OFFLINE_NAME}..."
+            curl --header "JOB-TOKEN: ${CI_JOB_TOKEN}" \
+                 --upload-file "$file" \
+                 "${WIN_OFFLINE_URL}"
+            echo "WIN_OFFLINE_NAME=${WIN_OFFLINE_NAME}" >> release-info/urls.env
+            echo "WIN_OFFLINE_URL=${WIN_OFFLINE_URL}" >> release-info/urls.env
+          fi
+        fi
+      done
+
+      # Upload Windows ONLINE installer (from build:windows:online job)
+      # Stored in out-online/ to avoid conflicts with offline build
+      # Smaller download, downloads Node.js + Git during installation
+      for file in out-online/squirrel.windows/x64/*.exe; do
+        if [ -f "$file" ]; then
+          WIN_ONLINE_NAME=$(basename "$file" | tr ' ' '-' | sed 's/\.exe$/-online.exe/')
+          WIN_ONLINE_URL="${PACKAGE_REGISTRY_URL}/releases/${VERSION}/${WIN_ONLINE_NAME}"
+          echo "Uploading ONLINE installer: $file as ${WIN_ONLINE_NAME}..."
+          curl --header "JOB-TOKEN: ${CI_JOB_TOKEN}" \
+               --upload-file "$file" \
+               "${WIN_ONLINE_URL}"
+          echo "WIN_ONLINE_NAME=${WIN_ONLINE_NAME}" >> release-info/urls.env
+          echo "WIN_ONLINE_URL=${WIN_ONLINE_URL}" >> release-info/urls.env
         fi
       done
 
       # Create latest.yml for auto-updater (electron-updater expects this at the root)
       # NOTE: path should NOT include version - the feed URL already points to version folder
+      # Auto-updater always uses the OFFLINE (full) bundle for reliability
       echo "Creating latest.yml for auto-updater..."
       WIN_EXE=$(ls out/make/squirrel.windows/x64/*.exe 2>/dev/null | head -1)
       WIN_FILENAME=$(basename "$WIN_EXE" | tr ' ' '-')
@@ -325,9 +414,20 @@ create:release:
 
       ### Downloads
 
-      - **Linux (DEB)**: [${DEB_NAME}](${DEB_URL})
-      - **Linux (RPM)**: [${RPM_NAME}](${RPM_URL})
-      - **Windows**: [${WIN_NAME}](${WIN_URL})
+      #### Linux
+      - **DEB (Debian/Ubuntu)**: [${DEB_NAME}](${DEB_URL})
+      - **RPM (Fedora/RHEL)**: [${RPM_NAME}](${RPM_URL})
+
+      #### Windows
+      - **Full Installer (Recommended)**: [${WIN_NAME}](${WIN_URL})
+        - Includes Node.js and Git - ready to use immediately
+      - **Online Installer (Smaller)**: [${WIN_ONLINE_NAME}](${WIN_ONLINE_URL})
+        - Downloads Node.js and Git during installation (~150MB)
+        - Smaller initial download, longer installation time
+
+      ### Notes
+      - Auto-updates always use the full (offline) installer for reliability
+      - Windows 10 or later required
 
       ---
       *Built automatically by GitLab CI/CD*

@@ -4,18 +4,18 @@
  * CRITICAL: This file must ONLY use Node built-ins, no npm dependencies.
  * It runs during Squirrel events when npm packages may not be available.
  *
- * The git-bash bundle is shipped as a zip file to avoid slow NuGet/Mono
- * processing during Squirrel.Windows builds. We extract it during install.
+ * The git-bash bundle is shipped as a tar.bz2 file (no conversion from original).
+ * We extract it during install using Windows native tar command.
  */
 
-import { execSync } from 'child_process';
 import * as fs from 'fs';
 
+import { extractTarBz2 } from './archiveExtractor';
 import { debugLog } from './debugLog';
 import { SquirrelPaths } from './resourcePaths';
 
 /**
- * Extract git-bash.zip to resources/git-bash/ during Squirrel install/update.
+ * Extract git-bash.tar.bz2 to resources/git-bash/ during Squirrel install/update.
  * This runs synchronously before electron-squirrel-startup exits.
  */
 export function extractGitBashOnInstall(): void {
@@ -25,17 +25,17 @@ export function extractGitBashOnInstall(): void {
 
   try {
     // Use SquirrelPaths which handles app not being initialized yet
-    const gitBashZip = SquirrelPaths.getGitBashZip();
+    const gitBashArchive = SquirrelPaths.getGitBashArchive();
     const bundledVersionFile = SquirrelPaths.getBundledVersionFile();
     const extractedDir = SquirrelPaths.getGitBashDir();
     const extractedVersionFile = SquirrelPaths.getExtractedVersionFile();
     const bashExePath = SquirrelPaths.getBashExe();
 
-    debugLog(`Git Bash extraction: checking ${gitBashZip}`);
+    debugLog(`Git Bash extraction: checking ${gitBashArchive}`);
 
-    // Check if zip exists
-    if (!fs.existsSync(gitBashZip)) {
-      debugLog('Git Bash zip not found, skipping extraction');
+    // Check if archive exists
+    if (!fs.existsSync(gitBashArchive)) {
+      debugLog('Git Bash archive not found, skipping extraction');
       return;
     }
 
@@ -63,18 +63,9 @@ export function extractGitBashOnInstall(): void {
     if (fs.existsSync(extractedDir)) {
       fs.rmSync(extractedDir, { recursive: true, force: true });
     }
-    fs.mkdirSync(extractedDir, { recursive: true });
 
-    // Use PowerShell to extract zip (available on all Windows versions)
-    // Escape single quotes in paths for PowerShell
-    const escapedZip = gitBashZip.replace(/'/g, "''");
-    const escapedDir = extractedDir.replace(/'/g, "''");
-    const psCommand = `Expand-Archive -Path '${escapedZip}' -DestinationPath '${escapedDir}' -Force`;
-
-    execSync(`powershell -NoProfile -Command "${psCommand}"`, {
-      timeout: 120000, // 2 minute timeout for large zip
-      windowsHide: true,
-    });
+    // Use common extraction utility (handles tar.bz2 and dev/ cleanup)
+    extractTarBz2(gitBashArchive, extractedDir);
 
     // Write version file to track what we extracted
     if (fs.existsSync(bundledVersionFile)) {

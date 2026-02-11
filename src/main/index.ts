@@ -11,7 +11,9 @@
 import started from 'electron-squirrel-startup';
 
 import { debugLog } from './utils/debugLog';
+import { downloadDependenciesForOnlineInstall } from './utils/downloadDependencies';
 import { extractGitBashOnInstall } from './utils/gitBashExtractor';
+import { SquirrelPaths } from './utils/resourcePaths';
 
 debugLog('=== App starting ===');
 debugLog(`process.execPath: ${process.execPath}`);
@@ -20,10 +22,22 @@ debugLog(`process.cwd(): ${process.cwd()}`);
 debugLog(`__dirname: ${__dirname}`);
 debugLog(`electron-squirrel-startup returned: ${started}`);
 
-// Extract git-bash on install/update (before electron-squirrel-startup exits)
+// Handle Squirrel install/update events (before electron-squirrel-startup exits)
+// For online bundles: download Node.js and Git first
+// For all bundles: extract git-bash from tar.bz2 archive
 if (process.platform === 'win32' && process.argv[1]?.startsWith('--squirrel-')) {
   const squirrelEvent = process.argv[1];
   if (squirrelEvent === '--squirrel-install' || squirrelEvent === '--squirrel-updated') {
+    const isOnlineBundle = SquirrelPaths.isOnlineBundle();
+    debugLog(`Bundle type: ${isOnlineBundle ? 'online' : 'offline'}`);
+
+    // For online bundles, download Node.js and Git first
+    if (isOnlineBundle) {
+      debugLog('Online bundle detected - downloading dependencies...');
+      downloadDependenciesForOnlineInstall();
+    }
+
+    // Extract git-bash from archive (works for both online and offline)
     debugLog(`Extracting git-bash on ${squirrelEvent}...`);
     extractGitBashOnInstall();
   }

@@ -9,6 +9,7 @@ import { FusesPlugin } from '@electron-forge/plugin-fuses';
 import { FuseV1Options, FuseVersion } from '@electron/fuses';
 import { spawn } from 'node:child_process';
 import * as fs from 'node:fs';
+import * as path from 'node:path';
 
 // Check if we're building for Windows (either native or cross-compiling)
 // The make command sets --platform=win32 which we can detect via npm_config_platform
@@ -16,33 +17,53 @@ const isWindowsBuild = process.platform === 'win32' ||
   process.env.npm_config_platform === 'win32' ||
   process.argv.includes('--platform=win32');
 
+// Online bundle mode: Set CLINE_ONLINE_BUILD=true to build without bundled Node.js/Git
+// Online installers download these dependencies during Squirrel installation
+const isOnlineBuild = process.env.CLINE_ONLINE_BUILD === 'true';
+
 // Check if bundled Node.js exists for Windows builds
 const nodeExePath = './vendor/node-win-x64/node.exe';
 const hasNodeExe = fs.existsSync(nodeExePath);
 
-// Check if bundled Git Bash zip exists for Windows builds
+// Check if bundled Git Bash archive exists for Windows builds
 // Claude Code CLI requires git-bash on Windows for Unix-style commands
-// We bundle as a zip to avoid slow NuGet/Mono processing during Squirrel build
-const gitBashZip = './vendor/git-bash-win-x64/git-bash.zip';
+// We bundle tar.bz2 directly (no conversion) - Windows 10+ has native tar command
+const gitBashArchive = './vendor/git-bash-win-x64/git-bash.tar.bz2';
 const gitBashVersionFile = './vendor/git-bash-win-x64/version.txt';
-const hasGitBashZip = fs.existsSync(gitBashZip) && fs.existsSync(gitBashVersionFile);
+const hasGitBashArchive = fs.existsSync(gitBashArchive) && fs.existsSync(gitBashVersionFile);
+
+// Bundle type marker file path
+const bundleTypeFile = './resources/bundle-type.txt';
 
 const config: ForgeConfig = {
   hooks: {
+    // Generate bundle-type.txt before packaging starts
+    generateAssets: async () => {
+      if (isWindowsBuild) {
+        const bundleType = isOnlineBuild ? 'online' : 'offline';
+        console.log(`\x1b[36mBundle type: ${bundleType}\x1b[0m`);
+
+        // Write bundle-type.txt to resources directory
+        fs.writeFileSync(bundleTypeFile, bundleType);
+        console.log(`Created ${bundleTypeFile} with value: ${bundleType}`);
+      }
+    },
     // Workaround for Electron Forge Vite bug #3738:
     // External modules are not included in the package. Reinstall them after pruning.
     // https://github.com/electron/forge/issues/3738#issuecomment-3199157664
     packageAfterPrune: async (_config, buildPath, _electronVersion, platform) => {
-      // Warn if building for Windows without bundled dependencies
-      if (platform === 'win32') {
+      // Warn if building for Windows without bundled dependencies (offline build only)
+      if (platform === 'win32' && !isOnlineBuild) {
         if (!hasNodeExe) {
-          console.warn('\x1b[33m⚠ WARNING: Building for Windows without bundled Node.js!\x1b[0m');
+          console.warn('\x1b[33m⚠ WARNING: Building OFFLINE bundle without bundled Node.js!\x1b[0m');
           console.warn('  OAuth login will not work. Run: ./scripts/download-node-windows.sh');
         }
-        if (!hasGitBashZip) {
-          console.warn('\x1b[33m⚠ WARNING: Building for Windows without bundled Git Bash!\x1b[0m');
+        if (!hasGitBashArchive) {
+          console.warn('\x1b[33m⚠ WARNING: Building OFFLINE bundle without bundled Git Bash!\x1b[0m');
           console.warn('  Claude Code CLI requires Git Bash. Run: ./scripts/download-git-bash-windows.sh');
         }
+      } else if (platform === 'win32' && isOnlineBuild) {
+        console.log('\x1b[36mBuilding ONLINE bundle - Node.js and Git will be downloaded during installation\x1b[0m');
       }
       // Dynamically import vite config to get external modules list
       const viteConfig = await import('./vite.main.config');
@@ -87,15 +108,21 @@ const config: ForgeConfig = {
     appBundleId: 'com.cline.gui',
     appCategoryType: 'public.app-category.developer-tools',
     // Bundle dependencies for Windows:
+    // OFFLINE builds include Node.js and Git Bash in the bundle
+    // ONLINE builds download them during Squirrel installation
+    //
     // - Node.js: Required because Windows GUI apps can't capture stdout from ELECTRON_RUN_AS_NODE
-    // - Git Bash (as zip): Required by Claude Code CLI for Unix-style commands
-    //   Bundled as zip to avoid slow NuGet/Mono processing; extracted on first launch
+    // - Git Bash (as tar.bz2): Required by Claude Code CLI for Unix-style commands
+    //   Bundled as tar.bz2 directly; extracted during Squirrel install using Windows native tar
     // Run scripts/download-node-windows.sh and scripts/download-git-bash-windows.sh before building
-    // Also include app-update.yml for electron-updater
+    // Also include app-update.yml for electron-updater and bundle-type.txt for online/offline detection
     extraResource: [
       './resources/app-update.yml',
-      ...(isWindowsBuild && hasNodeExe ? [nodeExePath] : []),
-      ...(isWindowsBuild && hasGitBashZip ? [gitBashZip, gitBashVersionFile] : []),
+      // Bundle type marker file (online or offline) - always included for Windows
+      ...(isWindowsBuild ? [bundleTypeFile] : []),
+      // Only include Node.js and Git for OFFLINE builds
+      ...(isWindowsBuild && !isOnlineBuild && hasNodeExe ? [nodeExePath] : []),
+      ...(isWindowsBuild && !isOnlineBuild && hasGitBashArchive ? [gitBashArchive, gitBashVersionFile] : []),
     ],
   },
   rebuildConfig: {

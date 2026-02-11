@@ -93,10 +93,10 @@ export const WindowsPaths = {
   },
 
   /**
-   * Get the path to git-bash.zip (used during Squirrel install)
+   * Get the path to git-bash.tar.bz2 archive
    */
-  getGitBashZip(): string {
-    return path.join(getResourcesPath(), 'git-bash.zip');
+  getGitBashArchive(): string {
+    return path.join(getResourcesPath(), 'git-bash.tar.bz2');
   },
 
   /**
@@ -136,10 +136,10 @@ export const SquirrelPaths = {
   },
 
   /**
-   * Get the path to git-bash.zip
+   * Get the path to git-bash.tar.bz2 archive
    */
-  getGitBashZip(): string {
-    return path.join(getResourcesPathForSquirrel(), 'git-bash.zip');
+  getGitBashArchive(): string {
+    return path.join(getResourcesPathForSquirrel(), 'git-bash.tar.bz2');
   },
 
   /**
@@ -161,6 +161,53 @@ export const SquirrelPaths = {
    */
   getBashExe(): string {
     return path.join(this.getGitBashDir(), 'usr', 'bin', 'bash.exe');
+  },
+
+  /**
+   * Get the path to bundle-type.txt marker file
+   */
+  getBundleTypeFile(): string {
+    return path.join(getResourcesPathForSquirrel(), 'bundle-type.txt');
+  },
+
+  /**
+   * Get the bundle type (online or offline)
+   * Returns 'offline' if file doesn't exist or is unreadable
+   */
+  getBundleType(): 'online' | 'offline' {
+    try {
+      const bundleTypeFile = this.getBundleTypeFile();
+      if (fs.existsSync(bundleTypeFile)) {
+        const content = fs.readFileSync(bundleTypeFile, 'utf8').trim();
+        if (content === 'online') {
+          return 'online';
+        }
+      }
+    } catch {
+      // Ignore errors, default to offline
+    }
+    return 'offline';
+  },
+
+  /**
+   * Check if this is an online bundle (requires downloading dependencies)
+   */
+  isOnlineBundle(): boolean {
+    return this.getBundleType() === 'online';
+  },
+
+  /**
+   * Get the path to bundled Node.js executable
+   */
+  getBundledNodeExe(): string {
+    return path.join(getResourcesPathForSquirrel(), 'node.exe');
+  },
+
+  /**
+   * Check if bundled Node.js exists
+   */
+  hasBundledNode(): boolean {
+    return fs.existsSync(this.getBundledNodeExe());
   },
 };
 
