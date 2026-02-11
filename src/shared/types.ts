@@ -303,6 +303,10 @@ export interface AppConfig {
   selectedModel: string;
   /** Whether the user has completed the initial setup wizard */
   hasCompletedInitialSetup: boolean;
+  /** Whether to show the conversation history sidebar */
+  showHistorySidebar: boolean;
+  /** Whether to show the file browser sidebar */
+  showFilesSidebar: boolean;
 }
 
 /**
@@ -320,6 +324,8 @@ export const DEFAULT_CONFIG: AppConfig = {
   logLevel: 'warn',
   selectedModel: '', // Empty means use SDK default
   hasCompletedInitialSetup: false,
+  showHistorySidebar: true,
+  showFilesSidebar: true,
 };
 
 // Conversation types

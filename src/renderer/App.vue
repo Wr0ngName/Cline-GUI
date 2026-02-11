@@ -22,12 +22,10 @@ import ModelSelector from './components/shared/ModelSelector.vue';
 const settingsStore = useSettingsStore();
 const filesStore = useFilesStore();
 const conversationsStore = useConversationsStore();
-const { isLoading, needsSetup, hasCompletedInitialSetup } = storeToRefs(settingsStore);
+const { isLoading, needsSetup, hasCompletedInitialSetup, showHistorySidebar, showFilesSidebar } = storeToRefs(settingsStore);
 
 const showSettings = ref(false);
 const showWizard = ref(false);
-const showHistory = ref(true);
-const showFiles = ref(true);
 const sidebarWidth = ref(280);
 const historyWidth = ref(240);
 
@@ -78,11 +76,11 @@ function closeSettings() {
 }
 
 function toggleHistory() {
-  showHistory.value = !showHistory.value;
+  settingsStore.setShowHistorySidebar(!showHistorySidebar.value);
 }
 
 function toggleFiles() {
-  showFiles.value = !showFiles.value;
+  settingsStore.setShowFilesSidebar(!showFilesSidebar.value);
 }
 
 // Window controls
@@ -144,7 +142,7 @@ const isMac = window.electron?.platform === 'darwin';
 
         <button
           class="btn-icon"
-          :class="{ 'bg-surface-200 dark:bg-surface-700': showHistory }"
+          :class="{ 'bg-surface-200 dark:bg-surface-700': showHistorySidebar }"
           title="Toggle conversation history"
           @click="toggleHistory"
         >
@@ -164,7 +162,7 @@ const isMac = window.electron?.platform === 'darwin';
         </button>
         <button
           class="btn-icon"
-          :class="{ 'bg-surface-200 dark:bg-surface-700': showFiles }"
+          :class="{ 'bg-surface-200 dark:bg-surface-700': showFilesSidebar }"
           title="Toggle file browser"
           @click="toggleFiles"
         >
@@ -289,7 +287,7 @@ const isMac = window.electron?.platform === 'darwin';
         leave-to-class="w-0 opacity-0"
       >
         <aside
-          v-if="showHistory"
+          v-if="showHistorySidebar"
           class="history-sidebar flex flex-col border-r border-surface-200 dark:border-surface-700 bg-surface-50 dark:bg-surface-900"
           :style="{ width: `${historyWidth}px` }"
         >
@@ -307,7 +305,7 @@ const isMac = window.electron?.platform === 'darwin';
         leave-to-class="w-0 opacity-0"
       >
         <aside
-          v-if="showFiles"
+          v-if="showFilesSidebar"
           class="sidebar flex flex-col"
           :style="{ width: `${sidebarWidth}px` }"
         >

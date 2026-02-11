@@ -29,6 +29,8 @@ export const useSettingsStore = defineStore('settings', () => {
   const theme = computed(() => config.value.theme);
   const selectedModel = computed(() => config.value.selectedModel);
   const hasCompletedInitialSetup = computed(() => config.value.hasCompletedInitialSetup);
+  const showHistorySidebar = computed(() => config.value.showHistorySidebar);
+  const showFilesSidebar = computed(() => config.value.showFilesSidebar);
   const needsSetup = computed(() => !workingDirectory.value || !hasAuth.value);
   const isDarkMode = computed(() => {
     if (config.value.theme === 'system') {
@@ -96,6 +98,14 @@ export const useSettingsStore = defineStore('settings', () => {
 
   async function setHasCompletedInitialSetup(completed: boolean): Promise<void> {
     await saveConfig({ hasCompletedInitialSetup: completed });
+  }
+
+  async function setShowHistorySidebar(show: boolean): Promise<void> {
+    await saveConfig({ showHistorySidebar: show });
+  }
+
+  async function setShowFilesSidebar(show: boolean): Promise<void> {
+    await saveConfig({ showFilesSidebar: show });
   }
 
   function applyFontSize(size: number): void {
@@ -170,6 +180,8 @@ export const useSettingsStore = defineStore('settings', () => {
     theme,
     selectedModel,
     hasCompletedInitialSetup,
+    showHistorySidebar,
+    showFilesSidebar,
     isDarkMode,
     needsSetup,
 
@@ -183,6 +195,8 @@ export const useSettingsStore = defineStore('settings', () => {
     setLogLevel,
     setSelectedModel,
     setHasCompletedInitialSetup,
+    setShowHistorySidebar,
+    setShowFilesSidebar,
     applyTheme,
     applyFontSize,
     clearError,
