@@ -163,26 +163,28 @@ build:linux:manual:
             ./scripts/download-git-bash-windows.sh
           fi
 
-          # Build with output to file so we can check it after
+          # Build - redirect to file, don't use pipe
           echo '=== Building Windows installer ==='
-          npm run make -- --platform=win32 2>&1 | tee /tmp/make.log; MAKE_EXIT=\${PIPESTATUS[0]}
+          npm run make -- --platform=win32 > /tmp/make.log 2>&1 || true
+          MAKE_EXIT=\$?
 
           echo '=== npm run make exit code:' \$MAKE_EXIT '==='
 
-          # Show the last part of the log
-          echo '=== Last 200 lines of make log ==='
-          tail -200 /tmp/make.log
-
-          # Check for wine errors in log
-          echo '=== Wine/Mono errors in log ==='
-          grep -i -E '(wine|mono|err:|warn:|exception|error)' /tmp/make.log | tail -50 || echo 'No wine/mono errors found'
+          # Show the full log
+          echo '=== Full make log ==='
+          cat /tmp/make.log
 
           # Check for any .log files created by Squirrel
-          echo '=== Squirrel log files ==='
+          echo '=== Squirrel log files in /tmp ==='
           find /tmp -name '*.log' -type f 2>/dev/null | while read f; do
             echo \"=== \$f ===\"
-            cat \"\$f\" 2>/dev/null | tail -50
+            cat \"\$f\" 2>/dev/null
           done
+
+          # Check for Squirrel output in home dir or wine prefix
+          echo '=== Checking wine/squirrel directories ==='
+          find /root -name 'Squirrel*' -o -name '*.log' 2>/dev/null | head -20 || true
+          find ~/.wine -name '*.log' 2>/dev/null | head -20 || true
 
           # Verify output
           echo '=== Build output directory ==='
