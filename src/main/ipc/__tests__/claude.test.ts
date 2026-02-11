@@ -126,7 +126,8 @@ describe('Claude IPC handlers', () => {
       expect(mockClaudeService.sendMessage).toHaveBeenCalledWith(
         TEST_CONV_ID,
         'Hello Claude',
-        '/home/user/project'
+        '/home/user/project',
+        undefined // resumeSessionId is optional
       );
     });
 
@@ -176,14 +177,21 @@ describe('Claude IPC handlers', () => {
       const longMessage = 'x'.repeat(10000);
       await handler({}, TEST_CONV_ID, longMessage, '/home/user');
 
-      expect(mockClaudeService.sendMessage).toHaveBeenCalledWith(TEST_CONV_ID, longMessage, '/home/user');
+      expect(mockClaudeService.sendMessage).toHaveBeenCalledWith(TEST_CONV_ID, longMessage, '/home/user', undefined);
     });
 
     it('should handle special characters in message', async () => {
       const specialMessage = 'Hello\n\t"quotes" <tags> & symbols™';
       await handler({}, TEST_CONV_ID, specialMessage, '/home/user');
 
-      expect(mockClaudeService.sendMessage).toHaveBeenCalledWith(TEST_CONV_ID, specialMessage, '/home/user');
+      expect(mockClaudeService.sendMessage).toHaveBeenCalledWith(TEST_CONV_ID, specialMessage, '/home/user', undefined);
+    });
+
+    it('should pass resumeSessionId when provided', async () => {
+      const sessionId = 'session-abc-123';
+      await handler({}, TEST_CONV_ID, 'Hello', '/home/user', sessionId);
+
+      expect(mockClaudeService.sendMessage).toHaveBeenCalledWith(TEST_CONV_ID, 'Hello', '/home/user', sessionId);
     });
   });
 
