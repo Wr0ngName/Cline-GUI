@@ -156,6 +156,64 @@ describe('SDKMessageHandler', () => {
     });
   });
 
+  describe('handleMessage - session_id handling', () => {
+    it('should emit session_id from init message', async () => {
+      const onSessionId = vi.fn();
+      const callbacksWithSession: MessageHandlerCallbacks = {
+        ...callbacks,
+        onSessionId,
+      };
+      const sessionHandler = new SDKMessageHandler(callbacksWithSession);
+
+      await sessionHandler.handleMessage({
+        type: 'system',
+        subtype: 'init',
+        slash_commands: [],
+        model: 'claude-3',
+        session_id: 'test-session-abc123',
+      } as never);
+
+      expect(onSessionId).toHaveBeenCalledWith('test-session-abc123');
+    });
+
+    it('should emit session_id from result message', async () => {
+      const onSessionId = vi.fn();
+      const callbacksWithSession: MessageHandlerCallbacks = {
+        ...callbacks,
+        onSessionId,
+      };
+      const sessionHandler = new SDKMessageHandler(callbacksWithSession);
+
+      await sessionHandler.handleMessage({
+        type: 'result',
+        subtype: 'success',
+        num_turns: 1,
+        duration_ms: 100,
+        session_id: 'result-session-xyz789',
+      } as never);
+
+      expect(onSessionId).toHaveBeenCalledWith('result-session-xyz789');
+    });
+
+    it('should not emit session_id if not present in init message', async () => {
+      const onSessionId = vi.fn();
+      const callbacksWithSession: MessageHandlerCallbacks = {
+        ...callbacks,
+        onSessionId,
+      };
+      const sessionHandler = new SDKMessageHandler(callbacksWithSession);
+
+      await sessionHandler.handleMessage({
+        type: 'system',
+        subtype: 'init',
+        slash_commands: [],
+        model: 'claude-3',
+      } as never);
+
+      expect(onSessionId).not.toHaveBeenCalled();
+    });
+  });
+
   describe('handleMessage - system type with init', () => {
     it('should merge SDK and built-in commands from init message', async () => {
       await handler.handleMessage({

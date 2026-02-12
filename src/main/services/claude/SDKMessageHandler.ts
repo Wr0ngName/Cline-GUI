@@ -214,6 +214,7 @@ export class SDKMessageHandler {
       num_turns?: number;
       duration_ms?: number;
       total_cost_usd?: number;
+      session_id?: string;
       usage?: {
         input_tokens?: number;
         output_tokens?: number;
@@ -285,6 +286,11 @@ export class SDKMessageHandler {
       this.callbacks.onUsageUpdate(sessionUsage);
     }
 
+    // Emit session_id from result as a fallback (in case init message was missed)
+    if (resultMessage.session_id && this.callbacks.onSessionId) {
+      this.callbacks.onSessionId(resultMessage.session_id);
+    }
+
     if (message.subtype === 'success') {
       // Mark query as succeeded - used to handle process exit errors gracefully
       this.querySucceeded = true;
@@ -316,6 +322,9 @@ export class SDKMessageHandler {
 
   /**
    * Process system messages (init, status, task_notification, etc.)
+   *
+   * IMPORTANT: The SDK uses snake_case for all message fields.
+   * We must use snake_case field names when reading from SDK messages.
    */
   private processSystemMessage(message: SDKMessage): void {
     const systemMsg = message as {
@@ -325,13 +334,13 @@ export class SDKMessageHandler {
       tools?: string[];
       model?: string;
       status?: string;
-      // Task notification fields
-      taskId?: string;
+      // Task notification fields (SDK uses snake_case)
+      task_id?: string;
       task_status?: string;
       description?: string;
       summary?: string;
-      outputFile?: string;
-      sessionId?: string;
+      output_file?: string;
+      session_id?: string;
       error?: string;
       uuid?: string;
     };
@@ -348,13 +357,14 @@ export class SDKMessageHandler {
         slashCommandCount: systemMsg.slash_commands?.length || 0,
         slashCommands: systemMsg.slash_commands,
         model: systemMsg.model,
-        sessionId: systemMsg.sessionId,
+        session_id: systemMsg.session_id,
       });
 
       // Emit session ID if present (for conversation continuity)
-      if (systemMsg.sessionId && this.callbacks.onSessionId) {
-        logger.info('SDK session ID received', { sessionId: systemMsg.sessionId });
-        this.callbacks.onSessionId(systemMsg.sessionId);
+      // SDK uses snake_case: session_id
+      if (systemMsg.session_id && this.callbacks.onSessionId) {
+        logger.info('SDK session ID received', { session_id: systemMsg.session_id });
+        this.callbacks.onSessionId(systemMsg.session_id);
       }
 
       // Process slash commands if present
@@ -391,9 +401,10 @@ export class SDKMessageHandler {
     }
 
     // Handle task notifications (background tasks/agents)
-    if (systemMsg.subtype === 'task_notification' && systemMsg.taskId) {
+    // SDK uses snake_case: task_id, output_file, session_id
+    if (systemMsg.subtype === 'task_notification' && systemMsg.task_id) {
       logger.info('Task notification received', {
-        taskId: systemMsg.taskId,
+        taskId: systemMsg.task_id,
         status: systemMsg.task_status,
         description: systemMsg.description,
       });
@@ -413,12 +424,12 @@ export class SDKMessageHandler {
       };
 
       const notification: TaskNotification = {
-        taskId: systemMsg.taskId,
+        taskId: systemMsg.task_id,
         status: statusMap[systemMsg.task_status || 'running'] || 'running',
         description: systemMsg.description,
         summary: systemMsg.summary,
-        outputFile: systemMsg.outputFile,
-        sessionId: systemMsg.sessionId,
+        outputFile: systemMsg.output_file,
+        sessionId: systemMsg.session_id,
         error: systemMsg.error,
         uuid: systemMsg.uuid,
       };
