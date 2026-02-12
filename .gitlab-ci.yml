@@ -130,9 +130,9 @@ build:linux:manual:
 #
 # Auto-update always downloads the OFFLINE (full) bundle for reliability
 
-# Windows build template - single template for both offline and online builds
-# Jobs set CLINE_ONLINE_BUILD and DOWNLOAD_BUNDLED_DEPS variables
-.build_windows:
+# Windows OFFLINE build template (bundles Node.js + Git)
+# Simple one-liner like the original working build, just with CLINE_ONLINE_BUILD env
+.build_windows_offline:
   stage: build
   tags:
     - shell
@@ -142,85 +142,28 @@ build:linux:manual:
       docker run --rm \
         -v "$CI_PROJECT_DIR:/app" \
         -w /app \
-        -e CLINE_ONLINE_BUILD=${CLINE_ONLINE_BUILD:-false} \
-        -e DEBUG="electron-windows-installer:*" \
+        -e CLINE_ONLINE_BUILD=false \
         electronuserland/builder:wine-mono \
-        bash -c "
-          set -e
+        bash -c "curl -fsSL https://deb.nodesource.com/setup_20.x | bash - && apt-get install -y nodejs bzip2 && npm ci && ./scripts/download-node-windows.sh && ./scripts/download-git-bash-windows.sh && npm run make -- --platform=win32"
 
-          # Install Node 20 (base image has Node 18)
-          curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
-          apt-get install -y nodejs bzip2
-
-          # Install npm dependencies
-          npm ci
-
-          # Download bundled dependencies for OFFLINE builds only
-          if [ '${DOWNLOAD_BUNDLED_DEPS:-false}' = 'true' ]; then
-            echo '=== Downloading Node.js and Git for Windows ==='
-            ./scripts/download-node-windows.sh
-            ./scripts/download-git-bash-windows.sh
-          fi
-
-          # Test mono and nuget are working
-          echo '=== Testing mono and nuget ==='
-          mono --version
-          echo '--- Running nuget help ---'
-          mono /app/node_modules/electron-winstaller/vendor/nuget.exe help 2>&1 || echo 'nuget help failed with code' \$?
-          echo '=== mono/nuget test complete ==='
-
-          # Build
-          echo '=== Building Windows installer ==='
-          npm run make -- --platform=win32 > /tmp/make.log 2>&1 || true
-          echo '=== Build complete ==='
-
-          # Check intermediate outputs
-          echo '=== Checking out/cline-gui-* (packaged app) ==='
-          ls -la out/ 2>/dev/null || echo 'No out directory!'
-          ls -la out/cline-gui-*/resources/ 2>/dev/null | head -20 || echo 'No resources in packaged app!'
-
-          # Show the full log
-          echo '=== Full make log ==='
-          cat /tmp/make.log
-
-          # Check for any .log files created by Squirrel
-          echo '=== Squirrel log files in /tmp ==='
-          find /tmp -name '*.log' -type f 2>/dev/null | while read f; do
-            echo \"=== \$f ===\"
-            cat \"\$f\" 2>/dev/null
-          done
-
-          # Check for Squirrel output in home dir or wine prefix
-          echo '=== Checking wine/squirrel directories ==='
-          find /root -name 'Squirrel*' -o -name '*.log' 2>/dev/null | head -20 || true
-          find ~/.wine -name '*.log' 2>/dev/null | head -20 || true
-
-          # Verify output
-          echo '=== Build output directory ==='
-          ls -laR out/make/ 2>/dev/null || echo 'No make directory!'
-
-          # Check if exe was created
-          if ! ls out/make/squirrel.windows/x64/*.exe 1>/dev/null 2>&1; then
-            echo '=== ERROR: No .exe file created! ==='
-            exit 1
-          fi
-
-          echo '=== SUCCESS: Windows installer created ==='
-          ls -la out/make/squirrel.windows/x64/*.exe
-
-          # For online builds, copy to out-online/ to avoid artifact conflicts
-          if [ '${CLINE_ONLINE_BUILD:-false}' = 'true' ]; then
-            mkdir -p out-online
-            cp -r out/make/squirrel.windows out-online/
-          fi
-        "
+# Windows ONLINE build template (smaller, downloads deps during install)
+.build_windows_online:
+  stage: build
+  tags:
+    - shell
+  extends: .docker_cleanup
+  script:
+    - |
+      docker run --rm \
+        -v "$CI_PROJECT_DIR:/app" \
+        -w /app \
+        -e CLINE_ONLINE_BUILD=true \
+        electronuserland/builder:wine-mono \
+        bash -c "curl -fsSL https://deb.nodesource.com/setup_20.x | bash - && apt-get install -y nodejs bzip2 && npm ci && npm run make -- --platform=win32 && mkdir -p out-online && cp -r out/make/squirrel.windows out-online/"
 
 # Windows OFFLINE build for tags (main installer for auto-updates)
 build:windows:
-  extends: .build_windows
-  variables:
-    CLINE_ONLINE_BUILD: "false"
-    DOWNLOAD_BUNDLED_DEPS: "true"
+  extends: .build_windows_offline
   artifacts:
     name: "cline-gui-windows-offline-${CI_COMMIT_REF_SLUG}"
     paths:
@@ -233,10 +176,7 @@ build:windows:
 
 # Windows ONLINE build for tags (smaller download option)
 build:windows:online:
-  extends: .build_windows
-  variables:
-    CLINE_ONLINE_BUILD: "true"
-    DOWNLOAD_BUNDLED_DEPS: "false"
+  extends: .build_windows_online
   artifacts:
     name: "cline-gui-windows-online-${CI_COMMIT_REF_SLUG}"
     paths:
@@ -247,10 +187,7 @@ build:windows:online:
 
 # Windows OFFLINE build for manual testing
 build:windows:manual:
-  extends: .build_windows
-  variables:
-    CLINE_ONLINE_BUILD: "false"
-    DOWNLOAD_BUNDLED_DEPS: "true"
+  extends: .build_windows_offline
   rules:
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
       when: manual
@@ -258,10 +195,7 @@ build:windows:manual:
 
 # Windows ONLINE build for manual testing
 build:windows:online:manual:
-  extends: .build_windows
-  variables:
-    CLINE_ONLINE_BUILD: "true"
-    DOWNLOAD_BUNDLED_DEPS: "false"
+  extends: .build_windows_online
   rules:
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
       when: manual
