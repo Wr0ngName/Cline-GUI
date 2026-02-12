@@ -17,6 +17,15 @@ const isWindowsBuild = process.platform === 'win32' ||
   process.env.npm_config_platform === 'win32' ||
   process.argv.includes('--platform=win32');
 
+// Debug logging for CI troubleshooting
+console.log('[forge.config.ts] Build environment:');
+console.log(`  process.platform: ${process.platform}`);
+console.log(`  npm_config_platform: ${process.env.npm_config_platform}`);
+console.log(`  process.argv: ${process.argv.join(' ')}`);
+console.log(`  CLINE_ONLINE_BUILD: ${process.env.CLINE_ONLINE_BUILD}`);
+console.log(`  isWindowsBuild: ${isWindowsBuild}`);
+console.log(`  isOnlineBuild: ${process.env.CLINE_ONLINE_BUILD === 'true'}`);
+
 // Online bundle mode: Set CLINE_ONLINE_BUILD=true to build without bundled Node.js/Git
 // Online installers download these dependencies during Squirrel installation
 const isOnlineBuild = process.env.CLINE_ONLINE_BUILD === 'true';
@@ -34,6 +43,26 @@ const hasGitBashArchive = fs.existsSync(gitBashArchive) && fs.existsSync(gitBash
 
 // Bundle type marker file path
 const bundleTypeFile = './resources/bundle-type.txt';
+
+// Create bundle-type.txt with placeholder if it doesn't exist yet
+// This ensures the file exists when extraResource is evaluated
+// The generateAssets hook will overwrite with the correct value later
+if (isWindowsBuild && !fs.existsSync(bundleTypeFile)) {
+  const resourcesDir = path.dirname(bundleTypeFile);
+  if (!fs.existsSync(resourcesDir)) {
+    fs.mkdirSync(resourcesDir, { recursive: true });
+  }
+  fs.writeFileSync(bundleTypeFile, 'placeholder');
+  console.log(`[forge.config.ts] Created placeholder ${bundleTypeFile}`);
+}
+
+// More debug logging
+console.log('[forge.config.ts] File checks:');
+console.log(`  nodeExePath: ${nodeExePath}, exists: ${hasNodeExe}`);
+console.log(`  gitBashArchive: ${gitBashArchive}, exists: ${fs.existsSync(gitBashArchive)}`);
+console.log(`  gitBashVersionFile: ${gitBashVersionFile}, exists: ${fs.existsSync(gitBashVersionFile)}`);
+console.log(`  hasGitBashArchive: ${hasGitBashArchive}`);
+console.log(`  bundleTypeFile: ${bundleTypeFile}`);
 
 const config: ForgeConfig = {
   hooks: {
@@ -201,5 +230,9 @@ const config: ForgeConfig = {
     }),
   ],
 };
+
+// Log the final extraResource array for debugging
+console.log('[forge.config.ts] Final extraResource:');
+console.log(`  ${JSON.stringify(config.packagerConfig?.extraResource, null, 2)}`);
 
 export default config;

@@ -162,12 +162,24 @@ build:linux:manual:
             ./scripts/download-git-bash-windows.sh
           fi
 
-          # Build - redirect to file, don't use pipe
+          # Check bundle-type.txt before build
+          echo '=== Checking bundle-type.txt before build ==='
+          ls -la resources/bundle-type.txt 2>/dev/null || echo 'bundle-type.txt does not exist'
+          cat resources/bundle-type.txt 2>/dev/null || echo 'cannot read bundle-type.txt'
+
+          # Build - capture exit code properly
           echo '=== Building Windows installer ==='
-          npm run make -- --platform=win32 > /tmp/make.log 2>&1 || true
+          set +e
+          npm run make -- --platform=win32 > /tmp/make.log 2>&1
           MAKE_EXIT=\$?
+          set -e
 
           echo '=== npm run make exit code:' \$MAKE_EXIT '==='
+
+          # Check intermediate outputs
+          echo '=== Checking out/cline-gui-* (packaged app) ==='
+          ls -la out/ 2>/dev/null || echo 'No out directory!'
+          ls -la out/cline-gui-*/resources/ 2>/dev/null | head -20 || echo 'No resources in packaged app!'
 
           # Show the full log
           echo '=== Full make log ==='
