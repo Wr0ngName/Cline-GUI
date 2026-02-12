@@ -162,19 +162,17 @@ build:linux:manual:
             ./scripts/download-git-bash-windows.sh
           fi
 
-          # Check bundle-type.txt before build
-          echo '=== Checking bundle-type.txt before build ==='
-          ls -la resources/bundle-type.txt 2>/dev/null || echo 'bundle-type.txt does not exist'
-          cat resources/bundle-type.txt 2>/dev/null || echo 'cannot read bundle-type.txt'
+          # Test mono and nuget are working
+          echo '=== Testing mono and nuget ==='
+          mono --version
+          echo '--- Running nuget help ---'
+          mono /app/node_modules/electron-winstaller/vendor/nuget.exe help 2>&1 || echo 'nuget help failed with code' \$?
+          echo '=== mono/nuget test complete ==='
 
-          # Build - capture exit code properly
+          # Build
           echo '=== Building Windows installer ==='
-          set +e
-          npm run make -- --platform=win32 > /tmp/make.log 2>&1
-          MAKE_EXIT=\$?
-          set -e
-
-          echo '=== npm run make exit code:' \$MAKE_EXIT '==='
+          npm run make -- --platform=win32 > /tmp/make.log 2>&1 || true
+          echo '=== Build complete ==='
 
           # Check intermediate outputs
           echo '=== Checking out/cline-gui-* (packaged app) ==='
