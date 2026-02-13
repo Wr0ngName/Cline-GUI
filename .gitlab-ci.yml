@@ -23,9 +23,14 @@ variables:
     - docker run --rm -v "$CI_PROJECT_DIR:/app" alpine chown -R $(id -u):$(id -g) /app || true
     # Now clean up old files (git clean was disabled via GIT_CLEAN_FLAGS)
     - git clean -ffdx || true
+    # Show available disk space and memory for diagnostics
+    - df -h "$CI_PROJECT_DIR" || true
+    - free -h || true
   after_script:
     # Always fix permissions after job (even on failure)
     - docker run --rm -v "$CI_PROJECT_DIR:/app" alpine chown -R $(id -u):$(id -g) /app || true
+    # Remove heavy build artifacts immediately to free disk for subsequent jobs
+    - rm -rf "$CI_PROJECT_DIR/out" "$CI_PROJECT_DIR/out-online" "$CI_PROJECT_DIR/.vite" || true
 
 # =============================================================================
 # TEST STAGE
@@ -164,6 +169,7 @@ build:linux:manual:
 # Windows OFFLINE build for tags (main installer for auto-updates)
 build:windows:
   extends: .build_windows_offline
+  resource_group: windows-build
   artifacts:
     name: "cline-gui-windows-offline-${CI_COMMIT_REF_SLUG}"
     paths:
@@ -177,6 +183,7 @@ build:windows:
 # Windows ONLINE build for tags (smaller download option)
 build:windows:online:
   extends: .build_windows_online
+  resource_group: windows-build
   artifacts:
     name: "cline-gui-windows-online-${CI_COMMIT_REF_SLUG}"
     paths:
@@ -188,6 +195,7 @@ build:windows:online:
 # Windows OFFLINE build for manual testing
 build:windows:manual:
   extends: .build_windows_offline
+  resource_group: windows-build
   rules:
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
       when: manual
@@ -196,6 +204,7 @@ build:windows:manual:
 # Windows ONLINE build for manual testing
 build:windows:online:manual:
   extends: .build_windows_online
+  resource_group: windows-build
   rules:
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
       when: manual
