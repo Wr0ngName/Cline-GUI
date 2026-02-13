@@ -28,9 +28,9 @@ variables:
     - free -h || true
   after_script:
     # Always fix permissions after job (even on failure)
+    # NOTE: Do NOT remove out/out-online here - after_script runs BEFORE artifact upload
+    # Old build artifacts are cleaned by git clean -ffdx in before_script of the next job
     - docker run --rm -v "$CI_PROJECT_DIR:/app" alpine chown -R $(id -u):$(id -g) /app || true
-    # Remove heavy build artifacts immediately to free disk for subsequent jobs
-    - rm -rf "$CI_PROJECT_DIR/out" "$CI_PROJECT_DIR/out-online" "$CI_PROJECT_DIR/.vite" || true
 
 # =============================================================================
 # TEST STAGE
