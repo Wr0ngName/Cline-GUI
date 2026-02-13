@@ -302,16 +302,6 @@ export class ClaudeCodeService {
       this.activeQueries.set(conversationId, instance);
       this.emitActiveQueryCount();
 
-      // Explicitly call setModel() to ensure the user's current model selection
-      // takes effect. When resuming a session, the model option passed to query()
-      // may be ignored by the SDK (it restores the original session's model).
-      // setModel() overrides the model after session initialization.
-      if (selectedModel) {
-        queryIterator.setModel(selectedModel).catch((err) => {
-          logger.warn('Failed to set model on query', { conversationId, model: selectedModel, error: err });
-        });
-      }
-
       // Fetch full slash command details and available models
       this.fetchAndEmitSlashCommandDetails(conversationId, queryIterator);
       this.fetchAndCacheModels(queryIterator);

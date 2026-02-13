@@ -496,11 +496,30 @@ export const useConversationsStore = defineStore('conversations', () => {
   }
 
   /**
+   * Check if the current conversation has an active SDK session.
+   * Used to determine if model changes will require a session reset.
+   */
+  function currentConversationHasSession(): boolean {
+    if (!currentConversationId.value) return false;
+    return sdkSessionIds.value.has(currentConversationId.value);
+  }
+
+  /**
    * Clear SDK session ID for a conversation
    */
   function clearSdkSessionId(conversationId: string): void {
     sdkSessionIds.value.delete(conversationId);
-    logger.debug('Cleared SDK session ID for conversation', { conversationId });
+    logger.info('Cleared SDK session ID for conversation', { conversationId });
+  }
+
+  /**
+   * Clear SDK session ID for the current conversation.
+   * Used when the user confirms a model change mid-conversation.
+   */
+  function clearCurrentSdkSessionId(): void {
+    if (currentConversationId.value) {
+      clearSdkSessionId(currentConversationId.value);
+    }
   }
 
   /**
@@ -574,5 +593,7 @@ export const useConversationsStore = defineStore('conversations', () => {
     setSdkSessionId,
     getSdkSessionId,
     clearSdkSessionId,
+    clearCurrentSdkSessionId,
+    currentConversationHasSession,
   };
 });

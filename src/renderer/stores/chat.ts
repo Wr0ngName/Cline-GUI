@@ -235,6 +235,17 @@ export const useChatStore = defineStore('chat', () => {
     return message;
   }
 
+  function addSystemMessage(content: string): ChatMessage {
+    const message: ChatMessage = {
+      id: generateId(ID_PREFIXES.MESSAGE),
+      role: 'system',
+      content,
+      timestamp: Date.now(),
+    };
+    addMessage(message);
+    return message;
+  }
+
   function startAssistantMessage(conversationId: string): ChatMessage {
     const message: ChatMessage = {
       id: generateId(ID_PREFIXES.MESSAGE),
@@ -539,6 +550,7 @@ export const useChatStore = defineStore('chat', () => {
     // Message actions
     addMessage,
     addUserMessage,
+    addSystemMessage,
     startAssistantMessage,
     appendChunk,
     appendToLastMessage, // Legacy

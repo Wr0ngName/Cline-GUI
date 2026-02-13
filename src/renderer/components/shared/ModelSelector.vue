@@ -9,19 +9,28 @@ import { storeToRefs } from 'pinia';
 
 import type { ModelInfo } from '@shared/types';
 import { useAsyncOperation } from '../../composables/useAsyncOperation';
+import { useChatStore } from '../../stores/chat';
+import { useConversationsStore } from '../../stores/conversations';
 import { useSettingsStore } from '../../stores/settings';
 import { logger } from '../../utils/logger';
 import Icon from './Icon.vue';
+import Modal from './Modal.vue';
 import Spinner from './Spinner.vue';
 import TransitionFade from './TransitionFade.vue';
 
 const settingsStore = useSettingsStore();
+const chatStore = useChatStore();
+const conversationsStore = useConversationsStore();
 const { selectedModel } = storeToRefs(settingsStore);
 
 const models = ref<ModelInfo[]>([]);
 const { isLoading, execute } = useAsyncOperation();
 const isOpen = ref(false);
 const dropdownRef = ref<HTMLDivElement | null>(null);
+
+// Confirmation dialog state
+const showConfirmDialog = ref(false);
+const pendingModelValue = ref<string | null>(null);
 
 // Cleanup function for models listener
 let cleanupModelsListener: (() => void) | null = null;
@@ -56,17 +65,61 @@ async function loadModels(): Promise<void> {
   }, 'Failed to load models');
 }
 
-// Select a model
+// Apply model change (shared by direct selection and confirmation)
+async function applyModelChange(modelValue: string): Promise<void> {
+  await settingsStore.setSelectedModel(modelValue);
+  logger.info('Model changed', { model: modelValue || '(default)' });
+}
+
+// Select a model - may require confirmation if conversation has an active session
 async function selectModel(modelValue: string): Promise<void> {
   isOpen.value = false;
   if (modelValue === selectedModel.value) return;
 
+  // If the current conversation has an active SDK session, changing the model
+  // requires starting a fresh session (the CLI ignores --model during --resume).
+  // Warn the user that Claude will lose context of previous messages.
+  if (conversationsStore.currentConversationHasSession()) {
+    pendingModelValue.value = modelValue;
+    showConfirmDialog.value = true;
+    return;
+  }
+
   try {
-    await settingsStore.setSelectedModel(modelValue);
-    logger.info('Model changed', { model: modelValue || '(default)' });
+    await applyModelChange(modelValue);
   } catch (err) {
     logger.error('Failed to change model', err);
   }
+}
+
+// Format a model value for display in the system message
+function getModelDisplayName(modelValue: string): string {
+  if (!modelValue) return 'Default';
+  const model = models.value.find(m => m.value === modelValue);
+  return model?.displayName || formatModelId(modelValue);
+}
+
+// User confirmed model change - clear session and apply
+async function confirmModelChange(): Promise<void> {
+  showConfirmDialog.value = false;
+  if (pendingModelValue.value === null) return;
+
+  try {
+    const displayName = getModelDisplayName(pendingModelValue.value);
+    conversationsStore.clearCurrentSdkSessionId();
+    await applyModelChange(pendingModelValue.value);
+    chatStore.addSystemMessage(`Model changed to ${displayName} — new session started`);
+  } catch (err) {
+    logger.error('Failed to change model', err);
+  } finally {
+    pendingModelValue.value = null;
+  }
+}
+
+// User cancelled model change
+function cancelModelChange(): void {
+  showConfirmDialog.value = false;
+  pendingModelValue.value = null;
 }
 
 // Toggle dropdown
@@ -222,5 +275,33 @@ onUnmounted(() => {
         </template>
       </div>
     </TransitionFade>
+
+    <!-- Confirmation dialog for model change mid-conversation -->
+    <Modal
+      :open="showConfirmDialog"
+      title="Change model?"
+      size="sm"
+      aria-description="Changing the model will start a fresh session. Claude will not have context of previous messages."
+      @close="cancelModelChange"
+    >
+      <p class="text-sm text-surface-600 dark:text-surface-400">
+        Changing the model requires starting a fresh session. Claude will not have context of previous messages in this conversation.
+      </p>
+
+      <template #footer>
+        <button
+          class="px-4 py-2 text-sm rounded-lg border border-surface-300 dark:border-surface-600 text-surface-700 dark:text-surface-300 hover:bg-surface-50 dark:hover:bg-surface-700 transition-colors"
+          @click="cancelModelChange"
+        >
+          Cancel
+        </button>
+        <button
+          class="px-4 py-2 text-sm rounded-lg bg-primary-500 text-white hover:bg-primary-600 transition-colors"
+          @click="confirmModelChange"
+        >
+          Change model
+        </button>
+      </template>
+    </Modal>
   </div>
 </template>

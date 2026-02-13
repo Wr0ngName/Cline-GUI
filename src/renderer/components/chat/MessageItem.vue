@@ -20,6 +20,7 @@ interface Props {
 const props = defineProps<Props>();
 
 const isUser = computed(() => props.message.role === 'user');
+const isSystem = computed(() => props.message.role === 'system');
 
 const formattedTime = computed(() => formatTime(props.message.timestamp));
 
@@ -27,7 +28,21 @@ const renderedContent = computed(() => renderMarkdown(props.message.content));
 </script>
 
 <template>
+  <!-- System message (e.g. model change notification) -->
   <div
+    v-if="isSystem"
+    class="flex items-center gap-3 py-2 px-4 animate-fade-in"
+  >
+    <div class="flex-1 h-px bg-surface-200 dark:bg-surface-700" />
+    <span class="text-xs text-surface-400 dark:text-surface-500 whitespace-nowrap">
+      {{ message.content }}
+    </span>
+    <div class="flex-1 h-px bg-surface-200 dark:bg-surface-700" />
+  </div>
+
+  <!-- User / Assistant message -->
+  <div
+    v-else
     :class="[
       'p-4 rounded-lg animate-fade-in',
       isUser ? 'message-user' : 'message-assistant',
