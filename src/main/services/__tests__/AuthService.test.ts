@@ -266,6 +266,42 @@ describe('AuthService', () => {
       expect(result.error).toBeUndefined();
     });
 
+    it('should not capture trailing prompt text separated by cursor positioning', async () => {
+      const flowPromise = service.startOAuthFlow();
+
+      await vi.advanceTimersByTimeAsync(50);
+
+      // Reproduce production bug: PTY uses cursor positioning (CSI H) between
+      // the URL and prompt text. Without proper handling, stripAnsi removes
+      // the CSI sequence leaving no whitespace, causing \S+ to capture both.
+      const realUrl = 'https://claude.ai/oauth/authorize?code=true&client_id=9d1c250a&state=xKnTIIm35i2_test';
+      mockPty.emitData(realUrl + '\x1b[2;1HPaste code here if prompted>\n');
+
+      await vi.advanceTimersByTimeAsync(100);
+
+      const result = await flowPromise;
+
+      expect(result.authUrl).toBe(realUrl);
+      expect(result.authUrl).not.toContain('Paste');
+    });
+
+    it('should not capture prompt text separated by erase-line sequence', async () => {
+      const flowPromise = service.startOAuthFlow();
+
+      await vi.advanceTimersByTimeAsync(50);
+
+      // Erase line (CSI K) followed by cursor position (CSI G) — common PTY pattern
+      const realUrl = 'https://claude.ai/oauth/authorize?code=true&state=abc123';
+      mockPty.emitData(realUrl + '\x1b[0K\x1b[1G<Enter code here>\n');
+
+      await vi.advanceTimersByTimeAsync(100);
+
+      const result = await flowPromise;
+
+      expect(result.authUrl).toBe(realUrl);
+      expect(result.authUrl).not.toContain('Enter');
+    });
+
     it('should handle URL with ANSI codes', async () => {
       const flowPromise = service.startOAuthFlow();
 

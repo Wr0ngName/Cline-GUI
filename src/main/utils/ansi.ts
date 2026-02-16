@@ -11,7 +11,9 @@
  * Regular expression patterns for ANSI escape sequences
  */
 const ANSI_PATTERNS = {
-  /** CSI (Control Sequence Introducer) sequences - most common */
+  /** CSI sequences that imply a line break (cursor positioning, next line, erase line) */
+  CSI_LINE_BREAK: /\x1b\[[0-9;?]*[HfEFGd]|\x1b\[[0-9;?]*K/g,
+  /** All other CSI (Control Sequence Introducer) sequences */
   CSI: /\x1b\[[0-9;?]*[a-zA-Z]/g,
   /** OSC (Operating System Command) sequences */
   OSC: /\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)/g,
@@ -39,7 +41,11 @@ const ANSI_PATTERNS = {
  */
 export function stripAnsi(str: string): string {
   let clean = str;
-  // CSI sequences (most common)
+  // CSI sequences that imply line breaks (cursor positioning, erase line) →
+  // replace with newline to preserve word boundaries between visual lines.
+  // Without this, text on separate terminal lines gets concatenated.
+  clean = clean.replace(ANSI_PATTERNS.CSI_LINE_BREAK, '\n');
+  // Remaining CSI sequences (colors, styles, etc.)
   clean = clean.replace(ANSI_PATTERNS.CSI, '');
   // OSC sequences
   clean = clean.replace(ANSI_PATTERNS.OSC, '');
