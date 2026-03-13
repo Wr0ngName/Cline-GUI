@@ -484,10 +484,64 @@ describe('PermissionManager', () => {
       expect(capturedAction).not.toBeNull();
       expect(capturedAction?.permissionInfo).toEqual({
         alwaysAllowLabel: 'Allow Bash in this project',
-        description: 'Allow Bash for this project',
+        description: 'Allow Bash (command contains "git") for this project',
         scope: 'project',
-        scopeOptions: [{ scope: 'project', label: 'Allow Bash in project', description: 'Allow Bash for this project' }],
+        scopeOptions: [{ scope: 'project', label: 'Allow Bash (command contains "git") in project', description: 'Allow Bash (command contains "git") for this project' }],
       });
+    });
+
+    it('should include directory paths in scope option label for addDirectories', async () => {
+      const canUseTool = permissionManager.createCanUseToolCallback();
+      const signal = new AbortController().signal;
+
+      const suggestions: PermissionUpdate[] = [
+        {
+          type: 'addDirectories',
+          directories: ['/home/user/project'],
+          destination: 'session',
+        },
+      ];
+
+      canUseTool('Bash', { command: 'ls' }, {
+        signal,
+        toolUseID: 'test-id',
+        suggestions,
+      });
+
+      await new Promise(resolve => setImmediate(resolve));
+
+      expect(capturedAction).not.toBeNull();
+      // Scope option label should include the directory path
+      expect(capturedAction?.permissionInfo?.scopeOptions[0].label).toBe(
+        'Allow Bash (/home/user/project) this session'
+      );
+    });
+
+    it('should show directory count when many directories in addDirectories', async () => {
+      const canUseTool = permissionManager.createCanUseToolCallback();
+      const signal = new AbortController().signal;
+
+      const suggestions: PermissionUpdate[] = [
+        {
+          type: 'addDirectories',
+          directories: ['/home/a', '/home/b', '/home/c'],
+          destination: 'projectSettings',
+        },
+      ];
+
+      canUseTool('Bash', { command: 'ls' }, {
+        signal,
+        toolUseID: 'test-id',
+        suggestions,
+      });
+
+      await new Promise(resolve => setImmediate(resolve));
+
+      expect(capturedAction).not.toBeNull();
+      // With 3+ directories, should show count instead of listing all
+      expect(capturedAction?.permissionInfo?.scopeOptions[0].label).toBe(
+        'Allow Bash (3 directories) in project'
+      );
     });
 
     it('should handle deny behavior suggestions', async () => {
@@ -515,6 +569,91 @@ describe('PermissionManager', () => {
       // Should still create permissionInfo (SDK provides it, we display it)
       expect(capturedAction?.permissionInfo).toBeDefined();
       expect(capturedAction?.permissionInfo?.scope).toBe('session');
+    });
+  });
+
+  describe('permissionContext (blockedPath and decisionReason)', () => {
+    it('should include blockedPath when provided by SDK', async () => {
+      const canUseTool = permissionManager.createCanUseToolCallback();
+      const signal = new AbortController().signal;
+
+      canUseTool('Bash', { command: 'cat /etc/passwd' }, {
+        signal,
+        toolUseID: 'test-id',
+        suggestions: undefined,
+        blockedPath: '/etc/passwd',
+      });
+
+      await new Promise(resolve => setImmediate(resolve));
+
+      expect(capturedAction).not.toBeNull();
+      expect(capturedAction?.permissionContext).toEqual({
+        blockedPath: '/etc/passwd',
+        decisionReason: undefined,
+      });
+    });
+
+    it('should include decisionReason when provided by SDK', async () => {
+      const canUseTool = permissionManager.createCanUseToolCallback();
+      const signal = new AbortController().signal;
+
+      canUseTool('Bash', { command: 'cat /etc/passwd' }, {
+        signal,
+        toolUseID: 'test-id',
+        suggestions: undefined,
+        decisionReason: 'Bash command tries to access a path outside allowed directories',
+      });
+
+      await new Promise(resolve => setImmediate(resolve));
+
+      expect(capturedAction).not.toBeNull();
+      expect(capturedAction?.permissionContext).toEqual({
+        blockedPath: undefined,
+        decisionReason: 'Bash command tries to access a path outside allowed directories',
+      });
+    });
+
+    it('should include both blockedPath and decisionReason', async () => {
+      const canUseTool = permissionManager.createCanUseToolCallback();
+      const signal = new AbortController().signal;
+
+      canUseTool('Write', { file_path: '/etc/config', content: 'data' }, {
+        signal,
+        toolUseID: 'test-id',
+        suggestions: [
+          {
+            type: 'addDirectories',
+            directories: ['/etc'],
+            destination: 'session',
+          },
+        ],
+        blockedPath: '/etc/config',
+        decisionReason: 'Write path is outside allowed directories',
+      });
+
+      await new Promise(resolve => setImmediate(resolve));
+
+      expect(capturedAction).not.toBeNull();
+      expect(capturedAction?.permissionContext).toEqual({
+        blockedPath: '/etc/config',
+        decisionReason: 'Write path is outside allowed directories',
+      });
+    });
+
+    it('should not include permissionContext when neither blockedPath nor decisionReason provided', async () => {
+      const canUseTool = permissionManager.createCanUseToolCallback();
+      const signal = new AbortController().signal;
+
+      canUseTool('Bash', { command: 'ls' }, {
+        signal,
+        toolUseID: 'test-id',
+        suggestions: undefined,
+      });
+
+      await new Promise(resolve => setImmediate(resolve));
+
+      expect(capturedAction).not.toBeNull();
+      expect(capturedAction?.permissionContext).toBeUndefined();
     });
   });
 

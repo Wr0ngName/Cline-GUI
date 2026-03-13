@@ -181,6 +181,17 @@ export interface SessionPermissionEntry {
 }
 
 /**
+ * Context about WHY a permission was requested (from SDK CanUseTool options).
+ * Helps the user understand what triggered the permission prompt.
+ */
+export interface PermissionContext {
+  /** The specific path that was blocked (e.g., "/etc/passwd") */
+  blockedPath?: string;
+  /** Human-readable reason from the SDK (e.g., "Bash command tries to access path outside allowed directories") */
+  decisionReason?: string;
+}
+
+/**
  * Base interface for all action types
  */
 interface BaseAction {
@@ -198,6 +209,8 @@ interface BaseAction {
   timestamp: number;
   /** Info about what "always allow" will do (from SDK suggestions) */
   permissionInfo?: PermissionSuggestionInfo;
+  /** Context about why this permission was requested */
+  permissionContext?: PermissionContext;
 }
 
 /**

@@ -7,7 +7,7 @@
 
 import { computed, onMounted, onUnmounted, ref } from 'vue';
 
-import type { PendingAction, FileEditDetails, BashCommandDetails, PermissionScope, PermissionScopeOption } from '@shared/types';
+import type { PendingAction, FileEditDetails, BashCommandDetails, PermissionScope, PermissionScopeOption, PermissionContext } from '@shared/types';
 import type { IconName } from '../shared/Icon.vue';
 
 import Button from '../shared/Button.vue';
@@ -179,6 +179,23 @@ const actionColor = computed(() => {
   }
 });
 
+/** Permission context from SDK (blockedPath, decisionReason) */
+const permissionContext = computed((): PermissionContext | undefined => {
+  return props.action.permissionContext;
+});
+
+/** Whether we have permission context to display */
+const hasPermissionContext = computed(() => {
+  return permissionContext.value?.blockedPath || permissionContext.value?.decisionReason;
+});
+
+/** Per-scope descriptions for showing detailed permission info */
+const scopeDescriptions = computed((): string[] => {
+  return scopeOptions.value
+    .map((o) => o.description)
+    .filter((d) => d.length > 0);
+});
+
 /** Keyboard shortcut hint text */
 const shortcutHint = computed(() => {
   const parts = ['Enter/a=allow once'];
@@ -231,8 +248,27 @@ const shortcutHint = computed(() => {
       </div>
     </div>
 
+    <!-- Permission context (why this was triggered) -->
+    <div
+      v-if="hasPermissionContext"
+      class="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg p-2.5 mb-2 text-xs"
+    >
+      <div
+        v-if="permissionContext?.decisionReason"
+        class="text-amber-800 dark:text-amber-300"
+      >
+        {{ permissionContext.decisionReason }}
+      </div>
+      <div
+        v-if="permissionContext?.blockedPath"
+        class="text-amber-700 dark:text-amber-400 mt-1 font-mono truncate"
+      >
+        Blocked path: {{ permissionContext.blockedPath }}
+      </div>
+    </div>
+
     <!-- Details -->
-    <div class="bg-surface-50 dark:bg-surface-900 rounded-lg p-3 mb-3">
+    <div class="bg-surface-50 dark:bg-surface-900 rounded-lg p-3 mb-2">
       <!-- File details -->
       <template v-if="fileDetails">
         <div class="flex items-center gap-2 text-sm text-surface-600 dark:text-surface-400 mb-2">
@@ -262,6 +298,25 @@ const shortcutHint = computed(() => {
           Working directory: {{ bashDetails.workingDirectory }}
         </div>
       </template>
+    </div>
+
+    <!-- Permission scope details (what each button will grant) -->
+    <div
+      v-if="scopeDescriptions.length > 0"
+      class="text-xs text-surface-500 dark:text-surface-400 mb-3 px-1 space-y-0.5"
+    >
+      <div
+        v-for="(desc, index) in scopeDescriptions"
+        :key="index"
+        class="flex items-start gap-1.5"
+      >
+        <Icon
+          name="info"
+          size="xs"
+          class="flex-shrink-0 mt-0.5"
+        />
+        <span>{{ desc }}</span>
+      </div>
     </div>
 
     <!-- Actions -->

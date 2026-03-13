@@ -12,7 +12,7 @@ import type {
 } from '@anthropic-ai/claude-agent-sdk';
 
 import { generateId, ID_PREFIXES } from '../../../shared/id';
-import { PendingAction, ActionResponse, PermissionSuggestionInfo, PermissionScope, PermissionScopeOption } from '../../../shared/types';
+import { PendingAction, ActionResponse, PermissionSuggestionInfo, PermissionScope, PermissionScopeOption, PermissionContext } from '../../../shared/types';
 import { MAIN_CONSTANTS } from '../../constants/app';
 import logger from '../../utils/logger';
 import type ConfigService from '../ConfigService';
@@ -98,7 +98,14 @@ export class PermissionManager {
 
       // Create pending action for UI (include permission info from SDK suggestions)
       const permissionInfo = this.describePermissionSuggestions(toolName, options.suggestions);
-      const action = this.createPendingAction(actionId, toolName, input, permissionInfo);
+      const permissionContext: PermissionContext | undefined =
+        (options.blockedPath || options.decisionReason)
+          ? {
+            blockedPath: options.blockedPath,
+            decisionReason: options.decisionReason,
+          }
+          : undefined;
+      const action = this.createPendingAction(actionId, toolName, input, permissionInfo, permissionContext);
       if (!action) {
         logger.warn('Could not create action for tool', { toolName });
         return {
@@ -211,11 +218,16 @@ export class PermissionManager {
       global: 'globally',
     };
 
-    // Group suggestions by scope, collecting tool names per scope
-    const scopeGroups: Record<PermissionScope, { toolNames: Set<string>; descriptions: string[] }> = {
-      session: { toolNames: new Set(), descriptions: [] },
-      project: { toolNames: new Set(), descriptions: [] },
-      global: { toolNames: new Set(), descriptions: [] },
+    // Group suggestions by scope, collecting tool names, rule conditions, and directories per scope
+    const scopeGroups: Record<PermissionScope, {
+      toolNames: Set<string>;
+      ruleDetails: string[];    // e.g., 'Bash: command contains "git"'
+      directories: string[];    // e.g., '/home/user/project'
+      descriptions: string[];   // Full human-readable descriptions
+    }> = {
+      session: { toolNames: new Set(), ruleDetails: [], directories: [], descriptions: [] },
+      project: { toolNames: new Set(), ruleDetails: [], directories: [], descriptions: [] },
+      global: { toolNames: new Set(), ruleDetails: [], directories: [], descriptions: [] },
     };
 
     // Also track globally for legacy fields
@@ -234,12 +246,18 @@ export class PermissionManager {
         for (const rule of suggestion.rules) {
           group.toolNames.add(rule.toolName);
           allToolNames.add(rule.toolName);
+          if (rule.ruleContent) {
+            group.ruleDetails.push(`${rule.toolName}: ${rule.ruleContent}`);
+          }
         }
         if (suggestion.type === 'addRules') {
-          const ruleToolNames = suggestion.rules.map((r) => r.toolName).join(', ');
-          group.descriptions.push(`Allow ${ruleToolNames} ${SCOPE_LABELS[scope]}`);
+          const ruleDescParts = suggestion.rules.map((r) =>
+            r.ruleContent ? `${r.toolName} (${r.ruleContent})` : r.toolName
+          );
+          group.descriptions.push(`Allow ${ruleDescParts.join(', ')} ${SCOPE_LABELS[scope]}`);
         }
       } else if (suggestion.type === 'addDirectories') {
+        group.directories.push(...suggestion.directories);
         const dirs = suggestion.directories.join(', ');
         group.descriptions.push(`Add directories: ${dirs}`);
       } else if (suggestion.type === 'setMode') {
@@ -274,16 +292,35 @@ export class PermissionManager {
       const scopeToolNames = group.toolNames.size > 0 ? group.toolNames : allToolNames;
       const toolLabel = scopeToolNames.size === 1 ? [...scopeToolNames][0] : `${scopeToolNames.size} tools`;
 
+      // Build label: include rule conditions and directory paths for clarity
       let label: string;
+      const hasRuleDetails = group.ruleDetails.length > 0;
+      const hasDirectories = group.directories.length > 0;
+
+      // For button labels with conditions: "Allow Bash (command contains 'git') in project"
+      let detailSuffix = '';
+      if (hasRuleDetails && scopeToolNames.size === 1) {
+        // Single tool with rule content — show the condition
+        const firstRule = group.ruleDetails[0];
+        const ruleContent = firstRule.substring(firstRule.indexOf(':') + 2);
+        detailSuffix = ` (${ruleContent})`;
+      }
+      if (hasDirectories) {
+        const dirList = group.directories.length <= 2
+          ? group.directories.join(', ')
+          : `${group.directories.length} directories`;
+        detailSuffix += detailSuffix ? ` + ${dirList}` : ` (${dirList})`;
+      }
+
       switch (scope) {
         case 'session':
-          label = `Allow ${toolLabel} this session`;
+          label = `Allow ${toolLabel}${detailSuffix} this session`;
           break;
         case 'project':
-          label = `Allow ${toolLabel} in project`;
+          label = `Allow ${toolLabel}${detailSuffix} in project`;
           break;
         case 'global':
-          label = `Always allow ${toolLabel}`;
+          label = `Always allow ${toolLabel}${detailSuffix}`;
           break;
       }
 
@@ -329,7 +366,8 @@ export class PermissionManager {
     actionId: string,
     toolName: string,
     input: Record<string, unknown>,
-    permissionInfo?: PermissionSuggestionInfo
+    permissionInfo?: PermissionSuggestionInfo,
+    permissionContext?: PermissionContext,
   ): PendingAction | null {
     const baseFields = {
       id: actionId,
@@ -338,6 +376,7 @@ export class PermissionManager {
       status: 'pending' as const,
       timestamp: Date.now(),
       ...(permissionInfo ? { permissionInfo } : {}),
+      ...(permissionContext ? { permissionContext } : {}),
     };
 
     switch (toolName) {
