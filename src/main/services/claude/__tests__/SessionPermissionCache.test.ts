@@ -151,13 +151,14 @@ describe('SessionPermissionCache', () => {
       expect(permissions).toHaveLength(0);
     });
 
-    it('should only process addRules type', () => {
+    it('should ignore removeRules type', () => {
       const suggestions: PermissionUpdate[] = [
         {
-          type: 'addDirectories',
-          directories: ['/tmp'],
+          type: 'removeRules',
+          rules: [{ toolName: 'Bash' }],
+          behavior: 'allow',
           destination: 'session',
-        } as any,
+        } as PermissionUpdate,
       ];
 
       cache.addPermissions('conv1', suggestions);
@@ -464,7 +465,7 @@ describe('SessionPermissionCache', () => {
           type: 'addDirectories',
           directories: ['/tmp'],
           destination: 'session',
-        } as any,
+        },
         {
           type: 'addRules',
           rules: [{ toolName: 'Write', ruleContent: '/tmp/file.txt' }],
@@ -476,9 +477,10 @@ describe('SessionPermissionCache', () => {
       cache.addPermissions('conv1', suggestions);
 
       const permissions = cache.getPermissions('conv1');
-      expect(permissions).toHaveLength(2); // Only addRules type
+      expect(permissions).toHaveLength(3); // addRules + addDirectories
       expect(permissions.find((p) => p.toolName === 'Bash')).toBeDefined();
       expect(permissions.find((p) => p.toolName === 'Write')).toBeDefined();
+      expect(permissions.find((p) => p.toolName === 'dir:/tmp')).toBeDefined();
     });
   });
 
@@ -1200,6 +1202,203 @@ describe('SessionPermissionCache', () => {
         expect.objectContaining({ toolName: 'Bash' }),
         expect.objectContaining({ toolName: 'Write' }),
       ]));
+    });
+  });
+
+  describe('setMode handling', () => {
+    it('should expand acceptEdits mode to Write, Edit, MultiEdit, NotebookEdit tools', () => {
+      const suggestions: PermissionUpdate[] = [
+        {
+          type: 'setMode',
+          mode: 'acceptEdits',
+          destination: 'session',
+        } as PermissionUpdate,
+      ];
+
+      cache.addPermissions('conv1', suggestions);
+      const perms = cache.getPermissions('conv1');
+
+      expect(perms).toHaveLength(4);
+      expect(perms.map(p => p.toolName)).toEqual(['Write', 'Edit', 'MultiEdit', 'NotebookEdit']);
+    });
+
+    it('should auto-approve Write tool after acceptEdits mode is cached', () => {
+      const suggestions: PermissionUpdate[] = [
+        {
+          type: 'setMode',
+          mode: 'acceptEdits',
+          destination: 'session',
+        } as PermissionUpdate,
+      ];
+
+      cache.addPermissions('conv1', suggestions);
+
+      expect(cache.isAllowed('conv1', 'Write', {})).toBe(true);
+      expect(cache.isAllowed('conv1', 'Edit', {})).toBe(true);
+      expect(cache.isAllowed('conv1', 'MultiEdit', {})).toBe(true);
+      expect(cache.isAllowed('conv1', 'NotebookEdit', {})).toBe(true);
+    });
+
+    it('should NOT auto-approve Bash after acceptEdits mode', () => {
+      const suggestions: PermissionUpdate[] = [
+        {
+          type: 'setMode',
+          mode: 'acceptEdits',
+          destination: 'session',
+        } as PermissionUpdate,
+      ];
+
+      cache.addPermissions('conv1', suggestions);
+
+      expect(cache.isAllowed('conv1', 'Bash', {})).toBe(false);
+    });
+
+    it('should expand bypassPermissions mode to wildcard', () => {
+      const suggestions: PermissionUpdate[] = [
+        {
+          type: 'setMode',
+          mode: 'bypassPermissions',
+          destination: 'session',
+        } as PermissionUpdate,
+      ];
+
+      cache.addPermissions('conv1', suggestions);
+      const perms = cache.getPermissions('conv1');
+
+      expect(perms).toHaveLength(1);
+      expect(perms[0].toolName).toBe('*');
+    });
+
+    it('should auto-approve any tool after bypassPermissions mode', () => {
+      const suggestions: PermissionUpdate[] = [
+        {
+          type: 'setMode',
+          mode: 'bypassPermissions',
+          destination: 'session',
+        } as PermissionUpdate,
+      ];
+
+      cache.addPermissions('conv1', suggestions);
+
+      expect(cache.isAllowed('conv1', 'Bash', {})).toBe(true);
+      expect(cache.isAllowed('conv1', 'Write', {})).toBe(true);
+      expect(cache.isAllowed('conv1', 'Edit', {})).toBe(true);
+      expect(cache.isAllowed('conv1', 'SomeUnknownTool', {})).toBe(true);
+    });
+
+    it('should ignore setMode with non-session destination', () => {
+      const suggestions: PermissionUpdate[] = [
+        {
+          type: 'setMode',
+          mode: 'acceptEdits',
+          destination: 'projectSettings',
+        } as PermissionUpdate,
+      ];
+
+      cache.addPermissions('conv1', suggestions);
+
+      expect(cache.getPermissions('conv1')).toHaveLength(0);
+      expect(cache.isAllowed('conv1', 'Write', {})).toBe(false);
+    });
+
+    it('should deduplicate mode expansions across multiple calls', () => {
+      const suggestions: PermissionUpdate[] = [
+        {
+          type: 'setMode',
+          mode: 'acceptEdits',
+          destination: 'session',
+        } as PermissionUpdate,
+      ];
+
+      cache.addPermissions('conv1', suggestions);
+      cache.addPermissions('conv1', suggestions);
+
+      // Should still only have 4 entries, not 8
+      expect(cache.getPermissions('conv1')).toHaveLength(4);
+    });
+
+    it('should handle unknown mode gracefully', () => {
+      const suggestions: PermissionUpdate[] = [
+        {
+          type: 'setMode',
+          mode: 'plan' as any,
+          destination: 'session',
+        } as PermissionUpdate,
+      ];
+
+      cache.addPermissions('conv1', suggestions);
+      const perms = cache.getPermissions('conv1');
+
+      expect(perms).toHaveLength(1);
+      expect(perms[0].toolName).toBe('mode:plan');
+    });
+
+    it('should call onChange callback when setMode permissions are added', () => {
+      const onChangeCallback = vi.fn();
+      cache.onPermissionsChanged(onChangeCallback);
+
+      const suggestions: PermissionUpdate[] = [
+        {
+          type: 'setMode',
+          mode: 'acceptEdits',
+          destination: 'session',
+        } as PermissionUpdate,
+      ];
+
+      cache.addPermissions('conv1', suggestions);
+
+      expect(onChangeCallback).toHaveBeenCalledWith('conv1', expect.arrayContaining([
+        expect.objectContaining({ toolName: 'Write' }),
+        expect.objectContaining({ toolName: 'Edit' }),
+      ]));
+    });
+  });
+
+  describe('addDirectories handling', () => {
+    it('should store directory entries', () => {
+      const suggestions: PermissionUpdate[] = [
+        {
+          type: 'addDirectories',
+          directories: ['/home/user/project'],
+          destination: 'session',
+        } as PermissionUpdate,
+      ];
+
+      cache.addPermissions('conv1', suggestions);
+      const perms = cache.getPermissions('conv1');
+
+      expect(perms).toHaveLength(1);
+      expect(perms[0].toolName).toBe('dir:/home/user/project');
+      expect(perms[0].description).toBe('Allow directory: /home/user/project');
+    });
+
+    it('should ignore addDirectories with non-session destination', () => {
+      const suggestions: PermissionUpdate[] = [
+        {
+          type: 'addDirectories',
+          directories: ['/some/path'],
+          destination: 'projectSettings',
+        } as PermissionUpdate,
+      ];
+
+      cache.addPermissions('conv1', suggestions);
+      expect(cache.getPermissions('conv1')).toHaveLength(0);
+    });
+  });
+
+  describe('replaceRules handling', () => {
+    it('should process replaceRules same as addRules', () => {
+      const suggestions: PermissionUpdate[] = [
+        {
+          type: 'replaceRules',
+          rules: [{ toolName: 'Bash', ruleContent: 'npm test' }],
+          behavior: 'allow',
+          destination: 'session',
+        } as PermissionUpdate,
+      ];
+
+      cache.addPermissions('conv1', suggestions);
+      expect(cache.isAllowed('conv1', 'Bash', {})).toBe(true);
     });
   });
 });
