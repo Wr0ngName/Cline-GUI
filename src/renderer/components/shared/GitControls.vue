@@ -60,6 +60,21 @@ async function fetchStatus(): Promise<void> {
   }
 }
 
+/**
+ * Background git fetch to update remote tracking refs.
+ * After fetch completes, refresh status for accurate ahead/behind counts.
+ */
+async function backgroundFetch(): Promise<void> {
+  if (!workingDirectory.value) return;
+  try {
+    await window.electron.git.fetch(workingDirectory.value);
+    // Re-fetch status after remote refs updated
+    await fetchStatus();
+  } catch {
+    // Fetch failures are non-critical (offline, no remote, etc.)
+  }
+}
+
 async function doCommit(): Promise<void> {
   if (!workingDirectory.value || !commitMessage.value.trim()) return;
   loadingCommit.value = true;
@@ -124,10 +139,14 @@ function handleCommitKeydown(event: KeyboardEvent): void {
 // Watch working directory changes
 watch(workingDirectory, () => {
   fetchStatus();
+  // Background fetch to update remote tracking refs for new directory
+  backgroundFetch();
 });
 
 onMounted(() => {
   fetchStatus();
+  // Background fetch on mount so ahead/behind counts are accurate
+  backgroundFetch();
   document.addEventListener('click', handleClickOutside);
 
   // Listen for event-driven git status changes

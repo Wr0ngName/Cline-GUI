@@ -670,6 +670,8 @@ export const IPC_CHANNELS = {
   GIT_PULL: 'git:pull',
   /** Push to remote */
   GIT_PUSH: 'git:push',
+  /** Fetch from remote (background, updates tracking refs) */
+  GIT_FETCH: 'git:fetch',
   /** Git status changed (event from main to renderer) */
   GIT_STATUS_CHANGED: 'git:status-changed',
 

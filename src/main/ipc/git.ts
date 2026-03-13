@@ -73,6 +73,19 @@ export function setupGitIPC(
     }
   });
 
+  // Fetch from remote (background operation)
+  ipcMain.handle(IPC_CHANNELS.GIT_FETCH, async (_event, workingDir: string) => {
+    try {
+      ensureService(gitService, 'GitService');
+      validateString(workingDir, 'Working directory');
+
+      await gitService.fetch(workingDir);
+    } catch (error) {
+      logger.error('Failed to fetch', { error, workingDir });
+      throw new Error(formatErrorMessage('Failed to fetch', error));
+    }
+  });
+
   // Set up event-driven git status notifications
   gitService.onStatusChange((status) => {
     sendToRenderer(getMainWindow, IPC_CHANNELS.GIT_STATUS_CHANGED, status);

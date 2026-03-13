@@ -17,6 +17,7 @@ const execFileAsync = promisify(execFile);
 export class GitService {
   private watchers: fs.FSWatcher[] = [];
   private watchedDir: string | null = null;
+  private isFullyWatching = false;
   private debounceTimer: NodeJS.Timeout | null = null;
   private statusCallbacks: Set<(status: GitStatus) => void> = new Set();
 
@@ -80,21 +81,76 @@ export class GitService {
     // Get ahead/behind counts
     let ahead = 0;
     let behind = 0;
+    const aheadBehind = await this.getAheadBehind(cwd, branch);
+    ahead = aheadBehind.ahead;
+    behind = aheadBehind.behind;
+
+    return { isGitRepo: true, branch, dirty, ahead, behind };
+  }
+
+  /**
+   * Parse ahead/behind from rev-list output
+   */
+  private parseRevList(output: string): { ahead: number; behind: number } {
+    const parts = output.split('\t');
+    if (parts.length === 2) {
+      return {
+        behind: parseInt(parts[0], 10) || 0,
+        ahead: parseInt(parts[1], 10) || 0,
+      };
+    }
+    return { ahead: 0, behind: 0 };
+  }
+
+  /**
+   * Get ahead/behind counts with fallback strategies:
+   * 1. Try @{upstream} (configured tracking branch)
+   * 2. Fallback to origin/<branch> (common convention)
+   */
+  private async getAheadBehind(
+    cwd: string,
+    branch: string
+  ): Promise<{ ahead: number; behind: number }> {
+    // Try configured upstream first
     try {
       const revList = await this.runGit(
         ['rev-list', '--count', '--left-right', '@{upstream}...HEAD'],
         cwd
       );
-      const parts = revList.split('\t');
-      if (parts.length === 2) {
-        behind = parseInt(parts[0], 10) || 0;
-        ahead = parseInt(parts[1], 10) || 0;
-      }
+      return this.parseRevList(revList);
     } catch {
-      // No upstream configured — that's fine
+      // No upstream configured, try origin/<branch>
     }
 
-    return { isGitRepo: true, branch, dirty, ahead, behind };
+    // Fallback: compare against origin/<branch>
+    if (branch && !branch.startsWith('(')) {
+      try {
+        // Check if origin/<branch> ref exists
+        await this.runGit(['rev-parse', '--verify', `origin/${branch}`], cwd);
+        const revList = await this.runGit(
+          ['rev-list', '--count', '--left-right', `origin/${branch}...HEAD`],
+          cwd
+        );
+        return this.parseRevList(revList);
+      } catch {
+        // No remote ref either
+      }
+    }
+
+    return { ahead: 0, behind: 0 };
+  }
+
+  /**
+   * Fetch from remote (background operation to update remote tracking refs)
+   */
+  async fetch(cwd: string): Promise<void> {
+    try {
+      await this.runGit(['fetch', '--quiet'], cwd);
+      logger.debug('Git fetch completed', { cwd });
+    } catch (error) {
+      // Fetch failures are non-critical (offline, no remote, etc.)
+      logger.debug('Git fetch failed (non-critical)', { error: (error as Error).message });
+    }
   }
 
   /**
@@ -149,19 +205,31 @@ export class GitService {
   /**
    * Start watching a git repository for changes.
    * Watches .git/HEAD, .git/index, and .git/refs/ for internal git events.
+   * If not a git repo yet, watches the directory for .git to appear (git init).
    */
   startWatching(directory: string): void {
     this.stopWatching();
     this.watchedDir = directory;
+    this.isFullyWatching = false;
 
     const gitDir = path.join(directory, '.git');
 
     try {
       fs.accessSync(gitDir);
     } catch {
-      logger.debug('Not a git repo, skipping git watch', { directory });
+      logger.debug('Not a git repo, watching for .git creation', { directory });
+      this.watchForGitInit(directory);
       return;
     }
+
+    this.setupGitWatchers(directory);
+  }
+
+  /**
+   * Set up watchers on .git internals (called when .git exists)
+   */
+  private setupGitWatchers(directory: string): void {
+    const gitDir = path.join(directory, '.git');
 
     // Watch .git/HEAD (branch switches)
     this.watchFile(path.join(gitDir, 'HEAD'));
@@ -184,7 +252,53 @@ export class GitService {
       logger.debug('Cannot watch .git/refs/', { directory });
     }
 
+    // Also watch .git/FETCH_HEAD for fetch completions
+    this.watchFile(path.join(gitDir, 'FETCH_HEAD'));
+
+    this.isFullyWatching = true;
     logger.info('Started watching git directory', { directory });
+
+    // Do an initial background fetch so ahead/behind is accurate
+    this.fetch(directory).then(() => {
+      this.scheduleStatusRefresh();
+    });
+  }
+
+  /**
+   * Watch the working directory for .git to appear (handles git init while app is open)
+   */
+  private watchForGitInit(directory: string): void {
+    try {
+      const watcher = fs.watch(directory, (_eventType, filename) => {
+        if (filename === '.git') {
+          const gitDir = path.join(directory, '.git');
+          // Verify .git is actually a directory (not just a transient event)
+          try {
+            const stat = fs.statSync(gitDir);
+            if (stat.isDirectory()) {
+              logger.info('Git repo detected (git init)', { directory });
+              // Close the init watcher, set up full git watchers
+              watcher.close();
+              // Remove this watcher from the array
+              const idx = this.watchers.indexOf(watcher);
+              if (idx !== -1) this.watchers.splice(idx, 1);
+              // Set up full git watchers
+              this.setupGitWatchers(directory);
+              // Immediately emit the new status
+              this.scheduleStatusRefresh();
+            }
+          } catch {
+            // .git doesn't exist yet or not accessible, ignore
+          }
+        }
+      });
+      watcher.on('error', (err) => {
+        logger.debug('Git init watcher error', { error: err.message });
+      });
+      this.watchers.push(watcher);
+    } catch (err) {
+      logger.debug('Cannot watch for git init', { directory, error: (err as Error).message });
+    }
   }
 
   /**
@@ -232,9 +346,28 @@ export class GitService {
   }
 
   /**
-   * Trigger a manual status refresh (called after file watcher events)
+   * Trigger a manual status refresh (called after file watcher events).
+   * If not fully watching yet, checks if .git appeared and starts watching.
    */
   triggerRefresh(): void {
+    if (this.watchedDir && !this.isFullyWatching) {
+      // Not watching .git internals yet — check if .git appeared
+      const gitDir = path.join(this.watchedDir, '.git');
+      try {
+        const stat = fs.statSync(gitDir);
+        if (stat.isDirectory()) {
+          logger.info('Git repo appeared, starting watchers', { dir: this.watchedDir });
+          // Close existing init watcher, set up full watchers
+          for (const w of this.watchers) {
+            try { w.close(); } catch { /* ignore */ }
+          }
+          this.watchers = [];
+          this.setupGitWatchers(this.watchedDir);
+        }
+      } catch {
+        // Still no .git
+      }
+    }
     this.scheduleStatusRefresh();
   }
 
@@ -251,6 +384,7 @@ export class GitService {
     }
     this.watchers = [];
     this.watchedDir = null;
+    this.isFullyWatching = false;
 
     if (this.debounceTimer) {
       clearTimeout(this.debounceTimer);

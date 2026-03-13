@@ -171,6 +171,9 @@ const electronAPI: ElectronAPI = {
     push: (workingDir: string) =>
       ipcRenderer.invoke(IPC_CHANNELS.GIT_PUSH, workingDir),
 
+    fetch: (workingDir: string) =>
+      ipcRenderer.invoke(IPC_CHANNELS.GIT_FETCH, workingDir),
+
     onStatusChanged: (callback) => {
       const handler = (
         _event: Electron.IpcRendererEvent,

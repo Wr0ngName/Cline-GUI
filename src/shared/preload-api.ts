@@ -93,6 +93,8 @@ export interface ElectronAPI {
     pull: (workingDir: string) => Promise<string>;
     /** Push to remote */
     push: (workingDir: string) => Promise<string>;
+    /** Fetch from remote (updates tracking refs for ahead/behind) */
+    fetch: (workingDir: string) => Promise<void>;
     /** Listen for git status changes */
     onStatusChanged: (callback: (status: GitStatus) => void) => () => void;
   };
