@@ -35,6 +35,21 @@ export interface ModelInfo {
 }
 
 /**
+ * Inline tool use indicator shown in the message stream.
+ * Links to a PendingAction for approval status tracking.
+ */
+export interface ToolUseInfo {
+  /** The action ID (links to PendingAction) */
+  actionId: string;
+  /** Tool name (e.g., 'Bash', 'Read', 'Write', 'Edit') */
+  toolName: string;
+  /** Short description (e.g., "Read file: /path/to/file.ts") */
+  description: string;
+  /** Current status */
+  status: 'pending' | 'approved' | 'rejected' | 'executed' | 'failed';
+}
+
+/**
  * Represents a single message in the chat conversation
  */
 export interface ChatMessage {
@@ -48,6 +63,8 @@ export interface ChatMessage {
   timestamp: number;
   /** Whether the message is currently being streamed */
   isStreaming?: boolean;
+  /** If set, this message represents an inline tool use indicator */
+  toolUse?: ToolUseInfo;
 }
 
 // Tool use / Action types

@@ -380,6 +380,44 @@ export const useChatStore = defineStore('chat', () => {
     state.pendingActions.push(action);
   }
 
+  /**
+   * Insert an inline tool use message into the message stream.
+   * Shows the user what tool Claude is invoking, interleaved with text.
+   */
+  function addToolUseMessage(conversationId: string, action: PendingAction): void {
+    if (conversationId !== currentConversationId.value) return;
+
+    const message: ChatMessage = {
+      id: generateId(ID_PREFIXES.MESSAGE),
+      role: 'assistant',
+      content: '',
+      timestamp: Date.now(),
+      toolUse: {
+        actionId: action.id,
+        toolName: action.toolName,
+        description: action.description,
+        status: 'pending',
+      },
+    };
+    addMessage(message);
+  }
+
+  /**
+   * Update the status of an inline tool use message.
+   */
+  function updateToolUseStatus(
+    conversationId: string,
+    actionId: string,
+    status: 'pending' | 'approved' | 'rejected' | 'executed' | 'failed',
+  ): void {
+    if (conversationId !== currentConversationId.value) return;
+
+    const msg = messages.value.find((m) => m.toolUse?.actionId === actionId);
+    if (msg?.toolUse) {
+      msg.toolUse.status = status;
+    }
+  }
+
   function removePendingAction(conversationId: string, actionId: string): void {
     const state = conversationStates.value.get(conversationId);
     if (!state) return;
@@ -634,6 +672,8 @@ export const useChatStore = defineStore('chat', () => {
     addPendingAction,
     removePendingAction,
     updateActionStatus,
+    addToolUseMessage,
+    updateToolUseStatus,
 
     // Background task actions
     handleTaskNotification,

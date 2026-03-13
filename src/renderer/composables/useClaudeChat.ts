@@ -213,6 +213,7 @@ export function useClaudeChat() {
       }
 
       chatStore.updateActionStatus(currentConvId, actionId, 'approved');
+      chatStore.updateToolUseStatus(currentConvId, actionId, 'approved');
       await window.electron.claude.approve(currentConvId, actionId, undefined, alwaysAllow, chosenScope);
       chatStore.removePendingAction(currentConvId, actionId);
     } catch (err) {
@@ -233,6 +234,7 @@ export function useClaudeChat() {
 
     try {
       chatStore.updateActionStatus(currentConvId, actionId, 'rejected');
+      chatStore.updateToolUseStatus(currentConvId, actionId, 'rejected');
       await window.electron.claude.reject(currentConvId, actionId);
       chatStore.removePendingAction(currentConvId, actionId);
     } catch (err) {
@@ -330,8 +332,10 @@ export function useClaudeChat() {
     });
 
     // Handle tool use requests - route to correct conversation
+    // Also insert an inline tool use indicator in the message stream
     cleanupToolUse = window.electron.claude.onToolUse((conversationId, action) => {
       chatStore.addPendingAction(conversationId, action);
+      chatStore.addToolUseMessage(conversationId, action);
     });
 
     // Handle errors - route to correct conversation

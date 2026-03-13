@@ -11,6 +11,7 @@ import type { ChatMessage } from '@shared/types';
 import { formatTime } from '../../utils/date';
 import { renderMarkdown } from '../../utils/markdown';
 import Spinner from '../shared/Spinner.vue';
+import ToolUseMessage from './ToolUseMessage.vue';
 
 interface Props {
   /** The chat message to display */
@@ -39,6 +40,12 @@ const renderedContent = computed(() => renderMarkdown(props.message.content));
     </span>
     <div class="flex-1 h-px bg-surface-200 dark:bg-surface-700" />
   </div>
+
+  <!-- Inline tool use indicator -->
+  <ToolUseMessage
+    v-else-if="message.toolUse"
+    :tool-use="message.toolUse"
+  />
 
   <!-- User / Assistant message -->
   <div
@@ -89,14 +96,23 @@ const renderedContent = computed(() => renderMarkdown(props.message.content));
   word-break: break-word;
 }
 
-/* Override prose-sm font sizes for all elements */
-.message-content :deep(*) {
-  font-size: inherit;
-}
-
 /* Code blocks get horizontal scroll instead of overflowing */
 .message-content :deep(pre) {
   overflow-x: auto;
   max-width: 100%;
+}
+
+/* Tighten paragraph spacing for chat-like feel */
+.message-content :deep(p) {
+  margin-top: 0.5em;
+  margin-bottom: 0.5em;
+}
+
+.message-content :deep(p:first-child) {
+  margin-top: 0;
+}
+
+.message-content :deep(p:last-child) {
+  margin-bottom: 0;
 }
 </style>
