@@ -36,6 +36,7 @@ import {
   TaskNotification,
   SessionUsage,
   MAX_CONCURRENT_QUERIES,
+  SessionPermissionEntry,
 } from '../../shared/types';
 import { createSender } from '../utils/ipc-helpers';
 import logger from '../utils/logger';
@@ -49,6 +50,7 @@ import {
   AuthValidator,
   ErrorHandler,
   BuiltinCommandHandler,
+  SessionPermissionCache,
 } from './claude';
 
 /**
@@ -82,6 +84,7 @@ export class ClaudeCodeService {
   private cachedSlashCommands: SlashCommandInfo[] = [];
   private configService: ConfigService;
   private notificationService: NotificationService;
+  private sessionPermissionCache: SessionPermissionCache;
 
   constructor(configService: ConfigService, getMainWindow: () => BrowserWindow | null, notificationService: NotificationService) {
     // Create bound sender using the provided window getter
@@ -90,6 +93,12 @@ export class ClaudeCodeService {
     // Store config service reference for model selection
     this.configService = configService;
     this.notificationService = notificationService;
+
+    // Initialize session permission cache (persists across queries per conversation)
+    this.sessionPermissionCache = new SessionPermissionCache();
+    this.sessionPermissionCache.onPermissionsChanged((conversationId, permissions) => {
+      this.send(IPC_CHANNELS.CLAUDE_SESSION_PERMISSIONS_CHANGED, conversationId, permissions);
+    });
 
     // Initialize shared modules (not per-query)
     this.authValidator = new AuthValidator(configService);
@@ -150,6 +159,27 @@ export class ClaudeCodeService {
    */
   getMaxConcurrentQueries(): number {
     return this.maxConcurrentQueries;
+  }
+
+  /**
+   * Get session permissions for a conversation
+   */
+  getSessionPermissions(conversationId: string): SessionPermissionEntry[] {
+    return this.sessionPermissionCache.getPermissions(conversationId);
+  }
+
+  /**
+   * Revoke a session permission
+   */
+  revokeSessionPermission(conversationId: string, permissionId: string): boolean {
+    return this.sessionPermissionCache.revokePermission(conversationId, permissionId);
+  }
+
+  /**
+   * Clear all session permissions for a conversation
+   */
+  clearSessionPermissions(conversationId: string): void {
+    this.sessionPermissionCache.clearConversation(conversationId);
   }
 
   /**
@@ -223,7 +253,9 @@ export class ClaudeCodeService {
     // Create per-conversation permission manager
     const permissionManager = new PermissionManager(
       this.configService,
-      (action: PendingAction) => this.emitToolUse(conversationId, action)
+      (action: PendingAction) => this.emitToolUse(conversationId, action),
+      this.sessionPermissionCache,
+      conversationId,
     );
 
     // Create per-conversation message handler

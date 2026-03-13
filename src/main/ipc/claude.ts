@@ -215,5 +215,45 @@ export function setupClaudeIPC(claudeService: ClaudeCodeService): void {
     }
   });
 
+  // Get session permissions for a conversation
+  ipcMain.handle(IPC_CHANNELS.CLAUDE_GET_SESSION_PERMISSIONS, async (_event, conversationId: string) => {
+    try {
+      logger.debug('IPC: claude:get-session-permissions', { conversationId });
+      ensureService(claudeService, 'ClaudeCodeService');
+      validateString(conversationId, 'Conversation ID');
+      return claudeService.getSessionPermissions(conversationId);
+    } catch (error) {
+      logger.error('Failed to get session permissions', { error, conversationId });
+      throw new IpcError(formatErrorMessage('Failed to get session permissions', error), IPC_CHANNELS.CLAUDE_GET_SESSION_PERMISSIONS, ERROR_CODES.CLAUDE_PERMISSION_FAILED, error);
+    }
+  });
+
+  // Revoke a session permission
+  ipcMain.handle(IPC_CHANNELS.CLAUDE_REVOKE_SESSION_PERMISSION, async (_event, conversationId: string, permissionId: string) => {
+    try {
+      logger.debug('IPC: claude:revoke-session-permission', { conversationId, permissionId });
+      ensureService(claudeService, 'ClaudeCodeService');
+      validateString(conversationId, 'Conversation ID');
+      validateString(permissionId, 'Permission ID');
+      return claudeService.revokeSessionPermission(conversationId, permissionId);
+    } catch (error) {
+      logger.error('Failed to revoke session permission', { error, conversationId, permissionId });
+      throw new IpcError(formatErrorMessage('Failed to revoke session permission', error), IPC_CHANNELS.CLAUDE_REVOKE_SESSION_PERMISSION, ERROR_CODES.CLAUDE_PERMISSION_FAILED, error);
+    }
+  });
+
+  // Clear all session permissions for a conversation
+  ipcMain.handle(IPC_CHANNELS.CLAUDE_CLEAR_SESSION_PERMISSIONS, async (_event, conversationId: string) => {
+    try {
+      logger.debug('IPC: claude:clear-session-permissions', { conversationId });
+      ensureService(claudeService, 'ClaudeCodeService');
+      validateString(conversationId, 'Conversation ID');
+      claudeService.clearSessionPermissions(conversationId);
+    } catch (error) {
+      logger.error('Failed to clear session permissions', { error, conversationId });
+      throw new IpcError(formatErrorMessage('Failed to clear session permissions', error), IPC_CHANNELS.CLAUDE_CLEAR_SESSION_PERMISSIONS, ERROR_CODES.CLAUDE_PERMISSION_FAILED, error);
+    }
+  });
+
   logger.info('Claude IPC handlers registered');
 }

@@ -8,8 +8,9 @@
  * for proper routing to per-conversation state.
  */
 
-import type { SlashCommandInfo, ChatMessage } from '@shared/types';
 import { onMounted, onUnmounted, shallowRef } from 'vue';
+
+import type { SlashCommandInfo, ChatMessage } from '@shared/types';
 
 import { useChatStore } from '../stores/chat';
 import { useConversationsStore } from '../stores/conversations';
@@ -31,6 +32,7 @@ let cleanupTaskNotification: (() => void) | null = null;
 let cleanupUsageUpdate: (() => void) | null = null;
 let cleanupActiveQueries: (() => void) | null = null;
 let cleanupSessionId: (() => void) | null = null;
+let cleanupSessionPermissions: (() => void) | null = null;
 
 // Shared slash commands state (singleton)
 const sharedSlashCommands = shallowRef<SlashCommandInfo[]>([]);
@@ -255,6 +257,23 @@ export function useClaudeChat() {
   }
 
   /**
+   * Revoke a session permission
+   */
+  async function revokeSessionPermission(permissionId: string) {
+    const currentConvId = conversationsStore.currentConversationId;
+    if (!currentConvId) {
+      logger.error('Cannot revoke permission: no active conversation');
+      return;
+    }
+
+    try {
+      await window.electron.claude.revokeSessionPermission(currentConvId, permissionId);
+    } catch (err) {
+      logger.error('Failed to revoke session permission', { error: err });
+    }
+  }
+
+  /**
    * Set up IPC event listeners (singleton - only registers once)
    */
   function setupListeners() {
@@ -395,6 +414,12 @@ export function useClaudeChat() {
       });
       conversationsStore.setSdkSessionId(conversationId, sessionId);
     });
+
+    // Handle session permission changes
+    cleanupSessionPermissions = window.electron.claude.onSessionPermissionsChanged((conversationId, permissions) => {
+      logger.debug('Session permissions changed', { conversationId, count: permissions.length });
+      chatStore.updateSessionPermissions(conversationId, permissions);
+    });
   }
 
   /**
@@ -454,6 +479,10 @@ export function useClaudeChat() {
       cleanupSessionId();
       cleanupSessionId = null;
     }
+    if (cleanupSessionPermissions) {
+      cleanupSessionPermissions();
+      cleanupSessionPermissions = null;
+    }
   }
 
   // Set up listeners on mount, clean up on unmount
@@ -487,6 +516,7 @@ export function useClaudeChat() {
     abort,
     abortConversation,
     clearChat,
+    revokeSessionPermission,
 
     // Store refs (for convenience) - these are now computed from current conversation
     messages: chatStore.messages,

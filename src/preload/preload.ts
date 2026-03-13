@@ -5,7 +5,7 @@
 import { contextBridge, ipcRenderer } from 'electron';
 
 import type { ElectronAPI } from '../shared/preload-api';
-import { IPC_CHANNELS, ActionResponse } from '../shared/types';
+import { IPC_CHANNELS, ActionResponse, type SessionPermissionEntry } from '../shared/types';
 
 // Create the API object that will be exposed to the renderer
 const electronAPI: ElectronAPI = {
@@ -135,6 +135,25 @@ const electronAPI: ElectronAPI = {
       ) => callback(conversationId, sessionId);
       ipcRenderer.on(IPC_CHANNELS.CLAUDE_SESSION_ID, handler);
       return () => ipcRenderer.removeListener(IPC_CHANNELS.CLAUDE_SESSION_ID, handler);
+    },
+
+    getSessionPermissions: (conversationId: string) =>
+      ipcRenderer.invoke(IPC_CHANNELS.CLAUDE_GET_SESSION_PERMISSIONS, conversationId),
+
+    revokeSessionPermission: (conversationId: string, permissionId: string) =>
+      ipcRenderer.invoke(IPC_CHANNELS.CLAUDE_REVOKE_SESSION_PERMISSION, conversationId, permissionId),
+
+    clearSessionPermissions: (conversationId: string) =>
+      ipcRenderer.invoke(IPC_CHANNELS.CLAUDE_CLEAR_SESSION_PERMISSIONS, conversationId),
+
+    onSessionPermissionsChanged: (callback: (conversationId: string, permissions: SessionPermissionEntry[]) => void) => {
+      const handler = (
+        _event: Electron.IpcRendererEvent,
+        conversationId: string,
+        permissions: SessionPermissionEntry[]
+      ) => callback(conversationId, permissions);
+      ipcRenderer.on(IPC_CHANNELS.CLAUDE_SESSION_PERMISSIONS_CHANGED, handler);
+      return () => ipcRenderer.removeListener(IPC_CHANNELS.CLAUDE_SESSION_PERMISSIONS_CHANGED, handler);
     },
   },
 

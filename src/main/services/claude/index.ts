@@ -2,14 +2,17 @@
  * Claude Code Service Modules
  *
  * This directory contains the modularized components of the Claude Code Service:
+ * - AuthValidator: Validates OAuth tokens and API keys
+ * - BuiltinCommandHandler: Handles built-in slash commands
+ * - ErrorHandler: Converts technical errors to user-friendly messages
  * - PermissionManager: Handles tool permission requests and user approval flow
  * - SDKMessageHandler: Processes messages from the Claude Code SDK
- * - AuthValidator: Validates OAuth tokens and API keys
- * - ErrorHandler: Converts technical errors to user-friendly messages
+ * - SessionPermissionCache: Stores session-scoped permissions
  */
 
+export { AuthValidator } from './AuthValidator';
+export { BuiltinCommandHandler } from './BuiltinCommandHandler';
+export { ErrorHandler } from './ErrorHandler';
 export { PermissionManager } from './PermissionManager';
 export { SDKMessageHandler } from './SDKMessageHandler';
-export { AuthValidator } from './AuthValidator';
-export { ErrorHandler } from './ErrorHandler';
-export { BuiltinCommandHandler } from './BuiltinCommandHandler';
+export { SessionPermissionCache } from './SessionPermissionCache';

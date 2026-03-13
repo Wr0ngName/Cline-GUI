@@ -6,7 +6,7 @@
 import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
 
-import type { ChatMessage, PendingAction, BackgroundTask, TaskNotification, SessionUsage, ModelUsageInfo } from '@shared/types';
+import type { ChatMessage, PendingAction, BackgroundTask, TaskNotification, SessionPermissionEntry, SessionUsage, ModelUsageInfo } from '@shared/types';
 
 import { CONSTANTS } from '../constants/app';
 import { generateId, ID_PREFIXES } from '../utils/id';
@@ -29,6 +29,8 @@ export interface ConversationState {
   sessionUsage: SessionUsage | null;
   /** Error message if any */
   error: string | null;
+  /** Active session permissions for this conversation */
+  sessionPermissions: SessionPermissionEntry[];
 }
 
 /**
@@ -43,6 +45,7 @@ function createConversationState(): ConversationState {
     backgroundTasks: new Map(),
     sessionUsage: null,
     error: null,
+    sessionPermissions: [],
   };
 }
 
@@ -183,6 +186,16 @@ export const useChatStore = defineStore('chat', () => {
   const canStartNewQuery = computed(() =>
     activeQueryCount.value < maxConcurrentQueries.value
   );
+
+  // Current conversation's session permissions
+  const sessionPermissions = computed(() => {
+    const state = getCurrentState();
+    return state?.sessionPermissions ?? [];
+  });
+
+  const hasSessionPermissions = computed(() => sessionPermissions.value.length > 0);
+
+  const sessionPermissionCount = computed(() => sessionPermissions.value.length);
 
   // ============================================
   // Current Conversation Management
@@ -479,6 +492,15 @@ export const useChatStore = defineStore('chat', () => {
   }
 
   // ============================================
+  // Session Permission Actions
+  // ============================================
+
+  function updateSessionPermissions(conversationId: string, permissions: SessionPermissionEntry[]): void {
+    const state = getConversationState(conversationId);
+    state.sessionPermissions = permissions;
+  }
+
+  // ============================================
   // Cleanup Actions
   // ============================================
 
@@ -540,6 +562,9 @@ export const useChatStore = defineStore('chat', () => {
     backgroundTasks,
     isAtResourceLimit,
     canStartNewQuery,
+    sessionPermissions,
+    hasSessionPermissions,
+    sessionPermissionCount,
 
     // Conversation management
     setCurrentConversation,
@@ -584,6 +609,9 @@ export const useChatStore = defineStore('chat', () => {
     // Resource tracking
     updateActiveQueries,
     updateActiveConversationIds,
+
+    // Session permission actions
+    updateSessionPermissions,
 
     // Cleanup
     clearConversationState,

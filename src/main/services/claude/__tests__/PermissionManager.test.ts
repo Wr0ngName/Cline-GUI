@@ -15,6 +15,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 import type { PendingAction } from '../../../../shared/types';
 import { PermissionManager } from '../PermissionManager';
+import { SessionPermissionCache } from '../SessionPermissionCache';
 
 // Mock logger
 vi.mock('../../../utils/logger', () => ({
@@ -721,6 +722,330 @@ describe('PermissionManager', () => {
       expect(capturedAction).not.toBeNull();
       // Should show single tool, not "2 tools"
       expect(capturedAction?.permissionInfo?.alwaysAllowLabel).toBe('Allow Bash this session');
+    });
+  });
+
+  describe('session permission cache integration', () => {
+    it('should auto-approve when tool is in session cache (no emit to renderer)', async () => {
+      // Create real SessionPermissionCache
+      const cache = new SessionPermissionCache();
+      const conversationId = 'conv-1';
+
+      // Pre-populate cache with Bash permission
+      cache.addPermissions(conversationId, [
+        {
+          type: 'addRules',
+          rules: [{ toolName: 'Bash' }],
+          behavior: 'allow',
+          destination: 'session',
+        },
+      ]);
+
+      // Create PermissionManager with cache
+      const permissionManager = new PermissionManager(
+        mockConfigService,
+        emitToolUse,
+        cache,
+        conversationId,
+      );
+
+      const canUseTool = permissionManager.createCanUseToolCallback();
+      const signal = new AbortController().signal;
+
+      // Call canUseTool for Bash - should auto-approve from cache
+      const result = await canUseTool('Bash', { command: 'ls' }, {
+        signal,
+        toolUseID: 'test-id',
+        suggestions: undefined,
+      });
+
+      // Should allow immediately without emitting action
+      expect(result.behavior).toBe('allow');
+      expect(capturedAction).toBeNull(); // No action emitted
+    });
+
+    it('should prompt user when tool is NOT in cache', async () => {
+      const cache = new SessionPermissionCache();
+      const conversationId = 'conv-1';
+
+      // Pre-populate cache with Bash only
+      cache.addPermissions(conversationId, [
+        {
+          type: 'addRules',
+          rules: [{ toolName: 'Bash' }],
+          behavior: 'allow',
+          destination: 'session',
+        },
+      ]);
+
+      const permissionManager = new PermissionManager(
+        mockConfigService,
+        emitToolUse,
+        cache,
+        conversationId,
+      );
+
+      const canUseTool = permissionManager.createCanUseToolCallback();
+      const signal = new AbortController().signal;
+
+      // Request Write tool - not in cache
+      canUseTool('Write', { file_path: '/test.txt', content: 'hello' }, {
+        signal,
+        toolUseID: 'test-id',
+        suggestions: undefined,
+      });
+
+      await new Promise(resolve => setImmediate(resolve));
+
+      // Should emit action (prompt user)
+      expect(capturedAction).not.toBeNull();
+      expect(capturedAction?.toolName).toBe('Write');
+    });
+
+    it('should cache session permission when user clicks always allow', async () => {
+      const cache = new SessionPermissionCache();
+      const conversationId = 'conv-1';
+
+      const permissionManager = new PermissionManager(
+        mockConfigService,
+        emitToolUse,
+        cache,
+        conversationId,
+      );
+
+      const canUseTool = permissionManager.createCanUseToolCallback();
+      const abortController = new AbortController();
+
+      const suggestions: PermissionUpdate[] = [
+        {
+          type: 'addRules',
+          rules: [{ toolName: 'Bash' }],
+          behavior: 'allow',
+          destination: 'session',
+        },
+      ];
+
+      // Call canUseTool (don't await - it returns pending promise)
+      const promise = canUseTool('Bash', { command: 'ls' }, {
+        signal: abortController.signal,
+        toolUseID: 'test-id',
+        suggestions,
+      });
+
+      // Wait for action to be emitted
+      await new Promise(resolve => setImmediate(resolve));
+
+      expect(capturedAction).not.toBeNull();
+      const actionId = capturedAction!.id;
+
+      // User approves with alwaysAllow
+      permissionManager.handleActionResponse({
+        conversationId,
+        actionId,
+        approved: true,
+        alwaysAllow: true,
+      });
+
+      // Wait for promise to resolve
+      const result = await promise;
+
+      expect(result.behavior).toBe('allow');
+
+      // Verify cache now has the permission
+      expect(cache.isAllowed(conversationId, 'Bash', {})).toBe(true);
+    });
+
+    it('should NOT cache when alwaysAllow is false', async () => {
+      const cache = new SessionPermissionCache();
+      const conversationId = 'conv-1';
+
+      const permissionManager = new PermissionManager(
+        mockConfigService,
+        emitToolUse,
+        cache,
+        conversationId,
+      );
+
+      const canUseTool = permissionManager.createCanUseToolCallback();
+      const abortController = new AbortController();
+
+      const suggestions: PermissionUpdate[] = [
+        {
+          type: 'addRules',
+          rules: [{ toolName: 'Bash' }],
+          behavior: 'allow',
+          destination: 'session',
+        },
+      ];
+
+      const promise = canUseTool('Bash', { command: 'ls' }, {
+        signal: abortController.signal,
+        toolUseID: 'test-id',
+        suggestions,
+      });
+
+      await new Promise(resolve => setImmediate(resolve));
+
+      expect(capturedAction).not.toBeNull();
+      const actionId = capturedAction!.id;
+
+      // User approves WITHOUT alwaysAllow
+      permissionManager.handleActionResponse({
+        conversationId,
+        actionId,
+        approved: true,
+        alwaysAllow: false,
+      });
+
+      await promise;
+
+      // Cache should NOT have permission
+      expect(cache.isAllowed(conversationId, 'Bash', {})).toBe(false);
+    });
+
+    it('should NOT cache when alwaysAllow is undefined', async () => {
+      const cache = new SessionPermissionCache();
+      const conversationId = 'conv-1';
+
+      const permissionManager = new PermissionManager(
+        mockConfigService,
+        emitToolUse,
+        cache,
+        conversationId,
+      );
+
+      const canUseTool = permissionManager.createCanUseToolCallback();
+      const abortController = new AbortController();
+
+      const suggestions: PermissionUpdate[] = [
+        {
+          type: 'addRules',
+          rules: [{ toolName: 'Bash' }],
+          behavior: 'allow',
+          destination: 'session',
+        },
+      ];
+
+      const promise = canUseTool('Bash', { command: 'ls' }, {
+        signal: abortController.signal,
+        toolUseID: 'test-id',
+        suggestions,
+      });
+
+      await new Promise(resolve => setImmediate(resolve));
+
+      expect(capturedAction).not.toBeNull();
+      const actionId = capturedAction!.id;
+
+      // User approves WITHOUT alwaysAllow field
+      permissionManager.handleActionResponse({
+        conversationId,
+        actionId,
+        approved: true,
+      });
+
+      await promise;
+
+      // Cache should NOT have permission
+      expect(cache.isAllowed(conversationId, 'Bash', {})).toBe(false);
+    });
+
+    it('should NOT cache non-session (project/global) permissions', async () => {
+      const cache = new SessionPermissionCache();
+      const conversationId = 'conv-1';
+
+      const permissionManager = new PermissionManager(
+        mockConfigService,
+        emitToolUse,
+        cache,
+        conversationId,
+      );
+
+      const canUseTool = permissionManager.createCanUseToolCallback();
+      const abortController = new AbortController();
+
+      const suggestions: PermissionUpdate[] = [
+        {
+          type: 'addRules',
+          rules: [{ toolName: 'Bash' }],
+          behavior: 'allow',
+          destination: 'projectSettings', // Project scope, not session
+        },
+      ];
+
+      const promise = canUseTool('Bash', { command: 'ls' }, {
+        signal: abortController.signal,
+        toolUseID: 'test-id',
+        suggestions,
+      });
+
+      await new Promise(resolve => setImmediate(resolve));
+
+      expect(capturedAction).not.toBeNull();
+      const actionId = capturedAction!.id;
+
+      // User approves with alwaysAllow
+      permissionManager.handleActionResponse({
+        conversationId,
+        actionId,
+        approved: true,
+        alwaysAllow: true,
+      });
+
+      const result = await promise;
+
+      // Permission should be approved for this request
+      expect(result.behavior).toBe('allow');
+
+      // But cache should NOT have permission (SessionPermissionCache filters project/global)
+      expect(cache.isAllowed(conversationId, 'Bash', {})).toBe(false);
+    });
+
+    it('should work without cache (backward compatibility)', async () => {
+      // Create PermissionManager without cache args
+      const permissionManager = new PermissionManager(
+        mockConfigService,
+        emitToolUse,
+        // No cache or conversationId
+      );
+
+      const canUseTool = permissionManager.createCanUseToolCallback();
+      const abortController = new AbortController();
+
+      const suggestions: PermissionUpdate[] = [
+        {
+          type: 'addRules',
+          rules: [{ toolName: 'Bash' }],
+          behavior: 'allow',
+          destination: 'session',
+        },
+      ];
+
+      // Should work normally - emit action
+      const promise = canUseTool('Bash', { command: 'ls' }, {
+        signal: abortController.signal,
+        toolUseID: 'test-id',
+        suggestions,
+      });
+
+      await new Promise(resolve => setImmediate(resolve));
+
+      expect(capturedAction).not.toBeNull();
+      const actionId = capturedAction!.id;
+
+      // User approves with alwaysAllow
+      permissionManager.handleActionResponse({
+        conversationId: 'any-conv',
+        actionId,
+        approved: true,
+        alwaysAllow: true,
+      });
+
+      const result = await promise;
+
+      // Should approve normally
+      expect(result.behavior).toBe('allow');
+      // No errors - everything works without cache
     });
   });
 });

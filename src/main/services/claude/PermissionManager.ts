@@ -17,6 +17,8 @@ import { MAIN_CONSTANTS } from '../../constants/app';
 import logger from '../../utils/logger';
 import type ConfigService from '../ConfigService';
 
+import type { SessionPermissionCache } from './SessionPermissionCache';
+
 /**
  * Internal representation of a pending permission request
  */
@@ -44,7 +46,12 @@ export class PermissionManager {
   private pendingPermissions: Map<string, PendingPermission> = new Map();
   private emitToolUse: ToolUseEmitter;
 
-  constructor(configService: ConfigService, emitToolUse: ToolUseEmitter) {
+  constructor(
+    configService: ConfigService,
+    emitToolUse: ToolUseEmitter,
+    private sessionPermissionCache?: SessionPermissionCache,
+    private conversationId?: string,
+  ) {
     this.configService = configService;
     this.emitToolUse = emitToolUse;
   }
@@ -76,6 +83,17 @@ export class PermissionManager {
           behavior: 'allow',
           updatedInput: input,
         };
+      }
+
+      // Check session permission cache (persists across queries)
+      if (this.sessionPermissionCache && this.conversationId) {
+        if (this.sessionPermissionCache.isAllowed(this.conversationId, toolName, input)) {
+          logger.debug('Session permission cache hit', { toolName, conversationId: this.conversationId });
+          return {
+            behavior: 'allow',
+            updatedInput: input,
+          };
+        }
       }
 
       // Create pending action for UI (include permission info from SDK suggestions)
@@ -382,6 +400,10 @@ export class PermissionManager {
       // Include permission updates if user chose "always allow"
       if (response.alwaysAllow && pending.suggestions) {
         result.updatedPermissions = pending.suggestions;
+        // Cache session-scoped permissions for persistence across queries
+        if (this.sessionPermissionCache && this.conversationId) {
+          this.sessionPermissionCache.addPermissions(this.conversationId, pending.suggestions);
+        }
       }
 
       pending.resolve(result);

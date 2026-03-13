@@ -2,8 +2,9 @@
  * Authentication composable - handles OAuth and API key authentication
  */
 
-import type { AuthStatus } from '@shared/types';
 import { ref } from 'vue';
+
+import type { AuthStatus } from '@shared/types';
 
 import { logger } from '../utils/logger';
 

@@ -13,9 +13,10 @@
  * Updated for multi-conversation support - methods now require conversationId
  */
 
-import type { ChatMessage, PendingAction, BashCommandAction, FileEditAction } from '@shared/types';
 import { setActivePinia, createPinia } from 'pinia';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
+
+import type { ChatMessage, PendingAction, BashCommandAction, FileEditAction } from '@shared/types';
 
 import { useChatStore } from '../chat';
 

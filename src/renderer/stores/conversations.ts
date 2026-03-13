@@ -437,6 +437,13 @@ export const useConversationsStore = defineStore('conversations', () => {
       // Clear conversation state from chat store
       chatStore.clearConversationState(id);
 
+      // Clear session permissions in the main process
+      try {
+        await window.electron.claude.clearSessionPermissions(id);
+      } catch (permErr) {
+        logger.warn('Failed to clear session permissions for deleted conversation', { id, error: permErr });
+      }
+
       // If it was the current conversation, create a new one
       if (currentConversationId.value === id) {
         createNewConversation();

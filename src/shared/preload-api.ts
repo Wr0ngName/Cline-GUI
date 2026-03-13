@@ -11,6 +11,7 @@ import type {
   FileNode,
   ModelInfo,
   PendingAction,
+  SessionPermissionEntry,
   SessionUsage,
   SlashCommandInfo,
   TaskNotification,
@@ -71,6 +72,14 @@ export interface ElectronAPI {
     onActiveQueriesChange: (callback: (count: number, maxCount: number) => void) => () => void;
     /** SDK session ID received for a conversation (for resume support) */
     onSessionId: (callback: (conversationId: string, sessionId: string) => void) => () => void;
+    /** Get session permissions for a conversation */
+    getSessionPermissions: (conversationId: string) => Promise<SessionPermissionEntry[]>;
+    /** Revoke a session permission */
+    revokeSessionPermission: (conversationId: string, permissionId: string) => Promise<boolean>;
+    /** Clear all session permissions for a conversation */
+    clearSessionPermissions: (conversationId: string) => Promise<void>;
+    /** Listen for session permission changes */
+    onSessionPermissionsChanged: (callback: (conversationId: string, permissions: SessionPermissionEntry[]) => void) => () => void;
   };
 
   // File operations

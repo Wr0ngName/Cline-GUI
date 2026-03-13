@@ -149,6 +149,23 @@ export interface PermissionSuggestionInfo {
 }
 
 /**
+ * A cached session permission entry.
+ * Represents a permission granted via "Always Allow" with session scope.
+ */
+export interface SessionPermissionEntry {
+  /** Unique identifier for this cached permission */
+  id: string;
+  /** The tool name this permission applies to (e.g., 'Bash', 'Write') */
+  toolName: string;
+  /** Optional rule content from the SDK */
+  ruleContent?: string;
+  /** Human-readable description of the permission */
+  description: string;
+  /** When this permission was granted */
+  grantedAt: number;
+}
+
+/**
  * Base interface for all action types
  */
 interface BaseAction {
@@ -615,6 +632,14 @@ export const IPC_CHANNELS = {
   CLAUDE_GET_ACTIVE_QUERIES: 'claude:get-active-queries',
   /** SDK session ID for conversation continuity */
   CLAUDE_SESSION_ID: 'claude:session-id',
+  /** Get session permissions for a conversation */
+  CLAUDE_GET_SESSION_PERMISSIONS: 'claude:get-session-permissions',
+  /** Revoke a session permission */
+  CLAUDE_REVOKE_SESSION_PERMISSION: 'claude:revoke-session-permission',
+  /** Clear all session permissions for a conversation */
+  CLAUDE_CLEAR_SESSION_PERMISSIONS: 'claude:clear-session-permissions',
+  /** Session permissions changed event */
+  CLAUDE_SESSION_PERMISSIONS_CHANGED: 'claude:session-permissions-changed',
 
   // File operations
   /** Open directory picker dialog */

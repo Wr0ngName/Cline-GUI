@@ -2,9 +2,10 @@
  * Tests for CommandAutocomplete component
  */
 
-import type { SlashCommandInfo } from '@shared/types';
 import { mount } from '@vue/test-utils';
 import { describe, it, expect, vi } from 'vitest';
+
+import type { SlashCommandInfo } from '@shared/types';
 
 import CommandAutocomplete from '../CommandAutocomplete.vue';
 
