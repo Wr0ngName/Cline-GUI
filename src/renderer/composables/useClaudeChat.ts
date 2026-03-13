@@ -323,6 +323,7 @@ export function useClaudeChat() {
 
       chatStore.setLoading(conversationId, false);
       chatStore.finishStreaming(conversationId);
+      chatStore.completeRunningTasks(conversationId);
 
       // Save the conversation
       // If this is the current conversation, use normal save

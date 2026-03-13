@@ -449,6 +449,20 @@ export const useChatStore = defineStore('chat', () => {
     }
   }
 
+  function completeRunningTasks(conversationId: string): void {
+    const state = conversationStates.value.get(conversationId);
+    if (!state) {
+      return;
+    }
+    const now = Date.now();
+    for (const task of state.backgroundTasks.values()) {
+      if (task.status === 'running') {
+        task.status = 'completed';
+        task.completedAt = now;
+      }
+    }
+  }
+
   function clearAllBackgroundTasks(conversationId?: string): void {
     const targetId = conversationId ?? currentConversationId.value;
     if (targetId) {
@@ -601,6 +615,7 @@ export const useChatStore = defineStore('chat', () => {
     removeBackgroundTask,
     clearCompletedTasks,
     clearAllBackgroundTasks,
+    completeRunningTasks,
 
     // Session usage actions
     updateSessionUsage,

@@ -4,7 +4,7 @@
  * Similar to how Claude Code CLI displays background task status
  */
 
-import { computed } from 'vue';
+import { computed, onBeforeUnmount, ref, watch } from 'vue';
 
 import type { BackgroundTask } from '@shared/types';
 import type { IconName } from '../shared/Icon.vue';
@@ -24,9 +24,38 @@ const emit = defineEmits<{
   (e: 'clear-completed'): void;
 }>();
 
+// Reactive clock that ticks every second while tasks are running,
+// so formatDuration re-computes for in-progress tasks.
+const now = ref(Date.now());
+let tickTimer: ReturnType<typeof setInterval> | null = null;
+
 const runningTasks = computed(() =>
   props.tasks.filter(t => t.status === 'running')
 );
+
+function startTick(): void {
+  if (!tickTimer) {
+    tickTimer = setInterval(() => { now.value = Date.now(); }, 1000);
+  }
+}
+
+function stopTick(): void {
+  if (tickTimer) {
+    clearInterval(tickTimer);
+    tickTimer = null;
+  }
+}
+
+// Only tick while there are running tasks
+watch(runningTasks, (tasks) => {
+  if (tasks.length > 0) {
+    startTick();
+  } else {
+    stopTick();
+  }
+}, { immediate: true });
+
+onBeforeUnmount(() => stopTick());
 
 const completedTasks = computed(() =>
   props.tasks.filter(t => t.status !== 'running')
@@ -65,7 +94,8 @@ function getStatusColor(status: BackgroundTask['status']): string {
 }
 
 function formatDuration(task: BackgroundTask): string {
-  const endTime = task.completedAt || Date.now();
+  // Use reactive `now` for running tasks so Vue re-renders every tick
+  const endTime = task.completedAt || now.value;
   const durationMs = endTime - task.startedAt;
   const seconds = Math.floor(durationMs / 1000);
 
