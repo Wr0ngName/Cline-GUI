@@ -159,10 +159,9 @@ export class ConversationService {
         // Ensure directory exists before writing (async, throws on error)
         await this.ensureDirAsync();
 
-        // Update the updatedAt timestamp
+        // Preserve updatedAt from the renderer (set to last message timestamp)
         const updated = {
           ...conversation,
-          updatedAt: Date.now(),
         };
 
         // Generate title from first user message if not set
@@ -227,7 +226,6 @@ export class ConversationService {
     // Update title and mark as custom (manually set)
     conversation.title = newTitle.trim();
     conversation.customTitle = true;  // Mark as manually renamed
-    conversation.updatedAt = Date.now();
     await this.save(conversation);
 
     logger.info('Conversation renamed', { id, newTitle: newTitle.slice(0, 30) });

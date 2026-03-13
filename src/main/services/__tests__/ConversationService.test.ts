@@ -333,7 +333,7 @@ describe('ConversationService', () => {
       );
     });
 
-    it('should update the updatedAt timestamp', async () => {
+    it('should preserve the updatedAt timestamp from payload', async () => {
       const conv = createConversation({ updatedAt: 1000 });
 
       await service.save(conv);
@@ -341,7 +341,7 @@ describe('ConversationService', () => {
       const savedContent = mockFileSystem.get('/app/conversations/conv_test_123.json');
       const saved = JSON.parse(savedContent!);
 
-      expect(saved.updatedAt).toBeGreaterThan(1000);
+      expect(saved.updatedAt).toBe(1000);
     });
 
     it('should generate title from first user message if not set', async () => {

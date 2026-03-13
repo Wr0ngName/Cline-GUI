@@ -233,6 +233,11 @@ export const useConversationsStore = defineStore('conversations', () => {
     // Get SDK session ID from in-memory map (for persistence)
     const sdkSessionId = sdkSessionIds.value.get(conversationId);
 
+    // Use last message timestamp for ordering (so history sorts by last message, not last access)
+    const lastMessageAt = rawMessages.length > 0
+      ? rawMessages[rawMessages.length - 1].timestamp
+      : Date.now();
+
     return {
       id: conversationId,
       title,
@@ -240,7 +245,7 @@ export const useConversationsStore = defineStore('conversations', () => {
       workingDirectory,
       messages: rawMessages,
       createdAt: existingConv?.createdAt || Date.now(),
-      updatedAt: Date.now(),
+      updatedAt: lastMessageAt,
       sdkSessionId,
     };
   }
