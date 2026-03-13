@@ -115,6 +115,7 @@ describe('PermissionManager', () => {
         alwaysAllowLabel: 'Allow Bash this session',
         description: 'Allow Bash for this session',
         scope: 'session',
+        scopeOptions: [{ scope: 'session', label: 'Allow Bash this session', description: 'Allow Bash for this session' }],
       });
     });
 
@@ -144,6 +145,7 @@ describe('PermissionManager', () => {
         alwaysAllowLabel: 'Allow Bash this session',
         description: 'Allow Bash for this session',
         scope: 'session',
+        scopeOptions: [{ scope: 'session', label: 'Allow Bash this session', description: 'Allow Bash for this session' }],
       });
     });
 
@@ -173,6 +175,7 @@ describe('PermissionManager', () => {
         alwaysAllowLabel: 'Allow Bash in this project',
         description: 'Allow Bash for this project',
         scope: 'project',
+        scopeOptions: [{ scope: 'project', label: 'Allow Bash in project', description: 'Allow Bash for this project' }],
       });
     });
 
@@ -202,6 +205,7 @@ describe('PermissionManager', () => {
         alwaysAllowLabel: 'Allow Bash in this project',
         description: 'Allow Bash for this project',
         scope: 'project',
+        scopeOptions: [{ scope: 'project', label: 'Allow Bash in project', description: 'Allow Bash for this project' }],
       });
     });
 
@@ -231,6 +235,7 @@ describe('PermissionManager', () => {
         alwaysAllowLabel: 'Always allow Bash',
         description: 'Allow Bash globally',
         scope: 'global',
+        scopeOptions: [{ scope: 'global', label: 'Always allow Bash', description: 'Allow Bash globally' }],
       });
     });
 
@@ -318,7 +323,7 @@ describe('PermissionManager', () => {
       expect(capturedAction).not.toBeNull();
       expect(capturedAction?.permissionInfo?.description).toContain('/home/user/project');
       expect(capturedAction?.permissionInfo?.description).toContain('/home/user/data');
-      expect(capturedAction?.permissionInfo?.description).toContain('Add allowed directories');
+      expect(capturedAction?.permissionInfo?.description).toContain('Add directories');
     });
 
     it('should use broadest scope when multiple scopes present', async () => {
@@ -421,7 +426,7 @@ describe('PermissionManager', () => {
       expect(capturedAction).not.toBeNull();
       const description = capturedAction?.permissionInfo?.description || '';
       expect(description).toContain('Allow Bash');
-      expect(description).toContain('Add allowed directories');
+      expect(description).toContain('Add directories');
       expect(description).toContain(';'); // Multiple descriptions joined with semicolon
     });
 
@@ -481,6 +486,7 @@ describe('PermissionManager', () => {
         alwaysAllowLabel: 'Allow Bash in this project',
         description: 'Allow Bash for this project',
         scope: 'project',
+        scopeOptions: [{ scope: 'project', label: 'Allow Bash in project', description: 'Allow Bash for this project' }],
       });
     });
 
@@ -541,6 +547,7 @@ describe('PermissionManager', () => {
         alwaysAllowLabel: 'Allow Bash in this project',
         description: 'Allow Bash for this project',
         scope: 'project',
+        scopeOptions: [{ scope: 'project', label: 'Allow Bash in project', description: 'Allow Bash for this project' }],
       });
     });
 
@@ -572,6 +579,7 @@ describe('PermissionManager', () => {
         alwaysAllowLabel: 'Always allow Write',
         description: 'Allow Write globally',
         scope: 'global',
+        scopeOptions: [{ scope: 'global', label: 'Always allow Write', description: 'Allow Write globally' }],
       });
     });
 
@@ -607,6 +615,7 @@ describe('PermissionManager', () => {
         alwaysAllowLabel: 'Allow Edit this session',
         description: 'Allow Edit for this session',
         scope: 'session',
+        scopeOptions: [{ scope: 'session', label: 'Allow Edit this session', description: 'Allow Edit for this session' }],
       });
     });
 
@@ -689,7 +698,7 @@ describe('PermissionManager', () => {
 
       expect(capturedAction).not.toBeNull();
       expect(capturedAction?.permissionInfo).toBeDefined();
-      expect(capturedAction?.permissionInfo?.description).toContain('Add allowed directories');
+      expect(capturedAction?.permissionInfo?.description).toContain('Add directories');
     });
 
     it('should deduplicate tool names across suggestions', async () => {

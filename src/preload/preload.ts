@@ -18,8 +18,9 @@ const electronAPI: ElectronAPI = {
       conversationId: string,
       actionId: string,
       updatedInput?: Record<string, unknown>,
-      alwaysAllow?: boolean
-    ) => ipcRenderer.invoke(IPC_CHANNELS.CLAUDE_APPROVE, conversationId, actionId, updatedInput, alwaysAllow),
+      alwaysAllow?: boolean,
+      chosenScope?: string
+    ) => ipcRenderer.invoke(IPC_CHANNELS.CLAUDE_APPROVE, conversationId, actionId, updatedInput, alwaysAllow, chosenScope),
 
     reject: (conversationId: string, actionId: string, message?: string) =>
       ipcRenderer.invoke(IPC_CHANNELS.CLAUDE_REJECT, conversationId, actionId, message),

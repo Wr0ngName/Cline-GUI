@@ -212,6 +212,7 @@ describe('Claude IPC handlers', () => {
         TEST_CONV_ID,
         'action_123',
         undefined,
+        undefined,
         undefined
       );
     });
@@ -224,6 +225,7 @@ describe('Claude IPC handlers', () => {
         TEST_CONV_ID,
         'action_123',
         updatedInput,
+        undefined,
         undefined
       );
     });
@@ -235,7 +237,8 @@ describe('Claude IPC handlers', () => {
         TEST_CONV_ID,
         'action_123',
         undefined,
-        true
+        true,
+        undefined
       );
     });
 
@@ -247,7 +250,8 @@ describe('Claude IPC handlers', () => {
         TEST_CONV_ID,
         'action_123',
         updatedInput,
-        true
+        true,
+        undefined
       );
     });
 

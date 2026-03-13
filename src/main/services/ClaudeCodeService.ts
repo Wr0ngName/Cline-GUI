@@ -588,7 +588,8 @@ export class ClaudeCodeService {
     conversationId: string,
     actionId: string,
     updatedInput?: Record<string, unknown>,
-    alwaysAllow?: boolean
+    alwaysAllow?: boolean,
+    chosenScope?: import('../../shared/types').PermissionScope,
   ): Promise<void> {
     const instance = this.activeQueries.get(conversationId);
     if (instance) {
@@ -598,6 +599,7 @@ export class ClaudeCodeService {
         approved: true,
         updatedInput,
         alwaysAllow,
+        chosenScope,
       });
     } else {
       logger.warn('Cannot approve action - no active query for conversation', { conversationId, actionId });

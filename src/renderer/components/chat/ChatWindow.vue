@@ -5,6 +5,7 @@
 
 import { storeToRefs } from 'pinia';
 
+import type { PermissionScope } from '@shared/types';
 import { useChatStore } from '../../stores/chat';
 import { useClaudeChat } from '../../composables/useClaudeChat';
 import ActionApproval from './ActionApproval.vue';
@@ -29,8 +30,8 @@ function handleAbort() {
   abort();
 }
 
-function handleApprove(actionId: string, alwaysAllow?: boolean) {
-  approveAction(actionId, alwaysAllow);
+function handleApprove(actionId: string, alwaysAllow?: boolean, chosenScope?: PermissionScope) {
+  approveAction(actionId, alwaysAllow, chosenScope);
 }
 
 function handleReject(actionId: string) {

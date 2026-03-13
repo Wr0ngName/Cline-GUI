@@ -13,7 +13,7 @@
 
 import { ipcMain } from 'electron';
 
-import { IPC_CHANNELS, ActionResponse } from '../../shared/types';
+import { IPC_CHANNELS, ActionResponse, PermissionScope } from '../../shared/types';
 import { IpcError, ValidationError, AppError, ERROR_CODES } from '../errors';
 import ClaudeCodeService from '../services/ClaudeCodeService';
 import { validateString, validateObject, validateBoolean, formatErrorMessage, ensureService } from '../utils/ipc-helpers';
@@ -57,10 +57,11 @@ export function setupClaudeIPC(claudeService: ClaudeCodeService): void {
       conversationId: string,
       actionId: string,
       updatedInput?: Record<string, unknown>,
-      alwaysAllow?: boolean
+      alwaysAllow?: boolean,
+      chosenScope?: PermissionScope
     ) => {
       try {
-        logger.debug('IPC: claude:approve', { conversationId, actionId, alwaysAllow });
+        logger.debug('IPC: claude:approve', { conversationId, actionId, alwaysAllow, chosenScope });
 
         // Validate service
         ensureService(claudeService, 'ClaudeCodeService');
@@ -77,7 +78,11 @@ export function setupClaudeIPC(claudeService: ClaudeCodeService): void {
           validateBoolean(alwaysAllow, 'alwaysAllow');
         }
 
-        await claudeService.approveAction(conversationId, actionId, updatedInput, alwaysAllow);
+        if (chosenScope !== undefined) {
+          validateString(chosenScope, 'chosenScope');
+        }
+
+        await claudeService.approveAction(conversationId, actionId, updatedInput, alwaysAllow, chosenScope);
       } catch (error) {
         logger.error('Failed to approve action', { error, conversationId, actionId });
         throw new IpcError(formatErrorMessage('Failed to approve action', error), IPC_CHANNELS.CLAUDE_APPROVE, ERROR_CODES.IPC_HANDLER_FAILED, error);

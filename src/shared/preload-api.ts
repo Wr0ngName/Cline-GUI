@@ -12,6 +12,7 @@ import type {
   GitStatus,
   ModelInfo,
   PendingAction,
+  PermissionScope,
   SessionPermissionEntry,
   SessionUsage,
   SlashCommandInfo,
@@ -37,7 +38,8 @@ export interface ElectronAPI {
       conversationId: string,
       actionId: string,
       updatedInput?: Record<string, unknown>,
-      alwaysAllow?: boolean
+      alwaysAllow?: boolean,
+      chosenScope?: PermissionScope
     ) => Promise<void>;
     /** Reject a pending action for a specific conversation */
     reject: (conversationId: string, actionId: string, message?: string) => Promise<void>;

@@ -10,7 +10,7 @@
 
 import { onMounted, onUnmounted, shallowRef } from 'vue';
 
-import type { SlashCommandInfo, ChatMessage, PendingAction } from '@shared/types';
+import type { SlashCommandInfo, ChatMessage, PendingAction, PermissionScope } from '@shared/types';
 
 import { useChatStore } from '../stores/chat';
 import { useConversationsStore } from '../stores/conversations';
@@ -195,7 +195,7 @@ export function useClaudeChat() {
    * @param actionId - The action to approve
    * @param alwaysAllow - If true, automatically approve similar actions in the future
    */
-  async function approveAction(actionId: string, alwaysAllow?: boolean) {
+  async function approveAction(actionId: string, alwaysAllow?: boolean, chosenScope?: PermissionScope) {
     const currentConvId = conversationsStore.currentConversationId;
     if (!currentConvId) {
       logger.error('Cannot approve action: no active conversation');
@@ -213,7 +213,7 @@ export function useClaudeChat() {
       }
 
       chatStore.updateActionStatus(currentConvId, actionId, 'approved');
-      await window.electron.claude.approve(currentConvId, actionId, undefined, alwaysAllow);
+      await window.electron.claude.approve(currentConvId, actionId, undefined, alwaysAllow, chosenScope);
       chatStore.removePendingAction(currentConvId, actionId);
     } catch (err) {
       logger.error('Failed to approve action', err);

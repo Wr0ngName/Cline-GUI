@@ -12,7 +12,7 @@ import type {
 } from '@anthropic-ai/claude-agent-sdk';
 
 import { generateId, ID_PREFIXES } from '../../../shared/id';
-import { PendingAction, ActionResponse, PermissionSuggestionInfo, PermissionScope } from '../../../shared/types';
+import { PendingAction, ActionResponse, PermissionSuggestionInfo, PermissionScope, PermissionScopeOption } from '../../../shared/types';
 import { MAIN_CONSTANTS } from '../../constants/app';
 import logger from '../../utils/logger';
 import type ConfigService from '../ConfigService';
@@ -188,10 +188,10 @@ export class PermissionManager {
   }
 
   /**
-   * Parse SDK permission suggestions into a human-readable description
+   * Parse SDK permission suggestions into per-scope options
    * for display in the action approval UI.
    *
-   * Maps SDK PermissionUpdateDestination to user-facing scope labels:
+   * Groups suggestions by scope and creates a button option for each:
    * - 'session' → session scope (temporary, this session only)
    * - 'projectSettings' / 'localSettings' → project scope (stored per project)
    * - 'userSettings' → global scope (stored in user settings, applies everywhere)
@@ -204,70 +204,121 @@ export class PermissionManager {
       return undefined;
     }
 
-    // Collect unique tool names and determine the broadest scope from all suggestions
-    const toolNames = new Set<string>();
-    let broadestScope: PermissionScope = 'session';
     const SCOPE_PRIORITY: Record<PermissionScope, number> = { session: 0, project: 1, global: 2 };
     const SCOPE_LABELS: Record<PermissionScope, string> = {
       session: 'for this session',
       project: 'for this project',
       global: 'globally',
     };
-    const descriptions: string[] = [];
+
+    // Group suggestions by scope, collecting tool names per scope
+    const scopeGroups: Record<PermissionScope, { toolNames: Set<string>; descriptions: string[] }> = {
+      session: { toolNames: new Set(), descriptions: [] },
+      project: { toolNames: new Set(), descriptions: [] },
+      global: { toolNames: new Set(), descriptions: [] },
+    };
+
+    // Also track globally for legacy fields
+    const allToolNames = new Set<string>();
+    let broadestScope: PermissionScope = 'session';
 
     for (const suggestion of suggestions) {
-      // Map SDK destination to our scope
       const scope = this.mapDestinationToScope(suggestion.destination);
+      const group = scopeGroups[scope];
 
       if (SCOPE_PRIORITY[scope] > SCOPE_PRIORITY[broadestScope]) {
         broadestScope = scope;
       }
 
-      // Collect tool names from rules-based suggestions using proper type discrimination
       if (suggestion.type === 'addRules' || suggestion.type === 'replaceRules' || suggestion.type === 'removeRules') {
         for (const rule of suggestion.rules) {
-          toolNames.add(rule.toolName);
+          group.toolNames.add(rule.toolName);
+          allToolNames.add(rule.toolName);
         }
-        // Build description for addRules
         if (suggestion.type === 'addRules') {
           const ruleToolNames = suggestion.rules.map((r) => r.toolName).join(', ');
-          descriptions.push(`Allow ${ruleToolNames} ${SCOPE_LABELS[scope]}`);
+          group.descriptions.push(`Allow ${ruleToolNames} ${SCOPE_LABELS[scope]}`);
         }
       } else if (suggestion.type === 'addDirectories') {
         const dirs = suggestion.directories.join(', ');
-        descriptions.push(`Add allowed directories: ${dirs}`);
+        group.descriptions.push(`Add directories: ${dirs}`);
+      } else if (suggestion.type === 'setMode') {
+        group.descriptions.push(`Set mode: ${suggestion.mode}`);
       }
     }
 
-    // If no tool names were found in rules, use the requesting tool name
-    if (toolNames.size === 0) {
-      toolNames.add(toolName);
+    // If no tool names found in any rules, use the requesting tool name
+    if (allToolNames.size === 0) {
+      allToolNames.add(toolName);
+      // Add to each non-empty scope group as well
+      for (const scope of (['session', 'project', 'global'] as PermissionScope[])) {
+        if (scopeGroups[scope].descriptions.length > 0) {
+          scopeGroups[scope].toolNames.add(toolName);
+        }
+      }
     }
 
-    // Generate the button label based on scope and tool names
-    const toolLabel = toolNames.size === 1 ? [...toolNames][0] : `${toolNames.size} tools`;
-    let alwaysAllowLabel: string;
+    // Build per-scope options (only for scopes that have suggestions)
+    const scopeOptions: PermissionScopeOption[] = [];
+    const SCOPE_ORDER: PermissionScope[] = ['session', 'project', 'global'];
 
+    for (const scope of SCOPE_ORDER) {
+      const group = scopeGroups[scope];
+      // A scope has content if it has tool names or descriptions
+      const hasSuggestions = suggestions.some(
+        (s) => this.mapDestinationToScope(s.destination) === scope
+      );
+
+      if (!hasSuggestions) continue;
+
+      const scopeToolNames = group.toolNames.size > 0 ? group.toolNames : allToolNames;
+      const toolLabel = scopeToolNames.size === 1 ? [...scopeToolNames][0] : `${scopeToolNames.size} tools`;
+
+      let label: string;
+      switch (scope) {
+        case 'session':
+          label = `Allow ${toolLabel} this session`;
+          break;
+        case 'project':
+          label = `Allow ${toolLabel} in project`;
+          break;
+        case 'global':
+          label = `Always allow ${toolLabel}`;
+          break;
+      }
+
+      const description = group.descriptions.length > 0
+        ? group.descriptions.join('; ')
+        : `Allow ${toolLabel} (${scope} scope)`;
+
+      scopeOptions.push({ scope, label, description });
+    }
+
+    // Legacy fields: broadest scope label
+    const globalToolLabel = allToolNames.size === 1 ? [...allToolNames][0] : `${allToolNames.size} tools`;
+    let alwaysAllowLabel: string;
     switch (broadestScope) {
       case 'session':
-        alwaysAllowLabel = `Allow ${toolLabel} this session`;
+        alwaysAllowLabel = `Allow ${globalToolLabel} this session`;
         break;
       case 'project':
-        alwaysAllowLabel = `Allow ${toolLabel} in this project`;
+        alwaysAllowLabel = `Allow ${globalToolLabel} in this project`;
         break;
       case 'global':
-        alwaysAllowLabel = `Always allow ${toolLabel}`;
+        alwaysAllowLabel = `Always allow ${globalToolLabel}`;
         break;
     }
 
-    const description = descriptions.length > 0
-      ? descriptions.join('; ')
-      : `Allow ${toolLabel} (${broadestScope} scope)`;
+    const allDescriptions = Object.values(scopeGroups).flatMap((g) => g.descriptions);
+    const description = allDescriptions.length > 0
+      ? allDescriptions.join('; ')
+      : `Allow ${globalToolLabel} (${broadestScope} scope)`;
 
     return {
       alwaysAllowLabel,
       description,
       scope: broadestScope,
+      scopeOptions,
     };
   }
 
@@ -371,6 +422,26 @@ export class PermissionManager {
   }
 
   /**
+   * Filter suggestions to those matching a chosen scope.
+   * When a broader scope is chosen, also includes narrower scope suggestions
+   * (e.g., choosing "project" also includes "session" suggestions, since
+   * session permissions aren't persisted to disk by the SDK).
+   */
+  private filterSuggestionsByScope(
+    suggestions: PermissionUpdate[],
+    chosenScope: PermissionScope
+  ): PermissionUpdate[] {
+    const SCOPE_PRIORITY: Record<PermissionScope, number> = { session: 0, project: 1, global: 2 };
+    const chosenPriority = SCOPE_PRIORITY[chosenScope];
+
+    return suggestions.filter((s) => {
+      const suggestionScope = this.mapDestinationToScope(s.destination);
+      // Include suggestions at the chosen scope or narrower
+      return SCOPE_PRIORITY[suggestionScope] <= chosenPriority;
+    });
+  }
+
+  /**
    * Handle action response from renderer (approve/reject)
    */
   handleActionResponse(response: ActionResponse): void {
@@ -390,6 +461,7 @@ export class PermissionManager {
         actionId: response.actionId,
         toolName: pending.toolName,
         alwaysAllow: response.alwaysAllow,
+        chosenScope: response.chosenScope,
       });
 
       const result: PermissionResult = {
@@ -399,10 +471,17 @@ export class PermissionManager {
 
       // Include permission updates if user chose "always allow"
       if (response.alwaysAllow && pending.suggestions) {
-        result.updatedPermissions = pending.suggestions;
+        // Filter suggestions by chosen scope if specified
+        const filteredSuggestions = response.chosenScope
+          ? this.filterSuggestionsByScope(pending.suggestions, response.chosenScope)
+          : pending.suggestions;
+
+        result.updatedPermissions = filteredSuggestions;
+
         // Cache session-scoped permissions for persistence across queries
+        // (SessionPermissionCache internally filters to session/cliArg destinations only)
         if (this.sessionPermissionCache && this.conversationId) {
-          this.sessionPermissionCache.addPermissions(this.conversationId, pending.suggestions);
+          this.sessionPermissionCache.addPermissions(this.conversationId, filteredSuggestions);
         }
       }
 

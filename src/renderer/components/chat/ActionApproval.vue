@@ -1,11 +1,13 @@
 <script setup lang="ts">
 /**
- * Action approval component - shows pending actions for user approval
+ * Action approval component - shows pending actions for user approval.
+ * Presents per-scope permission buttons (session/project/global) when
+ * the SDK provides scope-specific suggestions.
  */
 
 import { computed, onMounted, onUnmounted, ref } from 'vue';
 
-import type { PendingAction, FileEditDetails, BashCommandDetails } from '@shared/types';
+import type { PendingAction, FileEditDetails, BashCommandDetails, PermissionScope, PermissionScopeOption } from '@shared/types';
 import type { IconName } from '../shared/Icon.vue';
 
 import Button from '../shared/Button.vue';
@@ -19,16 +21,62 @@ interface Props {
 const props = defineProps<Props>();
 
 const emit = defineEmits<{
-  (e: 'approve', actionId: string, alwaysAllow?: boolean): void;
+  (e: 'approve', actionId: string, alwaysAllow?: boolean, chosenScope?: PermissionScope): void;
   (e: 'reject', actionId: string): void;
 }>();
 
 // For focus management
 const cardRef = ref<HTMLElement | null>(null);
 
+/** Per-scope options from SDK permission suggestions */
+const scopeOptions = computed((): PermissionScopeOption[] => {
+  return props.action.permissionInfo?.scopeOptions ?? [];
+});
+
+/** Whether we have per-scope buttons to show */
+const hasScopeOptions = computed(() => scopeOptions.value.length > 0);
+
+/** The broadest scope option (last in sorted order) */
+const broadestScopeOption = computed(() => {
+  if (scopeOptions.value.length > 0) {
+    return scopeOptions.value[scopeOptions.value.length - 1];
+  }
+  return null;
+});
+
+/** Fallback label when no scope options */
+const fallbackAlwaysAllowLabel = computed(() => {
+  return props.action.permissionInfo?.alwaysAllowLabel ?? 'Always Allow';
+});
+
+/** Fallback tooltip when no scope options */
+const fallbackAlwaysAllowTooltip = computed(() => {
+  return props.action.permissionInfo?.description
+    ?? 'Approve this action and allow similar actions automatically in the future';
+});
+
+/** Color class for a scope dot indicator */
+function scopeDotClass(scope: PermissionScope): string {
+  switch (scope) {
+    case 'session': return 'bg-blue-400';
+    case 'project': return 'bg-yellow-400';
+    case 'global': return 'bg-green-400';
+  }
+}
+
+/** Human-readable scope name for tooltips */
+function scopeTitle(scope: PermissionScope): string {
+  switch (scope) {
+    case 'session': return 'Session only';
+    case 'project': return 'Project scope';
+    case 'global': return 'Global scope';
+  }
+}
+
 /**
  * Handle keyboard shortcuts for quick action approval/rejection.
- * Enter or 'a' = approve, Shift+Enter or 'A' = always allow, Escape or 'r' = reject
+ * Enter/a = allow once, s = session scope, p = project scope,
+ * Shift+Enter/A = broadest scope, Escape/r = deny
  */
 function handleKeydown(event: KeyboardEvent) {
   // Only handle if this action card is focused or contains focus
@@ -37,16 +85,38 @@ function handleKeydown(event: KeyboardEvent) {
   }
 
   if (event.key === 'Enter' && event.shiftKey) {
-    // Shift+Enter = approve and always allow
+    // Shift+Enter = broadest scope always allow
     event.preventDefault();
-    emit('approve', props.action.id, true);
+    if (broadestScopeOption.value) {
+      emit('approve', props.action.id, true, broadestScopeOption.value.scope);
+    } else {
+      emit('approve', props.action.id, true);
+    }
   } else if (event.key === 'Enter' || event.key === 'a') {
     event.preventDefault();
     emit('approve', props.action.id, false);
+  } else if (event.key === 's' && hasScopeOptions.value) {
+    // 's' = allow for session
+    const sessionOption = scopeOptions.value.find((o) => o.scope === 'session');
+    if (sessionOption) {
+      event.preventDefault();
+      emit('approve', props.action.id, true, 'session');
+    }
+  } else if (event.key === 'p' && hasScopeOptions.value) {
+    // 'p' = allow for project
+    const projectOption = scopeOptions.value.find((o) => o.scope === 'project');
+    if (projectOption) {
+      event.preventDefault();
+      emit('approve', props.action.id, true, 'project');
+    }
   } else if (event.key === 'A' && !event.shiftKey) {
-    // Capital A = always allow
+    // Capital A = broadest scope always allow
     event.preventDefault();
-    emit('approve', props.action.id, true);
+    if (broadestScopeOption.value) {
+      emit('approve', props.action.id, true, broadestScopeOption.value.scope);
+    } else {
+      emit('approve', props.action.id, true);
+    }
   } else if (event.key === 'Escape' || event.key.toLowerCase() === 'r') {
     event.preventDefault();
     emit('reject', props.action.id);
@@ -109,26 +179,18 @@ const actionColor = computed(() => {
   }
 });
 
-/** Dynamic label for the "always allow" button based on SDK permission suggestions */
-const alwaysAllowLabel = computed(() => {
-  return props.action.permissionInfo?.alwaysAllowLabel ?? 'Always Allow';
-});
-
-/** Tooltip for the "always allow" button showing full permission details */
-const alwaysAllowTooltip = computed(() => {
-  return props.action.permissionInfo?.description
-    ?? 'Approve this action and allow similar actions automatically in the future';
-});
-
-/** Scope badge for the "always allow" button */
-const permissionScope = computed(() => {
-  return props.action.permissionInfo?.scope;
-});
-
 /** Keyboard shortcut hint text */
 const shortcutHint = computed(() => {
-  const alwaysLabel = alwaysAllowLabel.value;
-  return `Action requires approval. Keys: Enter/a=allow once, Shift+Enter/A=${alwaysLabel}, Esc/r=deny`;
+  const parts = ['Enter/a=allow once'];
+  if (hasScopeOptions.value) {
+    if (scopeOptions.value.some((o) => o.scope === 'session')) parts.push('s=session');
+    if (scopeOptions.value.some((o) => o.scope === 'project')) parts.push('p=project');
+    parts.push('Shift+Enter/A=broadest');
+  } else {
+    parts.push('Shift+Enter/A=always allow');
+  }
+  parts.push('Esc/r=deny');
+  return `Keys: ${parts.join(', ')}`;
 });
 </script>
 
@@ -203,7 +265,7 @@ const shortcutHint = computed(() => {
     </div>
 
     <!-- Actions -->
-    <div class="flex gap-2 justify-end items-center">
+    <div class="flex gap-2 justify-end items-center flex-wrap">
       <Button
         variant="ghost"
         size="sm"
@@ -218,26 +280,36 @@ const shortcutHint = computed(() => {
       >
         Allow Once
       </Button>
+
+      <!-- Per-scope buttons (when SDK provides scope-specific suggestions) -->
+      <template v-if="hasScopeOptions">
+        <Button
+          v-for="option in scopeOptions"
+          :key="option.scope"
+          variant="secondary"
+          size="sm"
+          :title="option.description"
+          :aria-label="`${option.label} - ${option.description}`"
+          @click="emit('approve', action.id, true, option.scope)"
+        >
+          <span
+            :class="['inline-block w-2 h-2 rounded-full mr-1.5', scopeDotClass(option.scope)]"
+            :title="scopeTitle(option.scope)"
+          />
+          {{ option.label }}
+        </Button>
+      </template>
+
+      <!-- Fallback single button (when no scope options) -->
       <Button
+        v-else
         variant="secondary"
         size="sm"
-        :title="alwaysAllowTooltip"
-        :aria-label="`${alwaysAllowLabel} - ${alwaysAllowTooltip}`"
+        :title="fallbackAlwaysAllowTooltip"
+        :aria-label="`${fallbackAlwaysAllowLabel} - ${fallbackAlwaysAllowTooltip}`"
         @click="emit('approve', action.id, true)"
       >
-        <span
-          v-if="permissionScope"
-          :class="[
-            'inline-block w-2 h-2 rounded-full mr-1.5',
-            permissionScope === 'session' ? 'bg-blue-400' :
-            permissionScope === 'project' ? 'bg-yellow-400' :
-            'bg-green-400'
-          ]"
-          :title="permissionScope === 'session' ? 'Session only' :
-                  permissionScope === 'project' ? 'Project scope' :
-                  'Global scope'"
-        />
-        {{ alwaysAllowLabel }}
+        {{ fallbackAlwaysAllowLabel }}
       </Button>
     </div>
   </div>

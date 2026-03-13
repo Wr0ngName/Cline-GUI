@@ -136,16 +136,31 @@ export type ActionDetails = FileEditDetails | FileCreateDetails | FileDeleteDeta
 export type PermissionScope = 'session' | 'project' | 'global';
 
 /**
+ * A single scope option presented to the user in the permission approval UI.
+ * Each option maps to a set of SDK PermissionUpdate suggestions for that scope.
+ */
+export interface PermissionScopeOption {
+  /** The scope this option applies to */
+  scope: PermissionScope;
+  /** Button label (e.g. "Allow Bash this session") */
+  label: string;
+  /** Tooltip description of what will be allowed */
+  description: string;
+}
+
+/**
  * Human-readable info about what the "always allow" action will do.
  * Generated from SDK PermissionUpdate suggestions.
  */
 export interface PermissionSuggestionInfo {
-  /** Human-readable label for the "always allow" button (e.g. "Allow Bash in this project") */
+  /** Human-readable label for the broadest-scope button (legacy, used as fallback) */
   alwaysAllowLabel: string;
   /** Detailed description of what will be allowed (shown as tooltip) */
   description: string;
-  /** The scope of the permission (for visual indicator) */
+  /** The broadest scope across all suggestions (legacy, used as fallback) */
   scope: PermissionScope;
+  /** Per-scope options for the UI. Each entry becomes a separate button. */
+  scopeOptions: PermissionScopeOption[];
 }
 
 /**
@@ -245,6 +260,9 @@ export interface ActionResponse {
   updatedInput?: Record<string, unknown>;
   /** Whether to automatically approve similar actions in the future */
   alwaysAllow?: boolean;
+  /** Which permission scope the user chose (session/project/global).
+   *  When set, only suggestions matching this scope are applied. */
+  chosenScope?: PermissionScope;
   /** Optional message explaining why the action was denied */
   denyMessage?: string;
 }
