@@ -75,7 +75,7 @@ const renderedContent = computed(() => renderMarkdown(props.message.content));
 
     <!-- Content -->
     <div
-      class="prose prose-sm dark:prose-invert max-w-none text-surface-800 dark:text-surface-200 message-content"
+      class="prose prose-sm dark:prose-invert max-w-full text-surface-800 dark:text-surface-200 message-content"
       v-html="renderedContent"
     />
   </div>
@@ -85,10 +85,18 @@ const renderedContent = computed(() => renderMarkdown(props.message.content));
 .message-content {
   font-size: var(--chat-font-size, 14px) !important;
   line-height: 1.6;
+  overflow-wrap: break-word;
+  word-break: break-word;
 }
 
 /* Override prose-sm font sizes for all elements */
 .message-content :deep(*) {
   font-size: inherit;
+}
+
+/* Code blocks get horizontal scroll instead of overflowing */
+.message-content :deep(pre) {
+  overflow-x: auto;
+  max-width: 100%;
 }
 </style>

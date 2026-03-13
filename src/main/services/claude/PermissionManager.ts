@@ -12,7 +12,7 @@ import type {
 } from '@anthropic-ai/claude-agent-sdk';
 
 import { generateId, ID_PREFIXES } from '../../../shared/id';
-import { PendingAction, ActionResponse } from '../../../shared/types';
+import { PendingAction, ActionResponse, PermissionSuggestionInfo, PermissionScope } from '../../../shared/types';
 import { MAIN_CONSTANTS } from '../../constants/app';
 import logger from '../../utils/logger';
 import type ConfigService from '../ConfigService';
@@ -27,6 +27,8 @@ interface PendingPermission {
   resolve: (result: PermissionResult) => void;
   reject: (error: Error) => void;
   suggestions?: PermissionUpdate[];
+  /** Cleanup function to remove the abort event listener */
+  cleanupAbortHandler?: () => void;
 }
 
 /**
@@ -76,8 +78,9 @@ export class PermissionManager {
         };
       }
 
-      // Create pending action for UI
-      const action = this.createPendingAction(actionId, toolName, input);
+      // Create pending action for UI (include permission info from SDK suggestions)
+      const permissionInfo = this.describePermissionSuggestions(toolName, options.suggestions);
+      const action = this.createPendingAction(actionId, toolName, input, permissionInfo);
       if (!action) {
         logger.warn('Could not create action for tool', { toolName });
         return {
@@ -100,10 +103,8 @@ export class PermissionManager {
           suggestions: options.suggestions,
         };
 
-        this.pendingPermissions.set(actionId, pendingPermission);
-
-        // Set up abort handler
-        options.signal.addEventListener('abort', () => {
+        // Set up named abort handler so it can be removed after resolution
+        const abortHandler = () => {
           const pending = this.pendingPermissions.get(actionId);
           if (pending) {
             this.pendingPermissions.delete(actionId);
@@ -113,7 +114,17 @@ export class PermissionManager {
               interrupt: true,
             });
           }
-        });
+        };
+
+        pendingPermission.cleanupAbortHandler = () => {
+          // Guard: signal may not support removeEventListener in test environments
+          if (typeof options.signal.removeEventListener === 'function') {
+            options.signal.removeEventListener('abort', abortHandler);
+          }
+        };
+
+        this.pendingPermissions.set(actionId, pendingPermission);
+        options.signal.addEventListener('abort', abortHandler);
 
         // Timeout after configured duration (SDK requirement)
         setTimeout(() => {
@@ -141,12 +152,115 @@ export class PermissionManager {
   }
 
   /**
+   * Map SDK PermissionUpdateDestination to our PermissionScope.
+   * Defaults to 'session' for unknown destinations (defensive).
+   */
+  private mapDestinationToScope(destination: string): PermissionScope {
+    switch (destination) {
+      case 'userSettings':
+        return 'global';
+      case 'projectSettings':
+      case 'localSettings':
+        return 'project';
+      case 'session':
+      case 'cliArg':
+      default:
+        return 'session';
+    }
+  }
+
+  /**
+   * Parse SDK permission suggestions into a human-readable description
+   * for display in the action approval UI.
+   *
+   * Maps SDK PermissionUpdateDestination to user-facing scope labels:
+   * - 'session' → session scope (temporary, this session only)
+   * - 'projectSettings' / 'localSettings' → project scope (stored per project)
+   * - 'userSettings' → global scope (stored in user settings, applies everywhere)
+   */
+  private describePermissionSuggestions(
+    toolName: string,
+    suggestions?: PermissionUpdate[]
+  ): PermissionSuggestionInfo | undefined {
+    if (!suggestions || suggestions.length === 0) {
+      return undefined;
+    }
+
+    // Collect unique tool names and determine the broadest scope from all suggestions
+    const toolNames = new Set<string>();
+    let broadestScope: PermissionScope = 'session';
+    const SCOPE_PRIORITY: Record<PermissionScope, number> = { session: 0, project: 1, global: 2 };
+    const SCOPE_LABELS: Record<PermissionScope, string> = {
+      session: 'for this session',
+      project: 'for this project',
+      global: 'globally',
+    };
+    const descriptions: string[] = [];
+
+    for (const suggestion of suggestions) {
+      // Map SDK destination to our scope
+      const scope = this.mapDestinationToScope(suggestion.destination);
+
+      if (SCOPE_PRIORITY[scope] > SCOPE_PRIORITY[broadestScope]) {
+        broadestScope = scope;
+      }
+
+      // Collect tool names from rules-based suggestions using proper type discrimination
+      if (suggestion.type === 'addRules' || suggestion.type === 'replaceRules' || suggestion.type === 'removeRules') {
+        for (const rule of suggestion.rules) {
+          toolNames.add(rule.toolName);
+        }
+        // Build description for addRules
+        if (suggestion.type === 'addRules') {
+          const ruleToolNames = suggestion.rules.map((r) => r.toolName).join(', ');
+          descriptions.push(`Allow ${ruleToolNames} ${SCOPE_LABELS[scope]}`);
+        }
+      } else if (suggestion.type === 'addDirectories') {
+        const dirs = suggestion.directories.join(', ');
+        descriptions.push(`Add allowed directories: ${dirs}`);
+      }
+    }
+
+    // If no tool names were found in rules, use the requesting tool name
+    if (toolNames.size === 0) {
+      toolNames.add(toolName);
+    }
+
+    // Generate the button label based on scope and tool names
+    const toolLabel = toolNames.size === 1 ? [...toolNames][0] : `${toolNames.size} tools`;
+    let alwaysAllowLabel: string;
+
+    switch (broadestScope) {
+      case 'session':
+        alwaysAllowLabel = `Allow ${toolLabel} this session`;
+        break;
+      case 'project':
+        alwaysAllowLabel = `Allow ${toolLabel} in this project`;
+        break;
+      case 'global':
+        alwaysAllowLabel = `Always allow ${toolLabel}`;
+        break;
+    }
+
+    const description = descriptions.length > 0
+      ? descriptions.join('; ')
+      : `Allow ${toolLabel} (${broadestScope} scope)`;
+
+    return {
+      alwaysAllowLabel,
+      description,
+      scope: broadestScope,
+    };
+  }
+
+  /**
    * Create a PendingAction from tool info for UI display
    */
   private createPendingAction(
     actionId: string,
     toolName: string,
-    input: Record<string, unknown>
+    input: Record<string, unknown>,
+    permissionInfo?: PermissionSuggestionInfo
   ): PendingAction | null {
     const baseFields = {
       id: actionId,
@@ -154,6 +268,7 @@ export class PermissionManager {
       input,
       status: 'pending' as const,
       timestamp: Date.now(),
+      ...(permissionInfo ? { permissionInfo } : {}),
     };
 
     switch (toolName) {
@@ -249,6 +364,9 @@ export class PermissionManager {
 
     this.pendingPermissions.delete(response.actionId);
 
+    // Clean up the abort event listener to prevent memory leaks
+    pending.cleanupAbortHandler?.();
+
     if (response.approved) {
       logger.info('Action approved by user', {
         actionId: response.actionId,
@@ -287,6 +405,7 @@ export class PermissionManager {
    */
   clearPendingPermissions(): void {
     for (const [, pending] of this.pendingPermissions) {
+      pending.cleanupAbortHandler?.();
       pending.resolve({
         behavior: 'deny',
         message: 'Operation was cancelled',

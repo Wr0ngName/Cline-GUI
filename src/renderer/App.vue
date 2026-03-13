@@ -315,7 +315,7 @@ const isMac = window.electron?.platform === 'darwin';
       </Transition>
 
       <!-- Chat area -->
-      <section class="flex-1 flex flex-col relative bg-white dark:bg-surface-800">
+      <section class="flex-1 min-w-0 flex flex-col relative bg-white dark:bg-surface-800">
         <ChatWindow />
       </section>
     </main>

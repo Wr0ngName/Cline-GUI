@@ -108,6 +108,28 @@ const actionColor = computed(() => {
       return 'text-blue-500';
   }
 });
+
+/** Dynamic label for the "always allow" button based on SDK permission suggestions */
+const alwaysAllowLabel = computed(() => {
+  return props.action.permissionInfo?.alwaysAllowLabel ?? 'Always Allow';
+});
+
+/** Tooltip for the "always allow" button showing full permission details */
+const alwaysAllowTooltip = computed(() => {
+  return props.action.permissionInfo?.description
+    ?? 'Approve this action and allow similar actions automatically in the future';
+});
+
+/** Scope badge for the "always allow" button */
+const permissionScope = computed(() => {
+  return props.action.permissionInfo?.scope;
+});
+
+/** Keyboard shortcut hint text */
+const shortcutHint = computed(() => {
+  const alwaysLabel = alwaysAllowLabel.value;
+  return `Action requires approval. Keys: Enter/a=allow once, Shift+Enter/A=${alwaysLabel}, Esc/r=deny`;
+});
 </script>
 
 <template>
@@ -142,7 +164,7 @@ const actionColor = computed(() => {
           :id="`action-desc-${action.id}`"
           class="text-xs text-surface-500 dark:text-surface-400 mt-0.5"
         >
-          Action requires approval. Keys: Enter/a=approve, Shift+Enter/A=always allow, Esc/r=reject
+          {{ shortcutHint }}
         </p>
       </div>
     </div>
@@ -181,28 +203,41 @@ const actionColor = computed(() => {
     </div>
 
     <!-- Actions -->
-    <div class="flex gap-2 justify-end">
+    <div class="flex gap-2 justify-end items-center">
       <Button
         variant="ghost"
         size="sm"
         @click="emit('reject', action.id)"
       >
-        Reject
-      </Button>
-      <Button
-        variant="secondary"
-        size="sm"
-        title="Approve this action and allow similar actions automatically in the future"
-        @click="emit('approve', action.id, true)"
-      >
-        Always Allow
+        Deny
       </Button>
       <Button
         variant="success"
         size="sm"
         @click="emit('approve', action.id, false)"
       >
-        Approve
+        Allow Once
+      </Button>
+      <Button
+        variant="secondary"
+        size="sm"
+        :title="alwaysAllowTooltip"
+        :aria-label="`${alwaysAllowLabel} - ${alwaysAllowTooltip}`"
+        @click="emit('approve', action.id, true)"
+      >
+        <span
+          v-if="permissionScope"
+          :class="[
+            'inline-block w-2 h-2 rounded-full mr-1.5',
+            permissionScope === 'session' ? 'bg-blue-400' :
+            permissionScope === 'project' ? 'bg-yellow-400' :
+            'bg-green-400'
+          ]"
+          :title="permissionScope === 'session' ? 'Session only' :
+                  permissionScope === 'project' ? 'Project scope' :
+                  'Global scope'"
+        />
+        {{ alwaysAllowLabel }}
       </Button>
     </div>
   </div>

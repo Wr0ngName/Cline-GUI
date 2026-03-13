@@ -9,7 +9,6 @@ import { FusesPlugin } from '@electron-forge/plugin-fuses';
 import { FuseV1Options, FuseVersion } from '@electron/fuses';
 import { spawn } from 'node:child_process';
 import * as fs from 'node:fs';
-import * as path from 'node:path';
 
 // Check if we're building for Windows (either native or cross-compiling)
 // The make command sets --platform=win32 which we can detect via npm_config_platform
@@ -67,7 +66,8 @@ const config: ForgeConfig = {
       }
       // Dynamically import vite config to get external modules list
       const viteConfig = await import('./vite.main.config');
-      const external = viteConfig?.default?.build?.rollupOptions?.external || [];
+      const rawExternal = viteConfig?.default?.build?.rollupOptions?.external;
+      const external: string[] = Array.isArray(rawExternal) ? rawExternal as string[] : [];
 
       if (external.length === 0) {
         console.log('No external modules to install');
@@ -144,6 +144,8 @@ const config: ForgeConfig = {
         categories: ['Development'],
         // Git is required by Claude Code CLI
         requires: ['git'],
+        // scripts.postun: RPM post-uninstall script
+        // @ts-expect-error MakerRpm supports scripts via electron-installer-redhat but types are incomplete
         scripts: {
           postun: './resources/linux/postrm.rpm',
         },

@@ -405,7 +405,7 @@ describe('useFilesStore', () => {
         { type: 'add', path: '/home/user/project/new-file.ts' },
       ]);
 
-      expect(store.fileTree.some((n) => n.name === 'new-file.ts')).toBe(true);
+      expect(store.fileTree.some((n: { name: string }) => n.name === 'new-file.ts')).toBe(true);
     });
 
     it('should reload full tree for large change sets', async () => {
@@ -458,7 +458,7 @@ describe('useFilesStore', () => {
 
       fileChangeCallback?.([{ type: 'add', path: '/home/user/project/new-file.ts' }]);
 
-      expect(store.fileTree.some((n) => n.name === 'new-file.ts')).toBe(true);
+      expect(store.fileTree.some((n: { name: string }) => n.name === 'new-file.ts')).toBe(true);
     });
 
     it('should remove file from tree', async () => {
@@ -468,7 +468,7 @@ describe('useFilesStore', () => {
 
       fileChangeCallback?.([{ type: 'unlink', path: '/home/user/project/package.json' }]);
 
-      expect(store.fileTree.some((n) => n.name === 'package.json')).toBe(false);
+      expect(store.fileTree.some((n: { name: string }) => n.name === 'package.json')).toBe(false);
     });
 
     it('should update file timestamp on change', async () => {
@@ -476,12 +476,12 @@ describe('useFilesStore', () => {
       await store.loadFileTree();
       store.setupFileWatcher();
 
-      const originalNode = store.fileTree.find((n) => n.name === 'package.json');
+      const originalNode = store.fileTree.find((n: { name: string }) => n.name === 'package.json');
       const originalTimestamp = originalNode?.modifiedAt;
 
       fileChangeCallback?.([{ type: 'change', path: '/home/user/project/package.json' }]);
 
-      const updatedNode = store.fileTree.find((n) => n.name === 'package.json');
+      const updatedNode = store.fileTree.find((n: { name: string }) => n.name === 'package.json');
       expect(updatedNode?.modifiedAt).not.toBe(originalTimestamp);
     });
 
@@ -494,7 +494,7 @@ describe('useFilesStore', () => {
       fileChangeCallback?.([{ type: 'add', path: '/home/user/project/a-file.ts' }]);
 
       // Directories first, then alphabetically
-      const fileNames = store.fileTree.map((n) => n.name);
+      const fileNames = store.fileTree.map((n: { name: string }) => n.name);
       expect(fileNames).toEqual(['src', 'a-file.ts', 'package.json']);
     });
   });

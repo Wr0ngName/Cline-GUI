@@ -3,9 +3,10 @@
  * Refactored for multi-conversation support with per-conversation state
  */
 
-import type { ChatMessage, PendingAction, BackgroundTask, TaskNotification, SessionUsage } from '@shared/types';
 import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
+
+import type { ChatMessage, PendingAction, BackgroundTask, TaskNotification, SessionUsage, ModelUsageInfo } from '@shared/types';
 
 import { CONSTANTS } from '../constants/app';
 import { generateId, ID_PREFIXES } from '../utils/id';
@@ -165,7 +166,7 @@ export const useChatStore = defineStore('chat', () => {
 
   const contextWindowSize = computed(() => {
     if (!sessionUsage.value?.modelUsage) return 0;
-    const models = Object.values(sessionUsage.value.modelUsage);
+    const models: ModelUsageInfo[] = Object.values(sessionUsage.value.modelUsage);
     return models.length > 0 ? models[0].contextWindow : 0;
   });
 
@@ -361,7 +362,7 @@ export const useChatStore = defineStore('chat', () => {
     const state = conversationStates.value.get(conversationId);
     if (!state) return;
 
-    const index = state.pendingActions.findIndex((a) => a.id === actionId);
+    const index = state.pendingActions.findIndex((a: PendingAction) => a.id === actionId);
     if (index !== -1) {
       state.pendingActions.splice(index, 1);
     }
@@ -371,7 +372,7 @@ export const useChatStore = defineStore('chat', () => {
     const state = conversationStates.value.get(conversationId);
     if (!state) return;
 
-    const action = state.pendingActions.find((a) => a.id === actionId);
+    const action = state.pendingActions.find((a: PendingAction) => a.id === actionId);
     if (action) {
       action.status = status;
     }

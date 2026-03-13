@@ -2,9 +2,10 @@
  * Files store - manages file tree and file operations
  */
 
-import type { FileNode, FileChange } from '@shared/types';
 import { defineStore } from 'pinia';
 import { ref, computed, reactive } from 'vue';
+
+import type { FileNode, FileChange } from '@shared/types';
 
 import { useEventCleanup } from '../composables/useEventCleanup';
 import { CONSTANTS } from '../constants/app';
@@ -175,7 +176,7 @@ export const useFilesStore = defineStore('files', () => {
 
     let current = fileTree.value;
     for (let i = 0; i < pathParts.length - 1; i++) {
-      const node = current.find(n => n.name === pathParts[i] && n.type === 'directory');
+      const node = current.find((n: FileNode) => n.name === pathParts[i] && n.type === 'directory');
       if (!node || !node.children) {
         return { parent: null, name: '' };
       }

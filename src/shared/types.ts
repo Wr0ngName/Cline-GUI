@@ -128,6 +128,27 @@ export interface ReadFileDetails {
 export type ActionDetails = FileEditDetails | FileCreateDetails | FileDeleteDetails | BashCommandDetails | ReadFileDetails;
 
 /**
+ * The scope at which a permission rule applies
+ * - session: Only for the current session (temporary)
+ * - project: For this project directory (stored in project settings)
+ * - global: For all projects (stored in user settings)
+ */
+export type PermissionScope = 'session' | 'project' | 'global';
+
+/**
+ * Human-readable info about what the "always allow" action will do.
+ * Generated from SDK PermissionUpdate suggestions.
+ */
+export interface PermissionSuggestionInfo {
+  /** Human-readable label for the "always allow" button (e.g. "Allow Bash in this project") */
+  alwaysAllowLabel: string;
+  /** Detailed description of what will be allowed (shown as tooltip) */
+  description: string;
+  /** The scope of the permission (for visual indicator) */
+  scope: PermissionScope;
+}
+
+/**
  * Base interface for all action types
  */
 interface BaseAction {
@@ -143,6 +164,8 @@ interface BaseAction {
   status: ActionStatus;
   /** Unix timestamp when the action was created */
   timestamp: number;
+  /** Info about what "always allow" will do (from SDK suggestions) */
+  permissionInfo?: PermissionSuggestionInfo;
 }
 
 /**

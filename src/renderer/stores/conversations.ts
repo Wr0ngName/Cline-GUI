@@ -3,9 +3,10 @@
  * Updated for multi-conversation support
  */
 
-import type { ChatMessage, Conversation } from '@shared/types';
 import { defineStore, storeToRefs } from 'pinia';
 import { ref, computed, watch } from 'vue';
+
+import type { ChatMessage, Conversation } from '@shared/types';
 
 import { getInMemoryMessages } from '../composables/useClaudeChat';
 import { CONSTANTS } from '../constants/app';
@@ -62,7 +63,7 @@ export const useConversationsStore = defineStore('conversations', () => {
   // Getters
   const currentConversation = computed(() => {
     if (!currentConversationId.value) return null;
-    return conversations.value.find((c) => c.id === currentConversationId.value) || null;
+    return conversations.value.find((c: Conversation) => c.id === currentConversationId.value) || null;
   });
 
   const hasConversations = computed(() => conversations.value.length > 0);
@@ -106,7 +107,7 @@ export const useConversationsStore = defineStore('conversations', () => {
       }
 
       // Update in list with full data
-      const index = conversations.value.findIndex((c) => c.id === id);
+      const index = conversations.value.findIndex((c: Conversation) => c.id === id);
       if (index !== -1) {
         conversations.value[index] = conversation;
       } else {
@@ -222,7 +223,7 @@ export const useConversationsStore = defineStore('conversations', () => {
     // Deep clone messages to strip ALL Vue reactivity (including nested objects)
     // Vue proxies can't be cloned across IPC - use JSON round-trip for complete deproxification
     const rawMessages: ChatMessage[] = JSON.parse(JSON.stringify(messages));
-    const existingConv = conversations.value.find(c => c.id === conversationId);
+    const existingConv = conversations.value.find((c: Conversation) => c.id === conversationId);
 
     // Preserve existing custom title if it was explicitly set via rename
     const generatedTitle = generateTitle(messages);
@@ -248,7 +249,7 @@ export const useConversationsStore = defineStore('conversations', () => {
    * Update the conversations list after a successful save.
    */
   function updateConversationList(conversation: Conversation): void {
-    const index = conversations.value.findIndex((c) => c.id === conversation.id);
+    const index = conversations.value.findIndex((c: Conversation) => c.id === conversation.id);
     // Store without messages for list view (saves memory)
     const listEntry = { ...conversation, messages: [] };
     if (index !== -1) {
@@ -401,7 +402,7 @@ export const useConversationsStore = defineStore('conversations', () => {
       await window.electron.conversation.rename(id, newTitle);
 
       // Update in local list
-      const index = conversations.value.findIndex((c) => c.id === id);
+      const index = conversations.value.findIndex((c: Conversation) => c.id === id);
       if (index !== -1) {
         conversations.value[index] = {
           ...conversations.value[index],
@@ -428,7 +429,7 @@ export const useConversationsStore = defineStore('conversations', () => {
       await window.electron.conversation.delete(id);
 
       // Remove from list
-      const index = conversations.value.findIndex((c) => c.id === id);
+      const index = conversations.value.findIndex((c: Conversation) => c.id === id);
       if (index !== -1) {
         conversations.value.splice(index, 1);
       }

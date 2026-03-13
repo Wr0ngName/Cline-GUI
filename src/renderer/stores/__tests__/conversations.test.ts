@@ -12,9 +12,10 @@
  * - Edge cases (concurrent operations, large conversations)
  */
 
-import type { Conversation, ChatMessage, BashCommandAction } from '@shared/types';
 import { setActivePinia, createPinia } from 'pinia';
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
+
+import type { Conversation, ChatMessage, BashCommandAction } from '@shared/types';
 
 import { useChatStore } from '../chat';
 import { useConversationsStore } from '../conversations';
@@ -575,7 +576,7 @@ describe('useConversationsStore', () => {
 
       await store.saveCurrentConversation();
 
-      expect(store.conversations.some(c => c.id === 'conv_new')).toBe(true);
+      expect(store.conversations.some((c: { id: string }) => c.id === 'conv_new')).toBe(true);
     });
 
     it('should handle save errors', async () => {
