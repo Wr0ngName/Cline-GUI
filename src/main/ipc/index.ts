@@ -25,6 +25,7 @@ import ClaudeCodeService from '../services/ClaudeCodeService';
 import ConfigService from '../services/ConfigService';
 import ConversationService from '../services/ConversationService';
 import FileWatcherService from '../services/FileWatcherService';
+import GitService from '../services/GitService';
 import UpdateService from '../services/UpdateService';
 import logger from '../utils/logger';
 
@@ -33,6 +34,7 @@ import { setupClaudeIPC } from './claude';
 import { setupConfigIPC } from './config';
 import { setupConversationIPC } from './conversations';
 import { setupFilesIPC } from './files';
+import { setupGitIPC } from './git';
 import { setupUpdateIPC } from './update';
 import { setupWindowIPC } from './window';
 
@@ -66,6 +68,10 @@ const REGISTERED_CHANNELS = {
     IPC_CHANNELS.FILES_GET_TREE,
     IPC_CHANNELS.FILES_READ,
     IPC_CHANNELS.FILES_OPEN,
+    IPC_CHANNELS.GIT_STATUS,
+    IPC_CHANNELS.GIT_COMMIT,
+    IPC_CHANNELS.GIT_PULL,
+    IPC_CHANNELS.GIT_PUSH,
     IPC_CHANNELS.UPDATE_CHECK,
     IPC_CHANNELS.UPDATE_DOWNLOAD,
     IPC_CHANNELS.UPDATE_INSTALL,
@@ -91,6 +97,8 @@ interface Services {
   claudeService: ClaudeCodeService;
   /** File system watching for the working directory */
   fileWatcher: FileWatcherService;
+  /** Git repository operations */
+  gitService: GitService;
   /** Conversation history storage */
   conversationService: ConversationService;
   /** Auto-update functionality */
@@ -129,6 +137,7 @@ export function setupIPC(
       configService,
       claudeService,
       fileWatcher,
+      gitService,
       conversationService,
       updateService,
     } = services;
@@ -145,6 +154,9 @@ export function setupIPC(
     if (!fileWatcher) {
       throw new ValidationError('FileWatcherService is required', 'fileWatcher', ERROR_CODES.VALIDATION_REQUIRED);
     }
+    if (!gitService) {
+      throw new ValidationError('GitService is required', 'gitService', ERROR_CODES.VALIDATION_REQUIRED);
+    }
     if (!conversationService) {
       throw new ValidationError('ConversationService is required', 'conversationService', ERROR_CODES.VALIDATION_REQUIRED);
     }
@@ -158,6 +170,7 @@ export function setupIPC(
     setupAuthHandlers(authService, configService, getMainWindow);
     setupClaudeIPC(claudeService);
     setupFilesIPC(fileWatcher, configService, getMainWindow);
+    setupGitIPC(gitService, configService, fileWatcher, getMainWindow);
     setupConfigIPC(configService, getMainWindow);
     setupConversationIPC(conversationService);
     setupUpdateIPC(updateService);

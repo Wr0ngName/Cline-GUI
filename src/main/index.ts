@@ -68,6 +68,8 @@ async function main(): Promise<void> {
   const { default: ConversationService } = await import('./services/ConversationService');
   debugLog('Importing FileWatcherService...');
   const { default: FileWatcherService } = await import('./services/FileWatcherService');
+  debugLog('Importing GitService...');
+  const { default: GitService } = await import('./services/GitService');
   debugLog('Importing NotificationService...');
   const { default: NotificationService } = await import('./services/NotificationService');
   debugLog('Importing UpdateService...');
@@ -84,6 +86,7 @@ async function main(): Promise<void> {
   let notificationService: InstanceType<typeof NotificationService>;
   let claudeService: InstanceType<typeof ClaudeCodeService>;
   let fileWatcher: InstanceType<typeof FileWatcherService>;
+  let gitService: InstanceType<typeof GitService>;
   let conversationService: InstanceType<typeof ConversationService>;
   let updateService: InstanceType<typeof UpdateService>;
 
@@ -103,6 +106,7 @@ async function main(): Promise<void> {
     notificationService = new NotificationService(configService, getMainWindow);
     claudeService = new ClaudeCodeService(configService, getMainWindow, notificationService);
     fileWatcher = new FileWatcherService();
+    gitService = new GitService();
     conversationService = new ConversationService();
     updateService = new UpdateService(getMainWindow);
 
@@ -128,6 +132,7 @@ async function main(): Promise<void> {
           configService,
           claudeService,
           fileWatcher,
+          gitService,
           conversationService,
           updateService,
         },
@@ -187,6 +192,7 @@ async function main(): Promise<void> {
     logger.info('Application quitting');
 
     // Clean up all resources
+    gitService?.stopWatching();
     fileWatcher?.stop();
 
     if (ipcCleanup) {

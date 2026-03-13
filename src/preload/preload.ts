@@ -157,6 +157,30 @@ const electronAPI: ElectronAPI = {
     },
   },
 
+  // Git operations
+  git: {
+    status: (workingDir: string) =>
+      ipcRenderer.invoke(IPC_CHANNELS.GIT_STATUS, workingDir),
+
+    commit: (workingDir: string, message: string, stageAll: boolean) =>
+      ipcRenderer.invoke(IPC_CHANNELS.GIT_COMMIT, workingDir, message, stageAll),
+
+    pull: (workingDir: string) =>
+      ipcRenderer.invoke(IPC_CHANNELS.GIT_PULL, workingDir),
+
+    push: (workingDir: string) =>
+      ipcRenderer.invoke(IPC_CHANNELS.GIT_PUSH, workingDir),
+
+    onStatusChanged: (callback) => {
+      const handler = (
+        _event: Electron.IpcRendererEvent,
+        status: Parameters<typeof callback>[0]
+      ) => callback(status);
+      ipcRenderer.on(IPC_CHANNELS.GIT_STATUS_CHANGED, handler);
+      return () => ipcRenderer.removeListener(IPC_CHANNELS.GIT_STATUS_CHANGED, handler);
+    },
+  },
+
   // File operations
   files: {
     selectDirectory: () => ipcRenderer.invoke(IPC_CHANNELS.FILES_SELECT_DIR),

@@ -395,6 +395,24 @@ export interface Conversation {
   sdkSessionId?: string;
 }
 
+// Git types
+
+/**
+ * Git repository status information
+ */
+export interface GitStatus {
+  /** Whether the working directory is a git repository */
+  isGitRepo: boolean;
+  /** Current branch name */
+  branch: string;
+  /** Count of uncommitted changes (staged + unstaged + untracked) */
+  dirty: number;
+  /** Commits ahead of remote tracking branch */
+  ahead: number;
+  /** Commits behind remote tracking branch */
+  behind: number;
+}
+
 // Update types
 
 // Background Task types
@@ -576,6 +594,8 @@ export type IpcMainEvents = {
   'claude:slash-commands': (conversationId: string, commands: SlashCommandInfo[]) => void;
   /** Active query count changed */
   'claude:active-queries': (count: number, maxCount: number) => void;
+  /** Git status changed (event-driven from file watchers) */
+  'git:status-changed': (status: GitStatus) => void;
 };
 
 /**
@@ -640,6 +660,18 @@ export const IPC_CHANNELS = {
   CLAUDE_CLEAR_SESSION_PERMISSIONS: 'claude:clear-session-permissions',
   /** Session permissions changed event */
   CLAUDE_SESSION_PERMISSIONS_CHANGED: 'claude:session-permissions-changed',
+
+  // Git operations
+  /** Get git repository status */
+  GIT_STATUS: 'git:status',
+  /** Commit all changes */
+  GIT_COMMIT: 'git:commit',
+  /** Pull from remote */
+  GIT_PULL: 'git:pull',
+  /** Push to remote */
+  GIT_PUSH: 'git:push',
+  /** Git status changed (event from main to renderer) */
+  GIT_STATUS_CHANGED: 'git:status-changed',
 
   // File operations
   /** Open directory picker dialog */

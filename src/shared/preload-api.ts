@@ -9,6 +9,7 @@ import type {
   Conversation,
   FileChange,
   FileNode,
+  GitStatus,
   ModelInfo,
   PendingAction,
   SessionPermissionEntry,
@@ -80,6 +81,20 @@ export interface ElectronAPI {
     clearSessionPermissions: (conversationId: string) => Promise<void>;
     /** Listen for session permission changes */
     onSessionPermissionsChanged: (callback: (conversationId: string, permissions: SessionPermissionEntry[]) => void) => () => void;
+  };
+
+  // Git operations
+  git: {
+    /** Get repository status */
+    status: (workingDir: string) => Promise<GitStatus>;
+    /** Commit changes (optionally stage all first) */
+    commit: (workingDir: string, message: string, stageAll: boolean) => Promise<string>;
+    /** Pull from remote */
+    pull: (workingDir: string) => Promise<string>;
+    /** Push to remote */
+    push: (workingDir: string) => Promise<string>;
+    /** Listen for git status changes */
+    onStatusChanged: (callback: (status: GitStatus) => void) => () => void;
   };
 
   // File operations

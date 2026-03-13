@@ -1,0 +1,94 @@
+/**
+ * IPC handlers for git operations
+ */
+
+import { BrowserWindow, ipcMain } from 'electron';
+
+import { IPC_CHANNELS } from '../../shared/types';
+import ConfigService from '../services/ConfigService';
+import FileWatcherService from '../services/FileWatcherService';
+import GitService from '../services/GitService';
+import { validateString, sendToRenderer, ensureService, formatErrorMessage } from '../utils/ipc-helpers';
+import logger from '../utils/logger';
+
+export function setupGitIPC(
+  gitService: GitService,
+  configService: ConfigService,
+  fileWatcher: FileWatcherService,
+  getMainWindow: () => BrowserWindow | null
+): void {
+  // Get git status
+  ipcMain.handle(IPC_CHANNELS.GIT_STATUS, async (_event, workingDir: string) => {
+    try {
+      ensureService(gitService, 'GitService');
+      validateString(workingDir, 'Working directory');
+
+      return await gitService.getStatus(workingDir);
+    } catch (error) {
+      logger.error('Failed to get git status', { error, workingDir });
+      throw new Error(formatErrorMessage('Failed to get git status', error));
+    }
+  });
+
+  // Commit changes
+  ipcMain.handle(
+    IPC_CHANNELS.GIT_COMMIT,
+    async (_event, workingDir: string, message: string, stageAll: boolean) => {
+      try {
+        ensureService(gitService, 'GitService');
+        validateString(workingDir, 'Working directory');
+        validateString(message, 'Commit message');
+
+        return await gitService.commit(workingDir, message, stageAll);
+      } catch (error) {
+        logger.error('Failed to commit', { error, workingDir });
+        throw new Error(formatErrorMessage('Failed to commit', error));
+      }
+    }
+  );
+
+  // Pull from remote
+  ipcMain.handle(IPC_CHANNELS.GIT_PULL, async (_event, workingDir: string) => {
+    try {
+      ensureService(gitService, 'GitService');
+      validateString(workingDir, 'Working directory');
+
+      return await gitService.pull(workingDir);
+    } catch (error) {
+      logger.error('Failed to pull', { error, workingDir });
+      throw new Error(formatErrorMessage('Failed to pull', error));
+    }
+  });
+
+  // Push to remote
+  ipcMain.handle(IPC_CHANNELS.GIT_PUSH, async (_event, workingDir: string) => {
+    try {
+      ensureService(gitService, 'GitService');
+      validateString(workingDir, 'Working directory');
+
+      return await gitService.push(workingDir);
+    } catch (error) {
+      logger.error('Failed to push', { error, workingDir });
+      throw new Error(formatErrorMessage('Failed to push', error));
+    }
+  });
+
+  // Set up event-driven git status notifications
+  gitService.onStatusChange((status) => {
+    sendToRenderer(getMainWindow, IPC_CHANNELS.GIT_STATUS_CHANGED, status);
+  });
+
+  // Hook into FileWatcherService: when working tree files change, trigger git status refresh
+  fileWatcher.onChange(() => {
+    gitService.triggerRefresh();
+  });
+
+  // Start watching the current working directory if set
+  configService.getWorkingDirectory().then((workingDir) => {
+    if (workingDir) {
+      gitService.startWatching(workingDir);
+    }
+  });
+
+  logger.info('Git IPC handlers registered');
+}

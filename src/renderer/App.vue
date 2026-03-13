@@ -17,6 +17,7 @@ import SettingsPanel from './components/settings/SettingsPanel.vue';
 import InitWizard from './components/wizard/InitWizard.vue';
 import ErrorBoundary from './components/shared/ErrorBoundary.vue';
 import UpdateBanner from './components/shared/UpdateBanner.vue';
+import GitControls from './components/shared/GitControls.vue';
 import ModelSelector from './components/shared/ModelSelector.vue';
 import SessionPermissionsDropdown from './components/shared/SessionPermissionsDropdown.vue';
 
@@ -138,6 +139,9 @@ const isMac = window.electron?.platform === 'darwin';
 
       <!-- Actions -->
       <div class="flex items-center gap-2 no-drag">
+        <!-- Git Controls -->
+        <GitControls />
+
         <!-- Model Selector -->
         <ModelSelector />
 
