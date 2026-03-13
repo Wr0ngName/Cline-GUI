@@ -42,6 +42,7 @@ import logger from '../utils/logger';
 import { WindowsPaths } from '../utils/resourcePaths';
 
 import ConfigService from './ConfigService';
+import NotificationService from './NotificationService';
 import {
   PermissionManager,
   SDKMessageHandler,
@@ -80,13 +81,15 @@ export class ClaudeCodeService {
   // Cached slash commands (shared across all queries)
   private cachedSlashCommands: SlashCommandInfo[] = [];
   private configService: ConfigService;
+  private notificationService: NotificationService;
 
-  constructor(configService: ConfigService, getMainWindow: () => BrowserWindow | null) {
+  constructor(configService: ConfigService, getMainWindow: () => BrowserWindow | null, notificationService: NotificationService) {
     // Create bound sender using the provided window getter
     this.send = createSender(getMainWindow);
 
     // Store config service reference for model selection
     this.configService = configService;
+    this.notificationService = notificationService;
 
     // Initialize shared modules (not per-query)
     this.authValidator = new AuthValidator(configService);
@@ -645,6 +648,7 @@ export class ClaudeCodeService {
    */
   private emitToolUse(conversationId: string, action: PendingAction): void {
     this.send(IPC_CHANNELS.CLAUDE_TOOL_USE, conversationId, action);
+    this.notificationService.showPermissionRequest(conversationId, action.toolName, action.description);
   }
 
   /**
@@ -652,6 +656,7 @@ export class ClaudeCodeService {
    */
   private emitError(conversationId: string, error: string): void {
     this.send(IPC_CHANNELS.CLAUDE_ERROR, conversationId, error);
+    this.notificationService.showError(conversationId, error);
   }
 
   /**
@@ -659,6 +664,7 @@ export class ClaudeCodeService {
    */
   private emitDone(conversationId: string): void {
     this.send(IPC_CHANNELS.CLAUDE_DONE, conversationId);
+    this.notificationService.showQueryComplete(conversationId);
   }
 
   /**

@@ -16,7 +16,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 // Use vi.hoisted to ensure mocks are available before vi.mock is called
-const { mockQuery, mockSend, mockConfigService } = vi.hoisted(() => ({
+const { mockQuery, mockSend, mockConfigService, mockNotificationService } = vi.hoisted(() => ({
   mockQuery: vi.fn(),
   mockSend: vi.fn(),
   mockConfigService: {
@@ -25,6 +25,11 @@ const { mockQuery, mockSend, mockConfigService } = vi.hoisted(() => ({
     getApiKey: vi.fn(),
     getConfig: vi.fn(),
     getSelectedModel: vi.fn(),
+  },
+  mockNotificationService: {
+    showPermissionRequest: vi.fn(),
+    showQueryComplete: vi.fn(),
+    showError: vi.fn(),
   },
 }));
 
@@ -73,7 +78,7 @@ describe('ClaudeCodeService', () => {
     mockConfigService.getConfig.mockResolvedValue({ autoApproveReads: false });
     mockConfigService.getSelectedModel.mockResolvedValue('');
 
-    service = new ClaudeCodeService(mockConfigService as any, getMainWindow);
+    service = new ClaudeCodeService(mockConfigService as any, getMainWindow, mockNotificationService as any);
   });
 
   afterEach(() => {

@@ -330,6 +330,8 @@ export interface AppConfig {
   showHistorySidebar: boolean;
   /** Whether to show the file browser sidebar */
   showFilesSidebar: boolean;
+  /** Whether to show native OS notifications when window is not focused */
+  enableNotifications: boolean;
 }
 
 /**
@@ -349,6 +351,7 @@ export const DEFAULT_CONFIG: AppConfig = {
   hasCompletedInitialSetup: false,
   showHistorySidebar: true,
   showFilesSidebar: true,
+  enableNotifications: true,
 };
 
 // Conversation types

@@ -25,6 +25,7 @@ interface StoredConfig {
   autoApproveReads: boolean;
   logLevel: LogLevel;
   selectedModel: string;
+  enableNotifications: boolean;
 }
 
 /**
@@ -74,6 +75,7 @@ export class ConfigService {
           autoApproveReads: true,
           logLevel: 'warn',
           selectedModel: '',
+          enableNotifications: true,
         },
       }) as unknown as TypedStore;
       this.isInitialized = true;

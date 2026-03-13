@@ -21,6 +21,7 @@ export interface MockBrowserWindow {
   };
   loadURL: ReturnType<typeof vi.fn>;
   loadFile: ReturnType<typeof vi.fn>;
+  focus: ReturnType<typeof vi.fn>;
   show: ReturnType<typeof vi.fn>;
   hide: ReturnType<typeof vi.fn>;
   close: ReturnType<typeof vi.fn>;
@@ -28,6 +29,8 @@ export interface MockBrowserWindow {
   maximize: ReturnType<typeof vi.fn>;
   restore: ReturnType<typeof vi.fn>;
   isMaximized: ReturnType<typeof vi.fn>;
+  isFocused: ReturnType<typeof vi.fn>;
+  isMinimized: ReturnType<typeof vi.fn>;
   isVisible: ReturnType<typeof vi.fn>;
   isDestroyed: ReturnType<typeof vi.fn>;
   on: ReturnType<typeof vi.fn>;
@@ -68,12 +71,15 @@ export function createMockBrowserWindow(): MockBrowserWindow {
     },
     loadURL: vi.fn().mockResolvedValue(undefined),
     loadFile: vi.fn().mockResolvedValue(undefined),
+    focus: vi.fn(),
     show: vi.fn(),
     hide: vi.fn(),
     close: vi.fn(),
     minimize: vi.fn(),
     maximize: vi.fn(),
     restore: vi.fn(),
+    isFocused: vi.fn().mockReturnValue(false),
+    isMinimized: vi.fn().mockReturnValue(false),
     isMaximized: vi.fn().mockReturnValue(false),
     isVisible: vi.fn().mockReturnValue(true),
     isDestroyed: vi.fn().mockReturnValue(false),

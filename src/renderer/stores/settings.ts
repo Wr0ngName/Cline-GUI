@@ -2,10 +2,11 @@
  * Settings store - manages app configuration
  */
 
-import type { AppConfig, LogLevel } from '@shared/types';
-import { DEFAULT_CONFIG } from '@shared/types';
 import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
+
+import type { AppConfig, LogLevel } from '@shared/types';
+import { DEFAULT_CONFIG } from '@shared/types';
 
 import { useEventCleanup } from '../composables/useEventCleanup';
 import { logger } from '../utils/logger';
@@ -31,6 +32,7 @@ export const useSettingsStore = defineStore('settings', () => {
   const hasCompletedInitialSetup = computed(() => config.value.hasCompletedInitialSetup);
   const showHistorySidebar = computed(() => config.value.showHistorySidebar);
   const showFilesSidebar = computed(() => config.value.showFilesSidebar);
+  const enableNotifications = computed(() => config.value.enableNotifications);
   const needsSetup = computed(() => !workingDirectory.value || !hasAuth.value);
   const isDarkMode = computed(() => {
     if (config.value.theme === 'system') {
@@ -108,6 +110,10 @@ export const useSettingsStore = defineStore('settings', () => {
     await saveConfig({ showFilesSidebar: show });
   }
 
+  async function setEnableNotifications(enabled: boolean): Promise<void> {
+    await saveConfig({ enableNotifications: enabled });
+  }
+
   function applyFontSize(size: number): void {
     if (typeof document !== 'undefined' && document.documentElement?.style) {
       document.documentElement.style.setProperty('--chat-font-size', `${size}px`);
@@ -182,6 +188,7 @@ export const useSettingsStore = defineStore('settings', () => {
     hasCompletedInitialSetup,
     showHistorySidebar,
     showFilesSidebar,
+    enableNotifications,
     isDarkMode,
     needsSetup,
 
@@ -197,6 +204,7 @@ export const useSettingsStore = defineStore('settings', () => {
     setHasCompletedInitialSetup,
     setShowHistorySidebar,
     setShowFilesSidebar,
+    setEnableNotifications,
     applyTheme,
     applyFontSize,
     clearError,

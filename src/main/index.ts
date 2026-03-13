@@ -68,6 +68,8 @@ async function main(): Promise<void> {
   const { default: ConversationService } = await import('./services/ConversationService');
   debugLog('Importing FileWatcherService...');
   const { default: FileWatcherService } = await import('./services/FileWatcherService');
+  debugLog('Importing NotificationService...');
+  const { default: NotificationService } = await import('./services/NotificationService');
   debugLog('Importing UpdateService...');
   const { default: UpdateService } = await import('./services/UpdateService');
   debugLog('Importing logger...');
@@ -79,6 +81,7 @@ async function main(): Promise<void> {
   // Service instances
   let authService: InstanceType<typeof AuthService>;
   let configService: InstanceType<typeof ConfigService>;
+  let notificationService: InstanceType<typeof NotificationService>;
   let claudeService: InstanceType<typeof ClaudeCodeService>;
   let fileWatcher: InstanceType<typeof FileWatcherService>;
   let conversationService: InstanceType<typeof ConversationService>;
@@ -97,7 +100,8 @@ async function main(): Promise<void> {
     await configService.ensureInitialized();
 
     authService = new AuthService();
-    claudeService = new ClaudeCodeService(configService, getMainWindow);
+    notificationService = new NotificationService(configService, getMainWindow);
+    claudeService = new ClaudeCodeService(configService, getMainWindow, notificationService);
     fileWatcher = new FileWatcherService();
     conversationService = new ConversationService();
     updateService = new UpdateService(getMainWindow);

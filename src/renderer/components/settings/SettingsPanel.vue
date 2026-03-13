@@ -29,6 +29,7 @@ const { config, isSaving } = storeToRefs(settingsStore);
 const localTheme = ref<'light' | 'dark' | 'system'>('system');
 const localFontSize = ref(14);
 const localLogLevel = ref<LogLevel>('info');
+const localEnableNotifications = ref(true);
 const authFormRef = ref<InstanceType<typeof AuthForm>>();
 
 // Log level options for the selector
@@ -46,6 +47,7 @@ watch(
     localTheme.value = newConfig.theme;
     localFontSize.value = newConfig.fontSize;
     localLogLevel.value = newConfig.logLevel;
+    localEnableNotifications.value = newConfig.enableNotifications;
   },
   { immediate: true }
 );
@@ -66,6 +68,7 @@ async function saveSettings() {
   await settingsStore.setTheme(localTheme.value);
   await settingsStore.setFontSize(localFontSize.value);
   await settingsStore.setLogLevel(localLogLevel.value);
+  await settingsStore.setEnableNotifications(localEnableNotifications.value);
 
   emit('close');
 }
@@ -75,6 +78,7 @@ function cancel() {
   localTheme.value = config.value.theme;
   localFontSize.value = config.value.fontSize;
   localLogLevel.value = config.value.logLevel;
+  localEnableNotifications.value = config.value.enableNotifications;
   authFormRef.value?.resetState();
   emit('close');
 }
@@ -158,6 +162,42 @@ function cancel() {
           >
             <div class="font-medium">{{ option.label }}</div>
             <div class="text-xs opacity-75">{{ option.description }}</div>
+          </button>
+        </div>
+      </div>
+
+      <!-- Notifications -->
+      <div>
+        <label class="block text-sm font-medium text-surface-700 dark:text-surface-300 mb-2">
+          System Notifications
+        </label>
+        <div class="flex items-center justify-between p-3 rounded-lg border border-surface-300 dark:border-surface-600">
+          <div class="flex-1">
+            <div class="text-sm font-medium text-surface-700 dark:text-surface-300">
+              Desktop Notifications
+            </div>
+            <div class="text-xs text-surface-500 dark:text-surface-400 mt-1">
+              Show notifications when window is not focused
+            </div>
+          </div>
+          <button
+            :class="[
+              'relative inline-flex h-6 w-11 items-center rounded-full transition-colors',
+              localEnableNotifications
+                ? 'bg-primary-600'
+                : 'bg-surface-300 dark:bg-surface-600',
+            ]"
+            role="switch"
+            :aria-checked="localEnableNotifications"
+            aria-label="Toggle desktop notifications"
+            @click="localEnableNotifications = !localEnableNotifications"
+          >
+            <span
+              :class="[
+                'inline-block h-4 w-4 transform rounded-full bg-white transition-transform',
+                localEnableNotifications ? 'translate-x-6' : 'translate-x-1',
+              ]"
+            />
           </button>
         </div>
       </div>
