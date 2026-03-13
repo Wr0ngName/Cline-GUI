@@ -85,6 +85,19 @@ export const useFilesStore = defineStore('files', () => {
     }
   }
 
+  async function openFile(filePath: string): Promise<void> {
+    try {
+      const result = await window.electron.files.open(filePath);
+      if (!result.success) {
+        logger.error('Failed to open file', { filePath, error: result.error });
+        error.value = result.error || 'Failed to open file';
+      }
+    } catch (err) {
+      logger.error('Failed to open file', err);
+      error.value = 'Failed to open file';
+    }
+  }
+
   function selectFile(filePath: string | null): void {
     selectedFile.value = filePath;
   }
@@ -366,6 +379,7 @@ export const useFilesStore = defineStore('files', () => {
     selectDirectory,
     loadFileTree,
     readFile,
+    openFile,
     selectFile,
     toggleDirectory,
     expandDirectory,

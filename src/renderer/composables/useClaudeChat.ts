@@ -10,7 +10,7 @@
 
 import { onMounted, onUnmounted, shallowRef } from 'vue';
 
-import type { SlashCommandInfo, ChatMessage } from '@shared/types';
+import type { SlashCommandInfo, ChatMessage, PendingAction } from '@shared/types';
 
 import { useChatStore } from '../stores/chat';
 import { useConversationsStore } from '../stores/conversations';
@@ -99,6 +99,20 @@ export function useClaudeChat() {
   }
 
   /**
+   * Extract file path from a pending action (if it modifies a file)
+   */
+  function getModifiedFilePath(action: PendingAction): string | null {
+    switch (action.type) {
+      case 'file-edit':
+      case 'file-create':
+      case 'file-delete':
+        return action.details.filePath;
+      default:
+        return null;
+    }
+  }
+
+  /**
    * Send a message to Claude
    */
   async function sendMessage(content: string) {
@@ -133,8 +147,9 @@ export function useClaudeChat() {
       return;
     }
 
-    // Clear any previous error
+    // Clear any previous error and modified files from last query
     chatStore.clearError();
+    chatStore.clearModifiedFiles(currentConvId);
 
     // Add user message to chat
     chatStore.addUserMessage(content);
@@ -188,6 +203,15 @@ export function useClaudeChat() {
     }
 
     try {
+      // Track file modification before removing the action
+      const action = chatStore.pendingActions.find((a) => a.id === actionId);
+      if (action) {
+        const filePath = getModifiedFilePath(action);
+        if (filePath) {
+          chatStore.trackFileModification(currentConvId, filePath);
+        }
+      }
+
       chatStore.updateActionStatus(currentConvId, actionId, 'approved');
       await window.electron.claude.approve(currentConvId, actionId, undefined, alwaysAllow);
       chatStore.removePendingAction(currentConvId, actionId);

@@ -167,6 +167,9 @@ const electronAPI: ElectronAPI = {
     read: (filePath: string) =>
       ipcRenderer.invoke(IPC_CHANNELS.FILES_READ, filePath),
 
+    open: (filePath: string) =>
+      ipcRenderer.invoke(IPC_CHANNELS.FILES_OPEN, filePath),
+
     onChange: (callback) => {
       const handler = (
         _event: Electron.IpcRendererEvent,

@@ -2,7 +2,7 @@
  * IPC handlers for file system operations
  */
 
-import { dialog, ipcMain, BrowserWindow } from 'electron';
+import { dialog, ipcMain, shell, BrowserWindow } from 'electron';
 
 import { IPC_CHANNELS } from '../../shared/types';
 import { FileSystemError, ERROR_CODES } from '../errors';
@@ -109,6 +109,42 @@ export function setupFilesIPC(
     } catch (error) {
       logger.error('Failed to read file', { error, filePath });
       throw new FileSystemError(formatErrorMessage('Failed to read file', error), filePath, ERROR_CODES.FS_READ_FAILED, error);
+    }
+  });
+
+  // Open file in system's default application
+  ipcMain.handle(IPC_CHANNELS.FILES_OPEN, async (_event, filePath: string) => {
+    try {
+      logger.debug('IPC: files:open', { filePath });
+
+      ensureService(configService, 'ConfigService');
+
+      validateString(filePath, 'File path');
+      validatePath(filePath);
+
+      const workingDir = await configService.getWorkingDirectory();
+      if (!workingDir) {
+        return { success: false, error: 'No working directory set' };
+      }
+
+      // Security: ensure path is within working directory
+      const normalizedFile = filePath.replace(/\\/g, '/');
+      const normalizedWork = workingDir.replace(/\\/g, '/');
+      if (!normalizedFile.startsWith(normalizedWork)) {
+        return { success: false, error: 'File is outside working directory' };
+      }
+
+      const errorMessage = await shell.openPath(filePath);
+      if (errorMessage) {
+        logger.warn('Failed to open file', { filePath, error: errorMessage });
+        return { success: false, error: errorMessage };
+      }
+
+      logger.info('Opened file in system application', { filePath });
+      return { success: true };
+    } catch (error) {
+      logger.error('Failed to open file', { error, filePath });
+      return { success: false, error: formatErrorMessage('Failed to open file', error) };
     }
   });
 

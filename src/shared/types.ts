@@ -650,6 +650,8 @@ export const IPC_CHANNELS = {
   FILES_READ: 'files:read',
   /** File system changes detected */
   FILES_CHANGED: 'files:changed',
+  /** Open a file in the system's default application */
+  FILES_OPEN: 'files:open',
 
   // Config operations
   /** Get current configuration */

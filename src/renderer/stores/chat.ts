@@ -31,6 +31,8 @@ export interface ConversationState {
   error: string | null;
   /** Active session permissions for this conversation */
   sessionPermissions: SessionPermissionEntry[];
+  /** File paths modified in the last query (cleared on new query) */
+  modifiedFilesInLastQuery: Set<string>;
 }
 
 /**
@@ -46,6 +48,7 @@ function createConversationState(): ConversationState {
     sessionUsage: null,
     error: null,
     sessionPermissions: [],
+    modifiedFilesInLastQuery: new Set(),
   };
 }
 
@@ -196,6 +199,12 @@ export const useChatStore = defineStore('chat', () => {
   const hasSessionPermissions = computed(() => sessionPermissions.value.length > 0);
 
   const sessionPermissionCount = computed(() => sessionPermissions.value.length);
+
+  // Modified files tracking
+  const modifiedFilesInLastQuery = computed(() => {
+    const state = getCurrentState();
+    return state?.modifiedFilesInLastQuery ?? new Set<string>();
+  });
 
   // ============================================
   // Current Conversation Management
@@ -515,6 +524,22 @@ export const useChatStore = defineStore('chat', () => {
   }
 
   // ============================================
+  // Modified Files Tracking
+  // ============================================
+
+  function trackFileModification(conversationId: string, filePath: string): void {
+    const state = getConversationState(conversationId);
+    state.modifiedFilesInLastQuery.add(filePath);
+  }
+
+  function clearModifiedFiles(conversationId: string): void {
+    const state = conversationStates.value.get(conversationId);
+    if (state) {
+      state.modifiedFilesInLastQuery = new Set();
+    }
+  }
+
+  // ============================================
   // Cleanup Actions
   // ============================================
 
@@ -627,6 +652,11 @@ export const useChatStore = defineStore('chat', () => {
 
     // Session permission actions
     updateSessionPermissions,
+
+    // Modified files tracking
+    modifiedFilesInLastQuery,
+    trackFileModification,
+    clearModifiedFiles,
 
     // Cleanup
     clearConversationState,

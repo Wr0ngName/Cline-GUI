@@ -8,6 +8,7 @@ import { computed } from 'vue';
 import type { FileNode } from '@shared/types';
 import type { IconName } from '../shared/Icon.vue';
 
+import { useChatStore } from '../../stores/chat';
 import { useFilesStore } from '../../stores/files';
 import Icon from '../shared/Icon.vue';
 import TransitionFade from '../shared/TransitionFade.vue';
@@ -28,8 +29,13 @@ const emit = defineEmits<{
 }>();
 
 const filesStore = useFilesStore();
+const chatStore = useChatStore();
 
 const isDirectory = computed(() => props.node.type === 'directory');
+const wasModifiedInLastQuery = computed(() => {
+  if (isDirectory.value) return false;
+  return chatStore.modifiedFilesInLastQuery.has(props.node.path);
+});
 const isExpanded = computed(() => filesStore.isDirectoryExpanded(props.node.path));
 const isSelected = computed(() => filesStore.selectedFile === props.node.path);
 
@@ -58,6 +64,7 @@ function handleClick() {
     filesStore.toggleDirectory(props.node.path);
   } else {
     filesStore.selectFile(props.node.path);
+    filesStore.openFile(props.node.path);
     emit('select', props.node.path);
   }
 }
@@ -100,6 +107,13 @@ function handleClick() {
 
       <!-- Name -->
       <span class="truncate">{{ node.name }}</span>
+
+      <!-- Modified in last query indicator -->
+      <span
+        v-if="wasModifiedInLastQuery"
+        class="w-2 h-2 rounded-full bg-blue-500 flex-shrink-0 ml-auto"
+        title="Modified in last query"
+      />
     </button>
 
     <!-- Children (recursive) -->

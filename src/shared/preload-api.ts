@@ -87,6 +87,7 @@ export interface ElectronAPI {
     selectDirectory: () => Promise<string | null>;
     getTree: (directory: string) => Promise<FileNode[]>;
     read: (filePath: string) => Promise<string>;
+    open: (filePath: string) => Promise<{ success: boolean; error?: string }>;
     onChange: (callback: (changes: FileChange[]) => void) => () => void;
   };
 
