@@ -138,11 +138,11 @@ const isMac = window.electron?.platform === 'darwin';
 
       <!-- Actions -->
       <div class="flex items-center gap-2 no-drag">
-        <!-- Session Permissions -->
-        <SessionPermissionsDropdown />
-
         <!-- Model Selector -->
         <ModelSelector />
+
+        <!-- Session Permissions -->
+        <SessionPermissionsDropdown />
 
         <button
           class="btn-icon"
