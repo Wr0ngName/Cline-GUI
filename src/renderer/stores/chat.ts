@@ -453,19 +453,16 @@ export const useChatStore = defineStore('chat', () => {
     const existingTask = state.backgroundTasks.get(notification.taskId);
 
     if (existingTask) {
-      existingTask.status = notification.status;
-      if (notification.description) {
-        existingTask.description = notification.description;
-      }
-      if (notification.summary) {
-        existingTask.summary = notification.summary;
-      }
-      if (notification.error) {
-        existingTask.error = notification.error;
-      }
-      if (notification.status !== 'running') {
-        existingTask.completedAt = Date.now();
-      }
+      // Replace the Map entry (not just mutate) so Vue's reactivity detects the change
+      const updatedTask: BackgroundTask = {
+        ...existingTask,
+        status: notification.status,
+        ...(notification.description && { description: notification.description }),
+        ...(notification.summary && { summary: notification.summary }),
+        ...(notification.error && { error: notification.error }),
+        ...(notification.status !== 'running' && { completedAt: Date.now() }),
+      };
+      state.backgroundTasks.set(notification.taskId, updatedTask);
 
       // Update inline chat message
       updateBackgroundTaskMessage(
@@ -532,13 +529,13 @@ export const useChatStore = defineStore('chat', () => {
 
     const msg = messages.value.find((m) => m.backgroundTask?.taskId === taskId);
     if (msg?.backgroundTask) {
-      msg.backgroundTask.status = status;
-      if (summary) {
-        msg.backgroundTask.summary = summary;
-      }
-      if (error) {
-        msg.backgroundTask.error = error;
-      }
+      // Replace the object (not just mutate) so Vue's reactivity detects the change
+      msg.backgroundTask = {
+        ...msg.backgroundTask,
+        status,
+        ...(summary && { summary }),
+        ...(error && { error }),
+      };
     }
   }
 
@@ -548,10 +545,9 @@ export const useChatStore = defineStore('chat', () => {
       return;
     }
     const now = Date.now();
-    for (const task of state.backgroundTasks.values()) {
+    for (const [id, task] of state.backgroundTasks.entries()) {
       if (task.status === 'running') {
-        task.status = 'completed';
-        task.completedAt = now;
+        state.backgroundTasks.set(id, { ...task, status: 'completed', completedAt: now });
       }
     }
   }
