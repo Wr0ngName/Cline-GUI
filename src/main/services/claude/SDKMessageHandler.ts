@@ -351,6 +351,15 @@ export class SDKMessageHandler {
       hasSlashCommands: !!systemMsg.slash_commands,
     });
 
+    // Dump full message for task-related subtypes for debugging
+    if (systemMsg.subtype?.startsWith('task')) {
+      logger.info('Task system message raw dump', {
+        subtype: systemMsg.subtype,
+        allKeys: Object.keys(message),
+        rawMessage: JSON.stringify(message),
+      });
+    }
+
     // Handle init message - capture available slash commands and session ID
     if (systemMsg.subtype === 'init') {
       logger.info('SDK init received', {
@@ -401,12 +410,18 @@ export class SDKMessageHandler {
     }
 
     // Handle task notifications (background tasks/agents)
+    // SDK uses subtypes: 'task_started' for new tasks, 'task_notification' for updates
     // SDK uses snake_case: task_id, output_file, session_id
-    if (systemMsg.subtype === 'task_notification' && systemMsg.task_id) {
+    if ((systemMsg.subtype === 'task_notification' || systemMsg.subtype === 'task_started') && systemMsg.task_id) {
       logger.info('Task notification received', {
+        subtype: systemMsg.subtype,
         taskId: systemMsg.task_id,
-        status: systemMsg.task_status,
+        taskStatus: systemMsg.task_status,
         description: systemMsg.description,
+        summary: systemMsg.summary,
+        error: systemMsg.error,
+        outputFile: systemMsg.output_file,
+        sessionId: systemMsg.session_id,
       });
 
       // Map SDK status to our BackgroundTaskStatus type
@@ -423,9 +438,11 @@ export class SDKMessageHandler {
         'aborted': 'stopped',
       };
 
+      // Default status: 'running' for task_started, 'completed' for task_notification
+      const defaultStatus = systemMsg.subtype === 'task_started' ? 'running' : 'completed';
       const notification: TaskNotification = {
         taskId: systemMsg.task_id,
-        status: statusMap[systemMsg.task_status || 'running'] || 'running',
+        status: statusMap[systemMsg.task_status || defaultStatus] || defaultStatus,
         description: systemMsg.description,
         summary: systemMsg.summary,
         outputFile: systemMsg.output_file,

@@ -4,6 +4,7 @@
  */
 
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 
 import { FileChange, FileNode } from '../../shared/types';
@@ -272,8 +273,13 @@ export class FileWatcherService {
     const normalizedPath = normalizePath(filePath);
     const normalizedWorkDir = normalizePath(workingDir);
 
-    // Security: ensure the file is within the working directory
-    if (!isPathWithin(normalizedPath, normalizedWorkDir)) {
+    // Security: ensure the file is within the working directory or the Claude SDK temp directory
+    // (task output files are stored in <tmpdir>/claude/... by the SDK)
+    const claudeTempDir = normalizePath(path.join(os.tmpdir(), 'claude'));
+    const isInWorkingDir = isPathWithin(normalizedPath, normalizedWorkDir);
+    const isClaudeTaskOutput = isPathWithin(normalizedPath, claudeTempDir);
+
+    if (!isInWorkingDir && !isClaudeTaskOutput) {
       throw new FileSystemError('Access denied: file is outside working directory', normalizedPath, ERROR_CODES.FS_PATH_TRAVERSAL);
     }
 
