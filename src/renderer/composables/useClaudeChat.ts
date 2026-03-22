@@ -353,8 +353,9 @@ export function useClaudeChat() {
 
       chatStore.setLoading(conversationId, false);
       chatStore.finishStreaming(conversationId);
-      chatStore.completeRunningTasks(conversationId);
       chatStore.completeToolUseMessages(conversationId);
+      // Note: do NOT call completeRunningTasks here — background tasks may still be
+      // running on the server. They will be updated via task_notification on session resume.
 
       // Save the conversation
       // If this is the current conversation, use normal save

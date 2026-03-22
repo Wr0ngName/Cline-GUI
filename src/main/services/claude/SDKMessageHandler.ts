@@ -49,6 +49,8 @@ export class SDKMessageHandler {
   private lastMessageWasSlashCommand = false;
   /** Tracks if content was streamed via content_block_delta events */
   private hasStreamedContent = false;
+  /** Maps tool_use IDs to background task IDs (from SDK user messages with tool results) */
+  private toolUseToTaskId = new Map<string, string>();
 
   constructor(callbacks: MessageHandlerCallbacks) {
     this.callbacks = callbacks;
@@ -147,8 +149,17 @@ export class SDKMessageHandler {
         this.processSystemMessage(message);
         break;
 
+      case 'user':
+        this.processUserMessage(message);
+        break;
+
       default:
-        logger.debug('Unknown SDK message type', { type: message.type });
+        logger.info('Unhandled SDK message type', {
+          type: message.type,
+          subtype: (message as { subtype?: string }).subtype,
+          allKeys: Object.keys(message),
+          raw: JSON.stringify(message).slice(0, 500),
+        });
     }
   }
 
@@ -197,7 +208,91 @@ export class SDKMessageHandler {
           logger.warn('Assistant message contains error keywords', { textPreview });
         }
       }
-      // Tool use is handled via canUseTool callback, not here
+
+      // Detect background tool launches to emit "running" notifications.
+      // Any tool (Bash, Task, etc.) can have run_in_background: true.
+      if (block.type === 'tool_use') {
+        const toolBlock = block as { type: 'tool_use'; id: string; name: string; input: unknown };
+        const input = (toolBlock.input || {}) as Record<string, unknown>;
+
+        logger.info('Tool use block detected', {
+          toolUseId: toolBlock.id,
+          toolName: toolBlock.name,
+          runInBackground: !!input.run_in_background,
+          inputKeys: Object.keys(input),
+          inputPreview: JSON.stringify(input).slice(0, 200),
+        });
+
+        if (input.run_in_background) {
+          // Extract description from tool input
+          const description = (input.description as string)
+            || (input.prompt as string)
+            || (input.command as string)
+            || `Background ${toolBlock.name}`;
+          logger.info('Background tool_use detected', {
+            toolUseId: toolBlock.id,
+            toolName: toolBlock.name,
+            description: description.slice(0, 100),
+          });
+          this.callbacks.onTaskNotification({
+            taskId: toolBlock.id,
+            status: 'running',
+            description,
+          });
+        }
+      }
+    }
+  }
+
+  /**
+   * Process user messages (tool results) to extract background task IDs.
+   *
+   * When a tool runs in background, the SDK sends a user message with tool_use_result
+   * containing the background task ID and output file. We use this to:
+   * 1. Map tool_use IDs to background task IDs (for matching task_notifications later)
+   * 2. Update the running task notification with the real task ID
+   */
+  private processUserMessage(message: SDKMessage): void {
+    const userMsg = message as {
+      type: 'user';
+      message?: { role: string; content?: Array<{ tool_use_id?: string; type?: string; content?: string }> };
+      tool_use_result?: {
+        stdout?: string;
+        stderr?: string;
+        interrupted?: boolean;
+        /** Background task ID assigned by the CLI when a command runs in background */
+        backgroundTaskId?: string;
+        /** True if the user manually backgrounded the command (Ctrl+B) */
+        backgroundedByUser?: boolean;
+      };
+    };
+
+    // Extract background task info from tool_use_result.
+    // When a tool runs in background, the CLI sets backgroundTaskId on the tool_use_result.
+    // We use this to map tool_use IDs (toolu_*) → background task IDs (b*) for
+    // proper matching when task_notification messages arrive later.
+    const toolResult = userMsg.tool_use_result;
+    if (toolResult?.backgroundTaskId) {
+      const toolUseId = userMsg.message?.content?.[0]?.tool_use_id;
+      const backgroundTaskId = toolResult.backgroundTaskId;
+
+      if (toolUseId) {
+        logger.info('Background task ID mapping from user message', {
+          toolUseId,
+          backgroundTaskId,
+        });
+
+        // Store mapping for later task_notification matching
+        this.toolUseToTaskId.set(toolUseId, backgroundTaskId);
+
+        // Re-emit running notification with the real background task ID
+        // and previousTaskId so renderer can remap the existing entry
+        this.callbacks.onTaskNotification({
+          taskId: backgroundTaskId,
+          status: 'running',
+          previousTaskId: toolUseId,
+        });
+      }
     }
   }
 
@@ -313,7 +408,15 @@ export class SDKMessageHandler {
    * Process streaming events for real-time text updates
    */
   private processStreamEvent(message: SDKMessage): void {
-    const event = (message as { event?: { type?: string; delta?: { type?: string; text?: string } } }).event;
+    const event = (message as { event?: { type?: string; index?: number; content_block?: { type?: string }; delta?: { type?: string; text?: string } } }).event;
+
+    // Emit line break between content blocks for clarity
+    // When a new text content_block_start arrives and we already have streamed content,
+    // add a visual separator so responses don't run together
+    if (event?.type === 'content_block_start' && event?.content_block?.type === 'text' && this.hasStreamedContent) {
+      this.callbacks.onChunk('\n\n');
+    }
+
     if (event?.type === 'content_block_delta' && event?.delta?.type === 'text_delta') {
       this.hasStreamedContent = true;
       this.callbacks.onChunk(event.delta.text || '');
@@ -333,10 +436,10 @@ export class SDKMessageHandler {
       slash_commands?: string[];
       tools?: string[];
       model?: string;
+      // Used by both 'status' subtype (SDKStatus) and 'task_notification' subtype (task status)
       status?: string;
       // Task notification fields (SDK uses snake_case)
       task_id?: string;
-      task_status?: string;
       description?: string;
       summary?: string;
       output_file?: string;
@@ -345,20 +448,12 @@ export class SDKMessageHandler {
       uuid?: string;
     };
 
-    logger.debug('System message', {
+    // Log ALL system messages at info level for debugging task flow
+    logger.info('System message received', {
       subtype: systemMsg.subtype,
-      message: systemMsg.message,
-      hasSlashCommands: !!systemMsg.slash_commands,
+      allKeys: Object.keys(message),
+      rawPreview: JSON.stringify(message).slice(0, 500),
     });
-
-    // Dump full message for task-related subtypes for debugging
-    if (systemMsg.subtype?.startsWith('task')) {
-      logger.info('Task system message raw dump', {
-        subtype: systemMsg.subtype,
-        allKeys: Object.keys(message),
-        rawMessage: JSON.stringify(message),
-      });
-    }
 
     // Handle init message - capture available slash commands and session ID
     if (systemMsg.subtype === 'init') {
@@ -410,13 +505,13 @@ export class SDKMessageHandler {
     }
 
     // Handle task notifications (background tasks/agents)
-    // SDK uses subtypes: 'task_started' for new tasks, 'task_notification' for updates
-    // SDK uses snake_case: task_id, output_file, session_id
-    if ((systemMsg.subtype === 'task_notification' || systemMsg.subtype === 'task_started') && systemMsg.task_id) {
+    // SDK sends task_notification when a background task completes/fails/stops
+    // Task *start* is detected from assistant tool_use messages (Task tool), not from system messages
+    if (systemMsg.subtype === 'task_notification' && systemMsg.task_id) {
       logger.info('Task notification received', {
         subtype: systemMsg.subtype,
         taskId: systemMsg.task_id,
-        taskStatus: systemMsg.task_status,
+        status: systemMsg.status,
         description: systemMsg.description,
         summary: systemMsg.summary,
         error: systemMsg.error,
@@ -425,24 +520,17 @@ export class SDKMessageHandler {
       });
 
       // Map SDK status to our BackgroundTaskStatus type
+      // SDK only sends: 'completed' | 'failed' | 'stopped' per SDKTaskNotificationMessage
       const statusMap: Record<string, BackgroundTaskStatus> = {
         'running': 'running',
         'completed': 'completed',
         'failed': 'failed',
         'stopped': 'stopped',
-        // Handle potential variations
-        'started': 'running',
-        'success': 'completed',
-        'error': 'failed',
-        'cancelled': 'stopped',
-        'aborted': 'stopped',
       };
 
-      // Default status: 'running' for task_started, 'completed' for task_notification
-      const defaultStatus = systemMsg.subtype === 'task_started' ? 'running' : 'completed';
       const notification: TaskNotification = {
         taskId: systemMsg.task_id,
-        status: statusMap[systemMsg.task_status || defaultStatus] || defaultStatus,
+        status: statusMap[systemMsg.status || 'completed'] || 'completed',
         description: systemMsg.description,
         summary: systemMsg.summary,
         outputFile: systemMsg.output_file,

@@ -537,6 +537,8 @@ export interface TaskNotification {
   error?: string;
   /** UUID of the task */
   uuid?: string;
+  /** Previous task ID when remapping (e.g., tool_use ID → background task ID) */
+  previousTaskId?: string;
 }
 
 // Context/Usage types

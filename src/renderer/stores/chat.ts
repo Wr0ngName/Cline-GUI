@@ -298,17 +298,33 @@ export const useChatStore = defineStore('chat', () => {
   }
 
   /**
-   * Append chunk to a conversation's streaming message
+   * Append chunk to a conversation's streaming message.
+   *
+   * If no streaming message exists yet (e.g., a synthetic poll escalated into
+   * real model output), a new assistant message is auto-created so the text
+   * reaches the user instead of being silently dropped.
    */
   function appendChunk(conversationId: string, chunk: string): void {
     const state = getConversationState(conversationId);
+
+    // Auto-start a streaming assistant message if chunks arrive without one.
+    // This handles the case where a background task poll triggers real model work.
+    if (!state.streamingMessageId) {
+      startAssistantMessage(conversationId);
+    }
+
     state.currentStreamingContent += chunk;
 
     // If this is the current conversation, also update the message in view
-    if (conversationId === currentConversationId.value) {
-      const last = messages.value[messages.value.length - 1];
-      if (last && last.role === 'assistant' && last.id === state.streamingMessageId) {
-        last.content += chunk;
+    if (conversationId === currentConversationId.value && state.streamingMessageId) {
+      // Search from end for the streaming message — it may not be the very last
+      // message because background task or tool use messages can be appended after it.
+      for (let i = messages.value.length - 1; i >= 0; i--) {
+        const msg = messages.value[i];
+        if (msg.id === state.streamingMessageId) {
+          msg.content += chunk;
+          break;
+        }
       }
     }
   }
@@ -329,13 +345,18 @@ export const useChatStore = defineStore('chat', () => {
     const state = conversationStates.value.get(conversationId);
     if (!state) return;
 
-    // If this is the current conversation, update the message
-    if (conversationId === currentConversationId.value) {
-      const last = messages.value[messages.value.length - 1];
-      if (last && last.role === 'assistant' && last.id === state.streamingMessageId) {
-        last.isStreaming = false;
-        // Ensure content is synced
-        last.content = state.currentStreamingContent;
+    // If this is the current conversation, find and update the streaming message.
+    // We search by ID rather than checking only the last message because background
+    // task or tool use messages may have been appended after the streaming message.
+    if (conversationId === currentConversationId.value && state.streamingMessageId) {
+      for (let i = messages.value.length - 1; i >= 0; i--) {
+        const msg = messages.value[i];
+        if (msg.id === state.streamingMessageId) {
+          msg.isStreaming = false;
+          // Ensure content is synced
+          msg.content = state.currentStreamingContent;
+          break;
+        }
       }
     }
 
@@ -450,27 +471,77 @@ export const useChatStore = defineStore('chat', () => {
 
   function handleTaskNotification(conversationId: string, notification: TaskNotification): void {
     const state = getConversationState(conversationId);
-    const existingTask = state.backgroundTasks.get(notification.taskId);
+    let existingTask = state.backgroundTasks.get(notification.taskId);
+    let existingTaskId = notification.taskId;
+
+    // Check for explicit ID remapping (tool_use ID → background task ID)
+    if (!existingTask && notification.previousTaskId) {
+      existingTask = state.backgroundTasks.get(notification.previousTaskId);
+      if (existingTask) {
+        existingTaskId = notification.previousTaskId;
+      }
+    }
+
+    // If no direct match, try to match a running task by description.
+    // This handles the case where task_started used the tool_use_id but
+    // task_notification uses a different SDK-generated task_id.
+    if (!existingTask && notification.status !== 'running' && notification.description) {
+      for (const [id, task] of state.backgroundTasks.entries()) {
+        if (task.status === 'running' && task.description === notification.description) {
+          existingTask = task;
+          existingTaskId = id;
+          break;
+        }
+      }
+    }
+
+    // Fallback: if no match found and this is a completion notification,
+    // match against the oldest running task. This handles cases where the
+    // tool_use ID → background task ID remapping didn't propagate to the renderer.
+    if (!existingTask && notification.status !== 'running') {
+      let oldestEntry: [string, BackgroundTask] | null = null;
+      for (const entry of state.backgroundTasks.entries()) {
+        if (entry[1].status === 'running') {
+          if (!oldestEntry || entry[1].startedAt < oldestEntry[1].startedAt) {
+            oldestEntry = entry;
+          }
+        }
+      }
+      if (oldestEntry) {
+        existingTask = oldestEntry[1];
+        existingTaskId = oldestEntry[0];
+      }
+    }
 
     if (existingTask) {
-      // Replace the Map entry (not just mutate) so Vue's reactivity detects the change
+      // Replace the Map entry (not just mutate) so Vue's reactivity detects the change.
+      // Always update `id` to match the canonical notification.taskId so that
+      // task.id stays in sync with the Map key (needed for detail modal lookup).
       const updatedTask: BackgroundTask = {
         ...existingTask,
+        id: notification.taskId,
         status: notification.status,
         ...(notification.description && { description: notification.description }),
         ...(notification.summary && { summary: notification.summary }),
         ...(notification.error && { error: notification.error }),
+        ...(notification.outputFile && { outputFile: notification.outputFile }),
         ...(notification.status !== 'running' && { completedAt: Date.now() }),
       };
+
+      // Remove old key and set with the notification's task_id (canonical)
+      if (existingTaskId !== notification.taskId) {
+        state.backgroundTasks.delete(existingTaskId);
+      }
       state.backgroundTasks.set(notification.taskId, updatedTask);
 
-      // Update inline chat message
+      // Update inline chat message (search by old id, remap to new id if changed)
       updateBackgroundTaskMessage(
         conversationId,
-        notification.taskId,
+        existingTaskId,
         notification.status,
         notification.summary,
         notification.error,
+        existingTaskId !== notification.taskId ? notification.taskId : undefined,
       );
     } else {
       const task: BackgroundTask = {
@@ -517,6 +588,7 @@ export const useChatStore = defineStore('chat', () => {
 
   /**
    * Update the status of an inline background task message.
+   * @param newTaskId - If provided, also updates the taskId (for ID remapping)
    */
   function updateBackgroundTaskMessage(
     conversationId: string,
@@ -524,6 +596,7 @@ export const useChatStore = defineStore('chat', () => {
     status: BackgroundTaskStatus,
     summary?: string,
     error?: string,
+    newTaskId?: string,
   ): void {
     if (conversationId !== currentConversationId.value) return;
 
@@ -533,6 +606,7 @@ export const useChatStore = defineStore('chat', () => {
       msg.backgroundTask = {
         ...msg.backgroundTask,
         status,
+        ...(newTaskId && { taskId: newTaskId }),
         ...(summary && { summary }),
         ...(error && { error }),
       };

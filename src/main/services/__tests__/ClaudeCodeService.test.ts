@@ -208,7 +208,9 @@ describe('ClaudeCodeService', () => {
 
       expect(mockQuery).toHaveBeenCalledWith(
         expect.objectContaining({
-          prompt: 'Hello Claude',
+          prompt: expect.objectContaining({
+            [Symbol.asyncIterator]: expect.any(Function),
+          }),
           options: expect.objectContaining({
             cwd: '/home/user/project',
             abortController: expect.any(AbortController),
@@ -227,7 +229,10 @@ describe('ClaudeCodeService', () => {
 
       await service.sendMessage(TEST_CONV_ID, 'Hello', '/home/user');
 
-      expect(mockSend).toHaveBeenCalledWith(IPC_CHANNELS.CLAUDE_DONE, TEST_CONV_ID);
+      // Wait for the async message loop to complete
+      await vi.waitFor(() => {
+        expect(mockSend).toHaveBeenCalledWith(IPC_CHANNELS.CLAUDE_DONE, TEST_CONV_ID);
+      });
     });
 
     it('should handle SDK throwing an error', async () => {
@@ -284,8 +289,11 @@ describe('ClaudeCodeService', () => {
 
       await service.sendMessage(TEST_CONV_ID, 'Hi', '/home/user');
 
-      expect(mockSend).toHaveBeenCalledWith(IPC_CHANNELS.CLAUDE_CHUNK, TEST_CONV_ID, 'Hello ');
-      expect(mockSend).toHaveBeenCalledWith(IPC_CHANNELS.CLAUDE_CHUNK, TEST_CONV_ID, 'World');
+      // Wait for the async message loop to process all chunks
+      await vi.waitFor(() => {
+        expect(mockSend).toHaveBeenCalledWith(IPC_CHANNELS.CLAUDE_CHUNK, TEST_CONV_ID, 'Hello ');
+        expect(mockSend).toHaveBeenCalledWith(IPC_CHANNELS.CLAUDE_CHUNK, TEST_CONV_ID, 'World');
+      });
     });
 
     it('should handle system messages', async () => {
@@ -693,6 +701,7 @@ describe('ClaudeCodeService', () => {
           resolveIterator?.();
         }),
         supportedCommands: vi.fn().mockResolvedValue([]),
+        close: vi.fn(),
       };
       mockQuery.mockReturnValue(hangingIterator);
 
@@ -736,6 +745,7 @@ describe('ClaudeCodeService', () => {
             resolveIterator?.();
           }),
           supportedCommands: vi.fn().mockResolvedValue([]),
+          close: vi.fn(),
         };
       });
 
@@ -852,12 +862,15 @@ describe('ClaudeCodeService', () => {
           yield { type: 'result', subtype: 'success', num_turns: 1 };
         },
         interrupt: vi.fn(),
+        close: vi.fn(),
       }));
 
       await service.sendMessage(TEST_CONV_ID, 'Hi', '/home/user');
 
-      // Should have emitted done, not error
-      expect(mockSend).toHaveBeenCalledWith(IPC_CHANNELS.CLAUDE_DONE, TEST_CONV_ID);
+      // Wait for the async message loop to complete
+      await vi.waitFor(() => {
+        expect(mockSend).toHaveBeenCalledWith(IPC_CHANNELS.CLAUDE_DONE, TEST_CONV_ID);
+      });
     });
   });
 
@@ -927,6 +940,7 @@ describe('ClaudeCodeService', () => {
               resolveIterator?.();
             }),
             supportedCommands: vi.fn().mockResolvedValue([]),
+            close: vi.fn(),
           },
           resolve: () => resolveIterator?.(),
         };
@@ -974,6 +988,7 @@ describe('ClaudeCodeService', () => {
             },
             interrupt,
             supportedCommands: vi.fn().mockResolvedValue([]),
+            close: vi.fn(),
           },
           interrupt,
           resolve: () => resolveIterator?.(),
@@ -1025,6 +1040,7 @@ describe('ClaudeCodeService', () => {
             resolveIterator?.();
           }),
           supportedCommands: vi.fn().mockResolvedValue([]),
+          close: vi.fn(),
         };
         iterators.push({ resolve: () => resolveIterator?.() });
         return iter;
@@ -1070,6 +1086,7 @@ function createMockQueryIterator(messages: any[]) {
     },
     interrupt: vi.fn(),
     supportedCommands: vi.fn().mockResolvedValue([]),
+    close: vi.fn(),
   };
 }
 
@@ -1089,6 +1106,7 @@ function createPendingIterator(onReady: (resolve: () => void) => void) {
     },
     interrupt: vi.fn(),
     supportedCommands: vi.fn().mockResolvedValue([]),
+    close: vi.fn(),
   };
 }
 
@@ -1103,5 +1121,6 @@ function createThrowingIterator(error: Error) {
     },
     interrupt: vi.fn(),
     supportedCommands: vi.fn().mockResolvedValue([]),
+    close: vi.fn(),
   };
 }
