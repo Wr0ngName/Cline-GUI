@@ -3,12 +3,14 @@
  * Main chat window component
  */
 
+import { ref } from 'vue';
 import { storeToRefs } from 'pinia';
 
-import type { PermissionScope } from '@shared/types';
+import type { BackgroundTask, PermissionScope } from '@shared/types';
 import { useChatStore } from '../../stores/chat';
 import { useClaudeChat } from '../../composables/useClaudeChat';
 import ActionApproval from './ActionApproval.vue';
+import BackgroundTaskDetailModal from './BackgroundTaskDetailModal.vue';
 import BackgroundTaskPanel from './BackgroundTaskPanel.vue';
 import ContextUsageBar from './ContextUsageBar.vue';
 import InputBox from './InputBox.vue';
@@ -18,9 +20,13 @@ import Toast from '../shared/Toast.vue';
 import TransitionFade from '../shared/TransitionFade.vue';
 
 const chatStore = useChatStore();
-const { pendingActions, error, hasPendingActions, hasBackgroundTasks, backgroundTasksList, sessionUsage, hasSessionUsage, activeQueryCount, maxConcurrentQueries } = storeToRefs(chatStore);
+const { pendingActions, error, hasPendingActions, hasRunningBackgroundTasks, runningBackgroundTasksList, sessionUsage, hasSessionUsage, activeQueryCount, maxConcurrentQueries } = storeToRefs(chatStore);
 
 const { sendMessage, approveAction, rejectAction, abort } = useClaudeChat();
+
+// Task detail modal state
+const taskDetailOpen = ref(false);
+const taskDetailTask = ref<BackgroundTask | null>(null);
 
 function handleSend(message: string) {
   sendMessage(message);
@@ -42,12 +48,17 @@ function clearError() {
   chatStore.clearError();
 }
 
-function handleDismissTask(taskId: string) {
-  chatStore.removeBackgroundTask(taskId);
+function openTaskDetail(taskId: string) {
+  const task = chatStore.backgroundTasks.get(taskId);
+  if (task) {
+    taskDetailTask.value = task;
+    taskDetailOpen.value = true;
+  }
 }
 
-function handleClearCompletedTasks() {
-  chatStore.clearCompletedTasks();
+function closeTaskDetail() {
+  taskDetailOpen.value = false;
+  taskDetailTask.value = null;
 }
 </script>
 
@@ -81,21 +92,27 @@ function handleClearCompletedTasks() {
     </TransitionFade>
 
     <!-- Messages -->
-    <MessageList />
+    <MessageList @open-task-detail="openTaskDetail" />
 
-    <!-- Background tasks panel -->
+    <!-- Background tasks panel (running only) -->
     <TransitionFade type="slideUp">
       <div
-        v-if="hasBackgroundTasks"
+        v-if="hasRunningBackgroundTasks"
         class="px-4 pt-2"
       >
         <BackgroundTaskPanel
-          :tasks="backgroundTasksList"
-          @dismiss="handleDismissTask"
-          @clear-completed="handleClearCompletedTasks"
+          :tasks="runningBackgroundTasksList"
+          @open-detail="openTaskDetail"
         />
       </div>
     </TransitionFade>
+
+    <!-- Background task detail modal -->
+    <BackgroundTaskDetailModal
+      :open="taskDetailOpen"
+      :task="taskDetailTask"
+      @close="closeTaskDetail"
+    />
 
     <!-- Pending actions -->
     <div

@@ -10,6 +10,7 @@ import type { ChatMessage } from '@shared/types';
 
 import { formatTime } from '../../utils/date';
 import { renderMarkdown } from '../../utils/markdown';
+import BackgroundTaskMessage from './BackgroundTaskMessage.vue';
 import Spinner from '../shared/Spinner.vue';
 import ToolUseMessage from './ToolUseMessage.vue';
 
@@ -19,6 +20,10 @@ interface Props {
 }
 
 const props = defineProps<Props>();
+
+const emit = defineEmits<{
+  (e: 'open-task-detail', taskId: string): void;
+}>();
 
 const isUser = computed(() => props.message.role === 'user');
 const isSystem = computed(() => props.message.role === 'system');
@@ -45,6 +50,13 @@ const renderedContent = computed(() => renderMarkdown(props.message.content));
   <ToolUseMessage
     v-else-if="message.toolUse"
     :tool-use="message.toolUse"
+  />
+
+  <!-- Inline background task indicator -->
+  <BackgroundTaskMessage
+    v-else-if="message.backgroundTask"
+    :background-task="message.backgroundTask"
+    @open-detail="emit('open-task-detail', $event)"
   />
 
   <!-- User / Assistant message -->

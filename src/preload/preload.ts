@@ -156,6 +156,16 @@ const electronAPI: ElectronAPI = {
       ipcRenderer.on(IPC_CHANNELS.CLAUDE_SESSION_PERMISSIONS_CHANGED, handler);
       return () => ipcRenderer.removeListener(IPC_CHANNELS.CLAUDE_SESSION_PERMISSIONS_CHANGED, handler);
     },
+
+    onToolExecuted: (callback) => {
+      const handler = (
+        _event: Electron.IpcRendererEvent,
+        conversationId: string,
+        actionId: string
+      ) => callback(conversationId, actionId);
+      ipcRenderer.on(IPC_CHANNELS.CLAUDE_TOOL_EXECUTED, handler);
+      return () => ipcRenderer.removeListener(IPC_CHANNELS.CLAUDE_TOOL_EXECUTED, handler);
+    },
   },
 
   // Git operations

@@ -15,6 +15,10 @@ import { useChatStore } from '../../stores/chat';
 import MessageItem from './MessageItem.vue';
 import Icon from '../shared/Icon.vue';
 
+const emit = defineEmits<{
+  (e: 'open-task-detail', taskId: string): void;
+}>();
+
 const chatStore = useChatStore();
 const { messages, hasMessages, currentStreamingContent } = storeToRefs(chatStore);
 
@@ -123,6 +127,7 @@ onUnmounted(() => {
         v-for="message in messages"
         :key="message.id"
         :message="message"
+        @open-task-detail="emit('open-task-detail', $event)"
       />
     </TransitionGroup>
   </div>

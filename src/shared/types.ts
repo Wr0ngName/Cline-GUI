@@ -50,6 +50,23 @@ export interface ToolUseInfo {
 }
 
 /**
+ * Inline background task indicator shown in the message stream.
+ * Links to a BackgroundTask in the store for status tracking.
+ */
+export interface BackgroundTaskInfo {
+  /** The task ID (links to BackgroundTask in store) */
+  taskId: string;
+  /** Short description of the task */
+  description: string;
+  /** Current status */
+  status: BackgroundTaskStatus;
+  /** Summary text when completed */
+  summary?: string;
+  /** Error message when failed */
+  error?: string;
+}
+
+/**
  * Represents a single message in the chat conversation
  */
 export interface ChatMessage {
@@ -65,6 +82,8 @@ export interface ChatMessage {
   isStreaming?: boolean;
   /** If set, this message represents an inline tool use indicator */
   toolUse?: ToolUseInfo;
+  /** If set, this message represents an inline background task indicator */
+  backgroundTask?: BackgroundTaskInfo;
 }
 
 // Tool use / Action types
@@ -708,6 +727,8 @@ export const IPC_CHANNELS = {
   CLAUDE_CLEAR_SESSION_PERMISSIONS: 'claude:clear-session-permissions',
   /** Session permissions changed event */
   CLAUDE_SESSION_PERMISSIONS_CHANGED: 'claude:session-permissions-changed',
+  /** Tool execution completed (action was approved and SDK proceeded) */
+  CLAUDE_TOOL_EXECUTED: 'claude:tool-executed',
 
   // Git operations
   /** Get git repository status */

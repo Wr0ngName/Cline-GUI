@@ -33,6 +33,7 @@ let cleanupUsageUpdate: (() => void) | null = null;
 let cleanupActiveQueries: (() => void) | null = null;
 let cleanupSessionId: (() => void) | null = null;
 let cleanupSessionPermissions: (() => void) | null = null;
+let cleanupToolExecuted: (() => void) | null = null;
 
 // Shared slash commands state (singleton)
 const sharedSlashCommands = shallowRef<SlashCommandInfo[]>([]);
@@ -343,6 +344,7 @@ export function useClaudeChat() {
       chatStore.setError(conversationId, error);
       chatStore.setLoading(conversationId, false);
       chatStore.finishStreaming(conversationId);
+      chatStore.completeToolUseMessages(conversationId);
     });
 
     // Handle completion - route to correct conversation
@@ -352,6 +354,7 @@ export function useClaudeChat() {
       chatStore.setLoading(conversationId, false);
       chatStore.finishStreaming(conversationId);
       chatStore.completeRunningTasks(conversationId);
+      chatStore.completeToolUseMessages(conversationId);
 
       // Save the conversation
       // If this is the current conversation, use normal save
@@ -449,6 +452,12 @@ export function useClaudeChat() {
       logger.debug('Session permissions changed', { conversationId, count: permissions.length });
       chatStore.updateSessionPermissions(conversationId, permissions);
     });
+
+    // Handle tool execution completed - update inline tool use indicator in real-time
+    cleanupToolExecuted = window.electron.claude.onToolExecuted((conversationId, actionId) => {
+      logger.debug('Tool executed', { conversationId, actionId });
+      chatStore.updateToolUseStatus(conversationId, actionId, 'executed');
+    });
   }
 
   /**
@@ -511,6 +520,10 @@ export function useClaudeChat() {
     if (cleanupSessionPermissions) {
       cleanupSessionPermissions();
       cleanupSessionPermissions = null;
+    }
+    if (cleanupToolExecuted) {
+      cleanupToolExecuted();
+      cleanupToolExecuted = null;
     }
   }
 

@@ -6,7 +6,7 @@
 import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
 
-import type { ChatMessage, PendingAction, BackgroundTask, TaskNotification, SessionPermissionEntry, SessionUsage, ModelUsageInfo } from '@shared/types';
+import type { ChatMessage, PendingAction, BackgroundTask, BackgroundTaskStatus, TaskNotification, SessionPermissionEntry, SessionUsage, ModelUsageInfo } from '@shared/types';
 
 import { CONSTANTS } from '../constants/app';
 import { generateId, ID_PREFIXES } from '../utils/id';
@@ -156,6 +156,12 @@ export const useChatStore = defineStore('chat', () => {
   );
 
   const backgroundTasksList = computed(() => Array.from(backgroundTasks.value.values()));
+
+  const runningBackgroundTasksList = computed(() =>
+    Array.from(backgroundTasks.value.values()).filter(t => t.status === 'running')
+  );
+
+  const hasRunningBackgroundTasks = computed(() => runningBackgroundTasksList.value.length > 0);
 
   // Current conversation's session usage
   const sessionUsage = computed(() => {
@@ -460,6 +466,15 @@ export const useChatStore = defineStore('chat', () => {
       if (notification.status !== 'running') {
         existingTask.completedAt = Date.now();
       }
+
+      // Update inline chat message
+      updateBackgroundTaskMessage(
+        conversationId,
+        notification.taskId,
+        notification.status,
+        notification.summary,
+        notification.error,
+      );
     } else {
       const task: BackgroundTask = {
         id: notification.taskId,
@@ -475,23 +490,54 @@ export const useChatStore = defineStore('chat', () => {
         task.completedAt = Date.now();
       }
       state.backgroundTasks.set(notification.taskId, task);
+
+      // Insert inline chat message for new task
+      addBackgroundTaskMessage(conversationId, task);
     }
   }
 
-  function removeBackgroundTask(taskId: string): void {
-    if (currentConversationId.value) {
-      const state = getConversationState(currentConversationId.value);
-      state.backgroundTasks.delete(taskId);
-    }
+  /**
+   * Insert an inline background task message into the message stream.
+   */
+  function addBackgroundTaskMessage(conversationId: string, task: BackgroundTask): void {
+    if (conversationId !== currentConversationId.value) return;
+
+    const message: ChatMessage = {
+      id: generateId(ID_PREFIXES.MESSAGE),
+      role: 'assistant',
+      content: '',
+      timestamp: Date.now(),
+      backgroundTask: {
+        taskId: task.id,
+        description: task.description,
+        status: task.status,
+        summary: task.summary,
+        error: task.error,
+      },
+    };
+    addMessage(message);
   }
 
-  function clearCompletedTasks(): void {
-    if (currentConversationId.value) {
-      const state = getConversationState(currentConversationId.value);
-      for (const [taskId, task] of state.backgroundTasks.entries()) {
-        if (task.status !== 'running') {
-          state.backgroundTasks.delete(taskId);
-        }
+  /**
+   * Update the status of an inline background task message.
+   */
+  function updateBackgroundTaskMessage(
+    conversationId: string,
+    taskId: string,
+    status: BackgroundTaskStatus,
+    summary?: string,
+    error?: string,
+  ): void {
+    if (conversationId !== currentConversationId.value) return;
+
+    const msg = messages.value.find((m) => m.backgroundTask?.taskId === taskId);
+    if (msg?.backgroundTask) {
+      msg.backgroundTask.status = status;
+      if (summary) {
+        msg.backgroundTask.summary = summary;
+      }
+      if (error) {
+        msg.backgroundTask.error = error;
       }
     }
   }
@@ -506,6 +552,20 @@ export const useChatStore = defineStore('chat', () => {
       if (task.status === 'running') {
         task.status = 'completed';
         task.completedAt = now;
+      }
+    }
+  }
+
+  /**
+   * Mark all in-flight tool use messages as 'executed'.
+   * Called when a query completes to ensure no tool use spinners linger.
+   */
+  function completeToolUseMessages(conversationId: string): void {
+    if (conversationId !== currentConversationId.value) return;
+
+    for (const msg of messages.value) {
+      if (msg.toolUse && (msg.toolUse.status === 'pending' || msg.toolUse.status === 'approved')) {
+        msg.toolUse.status = 'executed';
       }
     }
   }
@@ -627,6 +687,8 @@ export const useChatStore = defineStore('chat', () => {
     hasBackgroundTasks,
     runningTasksCount,
     backgroundTasksList,
+    runningBackgroundTasksList,
+    hasRunningBackgroundTasks,
     hasSessionUsage,
     totalTokensUsed,
     contextWindowSize,
@@ -677,10 +739,11 @@ export const useChatStore = defineStore('chat', () => {
 
     // Background task actions
     handleTaskNotification,
-    removeBackgroundTask,
-    clearCompletedTasks,
+    addBackgroundTaskMessage,
+    updateBackgroundTaskMessage,
     clearAllBackgroundTasks,
     completeRunningTasks,
+    completeToolUseMessages,
 
     // Session usage actions
     updateSessionUsage,

@@ -1,37 +1,30 @@
 <script setup lang="ts">
 /**
- * Background Task Panel - displays running and completed background tasks/agents
- * Similar to how Claude Code CLI displays background task status
+ * Background Task Panel - displays only running background tasks.
+ * Completed/failed/stopped tasks are shown inline in the chat stream instead.
+ * Clicking a task row opens the detail modal.
  */
 
-import { computed, onBeforeUnmount, ref, watch } from 'vue';
+import { onBeforeUnmount, ref, watch } from 'vue';
 
 import type { BackgroundTask } from '@shared/types';
-import type { IconName } from '../shared/Icon.vue';
 
-import Icon from '../shared/Icon.vue';
 import Spinner from '../shared/Spinner.vue';
 
 interface Props {
-  /** List of background tasks to display */
+  /** List of currently running background tasks */
   tasks: BackgroundTask[];
 }
 
 const props = defineProps<Props>();
 
 const emit = defineEmits<{
-  (e: 'dismiss', taskId: string): void;
-  (e: 'clear-completed'): void;
+  (e: 'open-detail', taskId: string): void;
 }>();
 
-// Reactive clock that ticks every second while tasks are running,
-// so formatDuration re-computes for in-progress tasks.
+// Reactive clock that ticks every second for live duration display
 const now = ref(Date.now());
 let tickTimer: ReturnType<typeof setInterval> | null = null;
-
-const runningTasks = computed(() =>
-  props.tasks.filter(t => t.status === 'running')
-);
 
 function startTick(): void {
   if (!tickTimer) {
@@ -46,55 +39,22 @@ function stopTick(): void {
   }
 }
 
-// Only tick while there are running tasks
-watch(runningTasks, (tasks) => {
-  if (tasks.length > 0) {
-    startTick();
-  } else {
-    stopTick();
-  }
-}, { immediate: true });
+// Only tick while there are tasks to display
+watch(
+  () => props.tasks.length,
+  (count) => {
+    if (count > 0) {
+      startTick();
+    } else {
+      stopTick();
+    }
+  },
+  { immediate: true },
+);
 
 onBeforeUnmount(() => stopTick());
 
-const completedTasks = computed(() =>
-  props.tasks.filter(t => t.status !== 'running')
-);
-
-const hasCompletedTasks = computed(() => completedTasks.value.length > 0);
-
-function getStatusIcon(status: BackgroundTask['status']): IconName {
-  switch (status) {
-    case 'running':
-      return 'loading';
-    case 'completed':
-      return 'check';
-    case 'failed':
-      return 'error';
-    case 'stopped':
-      return 'stop';
-    default:
-      return 'info';
-  }
-}
-
-function getStatusColor(status: BackgroundTask['status']): string {
-  switch (status) {
-    case 'running':
-      return 'text-blue-500';
-    case 'completed':
-      return 'text-green-500';
-    case 'failed':
-      return 'text-red-500';
-    case 'stopped':
-      return 'text-yellow-500';
-    default:
-      return 'text-surface-500';
-  }
-}
-
 function formatDuration(task: BackgroundTask): string {
-  // Use reactive `now` for running tasks so Vue re-renders every tick
   const endTime = task.completedAt || now.value;
   const durationMs = endTime - task.startedAt;
   const seconds = Math.floor(durationMs / 1000);
@@ -114,40 +74,26 @@ function formatDuration(task: BackgroundTask): string {
     class="background-task-panel"
   >
     <!-- Header -->
-    <div class="flex items-center justify-between px-3 py-2 border-b border-surface-200 dark:border-surface-700">
-      <div class="flex items-center gap-2">
-        <Icon
-          name="terminal"
-          size="sm"
-          class="text-surface-500"
-        />
-        <span class="text-xs font-medium text-surface-600 dark:text-surface-400">
-          Background Tasks
-          <span
-            v-if="runningTasks.length > 0"
-            class="ml-1 text-blue-500"
-          >
-            ({{ runningTasks.length }} running)
-          </span>
+    <div class="flex items-center px-3 py-2 border-b border-surface-200 dark:border-surface-700">
+      <span class="text-xs font-medium text-surface-600 dark:text-surface-400">
+        Background Tasks
+        <span class="ml-1 text-blue-500">
+          ({{ tasks.length }} running)
         </span>
-      </div>
-      <button
-        v-if="hasCompletedTasks"
-        class="text-xs text-surface-500 hover:text-surface-700 dark:hover:text-surface-300 transition-colors"
-        title="Clear completed tasks"
-        @click="emit('clear-completed')"
-      >
-        Clear completed
-      </button>
+      </span>
     </div>
 
-    <!-- Task List -->
+    <!-- Running task list -->
     <div class="max-h-40 overflow-y-auto">
-      <!-- Running tasks first -->
       <div
-        v-for="task in runningTasks"
+        v-for="task in tasks"
         :key="task.id"
-        class="task-item"
+        class="task-item cursor-pointer hover:bg-surface-100 dark:hover:bg-surface-700/50 transition-colors"
+        role="button"
+        tabindex="0"
+        title="Click to view task details"
+        @click="emit('open-detail', task.id)"
+        @keydown.enter="emit('open-detail', task.id)"
       >
         <div class="flex items-center gap-2 flex-1 min-w-0">
           <Spinner
@@ -162,55 +108,6 @@ function formatDuration(task: BackgroundTask): string {
           {{ formatDuration(task) }}
         </span>
       </div>
-
-      <!-- Completed/failed/stopped tasks -->
-      <div
-        v-for="task in completedTasks"
-        :key="task.id"
-        class="task-item group"
-      >
-        <div class="flex items-center gap-2 flex-1 min-w-0">
-          <Icon
-            :name="getStatusIcon(task.status)"
-            size="xs"
-            :class="[getStatusColor(task.status), 'flex-shrink-0']"
-          />
-          <span class="text-xs text-surface-600 dark:text-surface-400 truncate">
-            {{ task.description }}
-          </span>
-        </div>
-        <div class="flex items-center gap-2 flex-shrink-0">
-          <span class="text-xs text-surface-400">
-            {{ formatDuration(task) }}
-          </span>
-          <button
-            class="opacity-0 group-hover:opacity-100 text-surface-400 hover:text-surface-600 dark:hover:text-surface-300 transition-opacity"
-            title="Dismiss"
-            @click="emit('dismiss', task.id)"
-          >
-            <Icon
-              name="close"
-              size="xs"
-            />
-          </button>
-        </div>
-        <!-- Error message if failed -->
-        <div
-          v-if="task.status === 'failed' && task.error"
-          class="w-full mt-1 text-xs text-red-500 truncate"
-          :title="task.error"
-        >
-          {{ task.error }}
-        </div>
-        <!-- Summary if completed -->
-        <div
-          v-if="task.status === 'completed' && task.summary"
-          class="w-full mt-1 text-xs text-surface-500 dark:text-surface-400 truncate"
-          :title="task.summary"
-        >
-          {{ task.summary }}
-        </div>
-      </div>
     </div>
   </div>
 </template>
@@ -221,6 +118,6 @@ function formatDuration(task: BackgroundTask): string {
 }
 
 .task-item {
-  @apply flex flex-wrap items-center gap-2 px-3 py-2 border-b border-surface-100 dark:border-surface-700/50 last:border-b-0;
+  @apply flex items-center gap-2 px-3 py-2 border-b border-surface-100 dark:border-surface-700/50 last:border-b-0;
 }
 </style>

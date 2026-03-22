@@ -83,6 +83,8 @@ export interface ElectronAPI {
     clearSessionPermissions: (conversationId: string) => Promise<void>;
     /** Listen for session permission changes */
     onSessionPermissionsChanged: (callback: (conversationId: string, permissions: SessionPermissionEntry[]) => void) => () => void;
+    /** Tool execution completed (approved and SDK proceeded) */
+    onToolExecuted: (callback: (conversationId: string, actionId: string) => void) => () => void;
   };
 
   // Git operations

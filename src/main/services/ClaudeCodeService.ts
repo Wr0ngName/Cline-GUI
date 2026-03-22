@@ -601,6 +601,8 @@ export class ClaudeCodeService {
         alwaysAllow,
         chosenScope,
       });
+      // Notify renderer that the tool is now executing (spinner → check)
+      this.emitToolExecuted(conversationId, actionId);
     } else {
       logger.warn('Cannot approve action - no active query for conversation', { conversationId, actionId });
     }
@@ -713,6 +715,13 @@ export class ClaudeCodeService {
    */
   private emitTaskNotification(conversationId: string, notification: TaskNotification): void {
     this.send(IPC_CHANNELS.CLAUDE_TASK_NOTIFICATION, conversationId, notification);
+  }
+
+  /**
+   * Emit tool executed event to the renderer so inline indicators update
+   */
+  private emitToolExecuted(conversationId: string, actionId: string): void {
+    this.send(IPC_CHANNELS.CLAUDE_TOOL_EXECUTED, conversationId, actionId);
   }
 
   /**
